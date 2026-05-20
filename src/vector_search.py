@@ -1,4 +1,5 @@
 import re
+import math
 from typing import List, Tuple
 from sentence_transformers import SentenceTransformer
 from src.config import config
@@ -76,3 +77,71 @@ def split_text_to_chunks(paper_id: str, file_path: str, chunk_size: int = None, 
             start += (chunk_size - chunk_overlap)
             
     return chunks
+
+
+class BM25:
+    """A pure-Python implementation of BM25 search."""
+    def __init__(self, corpus: List[Tuple[str, str]], k1: float = 1.5, b: float = 0.75):
+        """
+        corpus: List of Tuple[chunk_id, text_content]
+        """
+        self.k1 = k1
+        self.b = b
+        self.corpus_size = len(corpus)
+        self.doc_lens = {}
+        self.doc_term_freqs = {}  # doc_id -> term -> freq
+        self.doc_ids = []
+        self.doc_texts = {}
+        
+        # Calculate doc lengths and term frequencies
+        total_len = 0
+        self.doc_freqs = {}  # term -> count of docs containing term
+        
+        for doc_id, text in corpus:
+            self.doc_ids.append(doc_id)
+            self.doc_texts[doc_id] = text
+            # Simple tokenization: lowercase, alphanumeric words
+            words = [w for w in re.findall(r'\w+', text.lower()) if w]
+            doc_len = len(words)
+            self.doc_lens[doc_id] = doc_len
+            total_len += doc_len
+            
+            tf = {}
+            for w in words:
+                tf[w] = tf.get(w, 0) + 1
+            self.doc_term_freqs[doc_id] = tf
+            
+            # Document frequency (doc count containing term)
+            for w in tf.keys():
+                self.doc_freqs[w] = self.doc_freqs.get(w, 0) + 1
+                
+        self.avg_doc_len = total_len / self.corpus_size if self.corpus_size > 0 else 0
+        
+        # Precompute IDF
+        self.idf = {}
+        for term, df in self.doc_freqs.items():
+            # BM25 IDF formula with smoothing to avoid negative values
+            self.idf[term] = math.log((self.corpus_size - df + 0.5) / (df + 0.5) + 1.0)
+
+    def score(self, query: str) -> List[Tuple[str, float]]:
+        """Scores all documents in the corpus for the given query."""
+        query_terms = [w for w in re.findall(r'\w+', query.lower()) if w]
+        scores = []
+        
+        for doc_id in self.doc_ids:
+            score = 0.0
+            doc_len = self.doc_lens[doc_id]
+            tf = self.doc_term_freqs[doc_id]
+            
+            for term in query_terms:
+                if term not in tf:
+                    continue
+                freq = tf[term]
+                idf = self.idf.get(term, 0.0)
+                numerator = freq * (self.k1 + 1)
+                denominator = freq + self.k1 * (1 - self.b + self.b * doc_len / self.avg_doc_len)
+                score += idf * (numerator / denominator)
+                
+            scores.append((doc_id, score))
+            
+        return sorted(scores, key=lambda x: x[1], reverse=True)

@@ -17,6 +17,16 @@ class RAGPipeline:
         self.vector_repo = vector_repo
         self.emb_engine = embedding_engine
         self.llm_engine = llm_engine
+        self._reranker = None
+
+    def _get_reranker(self):
+        if self._reranker is not None:
+            return self._reranker
+        from sentence_transformers import CrossEncoder
+        print("[*] Loading local Cross-Encoder reranker (mixedbread-ai/mxbai-rerank-xsmall-v1)...")
+        # Lightweight and fast reranker model
+        self._reranker = CrossEncoder("mixedbread-ai/mxbai-rerank-xsmall-v1")
+        return self._reranker
 
     def _resolve_node_name(self, node_id: str, label: str) -> str:
         """Resolves node ID to its actual name/title using DB lookup."""
@@ -94,18 +104,63 @@ class RAGPipeline:
         
         return context_text, context_graph
 
-    def ask(self, query: str, limit: int = 5) -> str:
-        """Runs vector search + graph retrieval and generates answers from the LLM."""
+    def ask(self, query: str, limit: int = 5, history_str: str = "") -> str:
+        """Runs hybrid search + Cross-Encoder reranking + graph retrieval and generates answers from the LLM."""
         # 1. Compute embedding of the query
         query_emb = self.emb_engine.get_embedding(query)
         
-        # 2. Perform semantic search
-        similar_chunks = self.vector_repo.search_similar_chunks(query_emb, limit=limit)
-        if not similar_chunks:
+        # 2. Get all chunks for BM25
+        all_chunks = self.vector_repo.get_all_chunks()
+        if not all_chunks:
+            return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."
+            
+        # 2b. Perform Dense Search
+        dense_results = self.vector_repo.search_similar_chunks(query_emb, limit=limit * 2)
+        
+        # 2c. Perform BM25 Search
+        from src.vector_search import BM25
+        corpus = [(c.id, c.text_content) for c in all_chunks]
+        bm25 = BM25(corpus)
+        bm25_results = bm25.score(query)[:limit * 2]
+        
+        # 2d. Merge with Reciprocal Rank Fusion (RRF)
+        id_to_chunk = {c.id: c for c in all_chunks}
+        rrf_scores = {}
+        
+        for rank, (chunk, _) in enumerate(dense_results, start=1):
+            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + (1.0 / (60.0 + rank))
+            
+        for rank, (chunk_id, _) in enumerate(bm25_results, start=1):
+            rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + (1.0 / (60.0 + rank))
+            
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+        candidate_ids = sorted_ids[:limit * 2]
+        candidates = [id_to_chunk[cid] for cid in candidate_ids]
+        
+        # 2e. Rerank with Cross-Encoder
+        final_chunks = []
+        if candidates:
+            try:
+                reranker = self._get_reranker()
+                pairs = [(query, c.text_content) for c in candidates]
+                scores = reranker.predict(pairs)
+                
+                scored_candidates = list(zip(candidates, scores))
+                scored_candidates.sort(key=lambda x: x[1], reverse=True)
+                
+                final_chunks = [(chunk, float(score)) for chunk, score in scored_candidates[:limit]]
+                print(f"[+] Reranked top {len(final_chunks)} chunks using Cross-Encoder.")
+            except Exception as e:
+                print(f"[!] Cross-Encoder reranking failed ({e}), falling back to RRF candidates.")
+                final_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit]]
+        else:
+            final_chunks = []
+
+        if not final_chunks:
             return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."
 
         # 3. Build context
-        context_text, context_graph = self.build_context(similar_chunks)
+        context_text, context_graph = self.build_context(final_chunks)
 
         # 4. Construct prompt for Gemma / Qwen
         prompt = f"""<|im_start|>system
@@ -121,7 +176,7 @@ Here is the retrieved context:
 ### KNOWLEDGE GRAPH CONNECTIONS:
 {context_graph}
 <|im_end|>
-<|im_start|>user
+{history_str}<|im_start|>user
 Question: {query}
 Answer in Russian:
 <|im_end|>

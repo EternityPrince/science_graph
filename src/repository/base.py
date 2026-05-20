@@ -70,3 +70,8 @@ class VectorRepository(ABC):
     def get_chunks_for_paper(self, paper_id: str) -> List[Chunk]:
         """Retrieves all text chunks belonging to a paper."""
         pass
+
+    @abstractmethod
+    def get_all_chunks(self) -> List[Chunk]:
+        """Retrieves all chunks from the database."""
+        pass

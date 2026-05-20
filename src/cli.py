@@ -35,15 +35,16 @@ def get_services(load_llm: bool = True, load_embeddings: bool = True):
 @app.command("index")
 def index(
     file: Optional[Path] = typer.Option(None, "--file", "-f", help="Path to a single PDF file"),
-    directory: Optional[Path] = typer.Option(None, "--dir", "-d", help="Path to a directory containing PDF files")
+    directory: Optional[Path] = typer.Option(None, "--dir", "-d", help="Path to a directory containing PDF files"),
+    use_llm: bool = typer.Option(False, "--use-llm", help="Use local LLM to extract concepts and metadata (slower)")
 ):
     """Indexes a single PDF or all PDFs in a directory."""
     if not file and not directory:
         typer.echo("Error: Please specify either --file or --dir", err=True)
         raise typer.Exit(1)
         
-    graph_repo, vector_repo, embedding_engine, _ = get_services(load_llm=False)
-    indexer = Indexer(graph_repo, vector_repo, embedding_engine)
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
     
     if file:
         if not file.exists() or file.suffix.lower() != ".pdf":
@@ -271,6 +272,20 @@ def visualize(
         typer.echo("[+] Opening visualization in browser...")
     except Exception as e:
         typer.echo(f"[!] Could not open browser automatically: {e}", err=True)
+
+@app.command("chat")
+def chat():
+    """Starts an interactive TUI chat session with RAG memory."""
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True)
+    if not llm_engine:
+        typer.echo("Error: Local LLM engine is not available. Cannot start chat.", err=True)
+        raise typer.Exit(1)
+        
+    from src.rag import RAGPipeline
+    from src.tui import run_tui_chat
+    
+    rag_pipeline = RAGPipeline(graph_repo, vector_repo, embedding_engine, llm_engine)
+    run_tui_chat(rag_pipeline)
 
 if __name__ == "__main__":
     app()

@@ -1,9 +1,15 @@
 import sqlite3
 import json
+import os
+import hashlib
 import numpy as np
 from typing import List, Dict, Any, Optional
 from src.repository.base import GraphRepository, VectorRepository
 from src.models import Paper, Author, Concept, Chunk, Edge
+
+def stable_hash(text: str) -> int:
+    """Returns a stable 60-bit integer hash of a string ID."""
+    return int(hashlib.md5(text.encode('utf-8')).hexdigest()[:15], 16)
 
 class SQLiteGraphRepository(GraphRepository):
     def __init__(self, db_path: str):
@@ -215,12 +221,45 @@ class SQLiteVectorRepository(VectorRepository):
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._init_db()
+        self._usearch_index = None
 
     def _get_connection(self):
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _get_index(self, ndim: int = 384):
+        if self._usearch_index is not None:
+            return self._usearch_index
+        
+        from usearch.index import Index
+        self._usearch_index = Index(ndim=ndim, metric="cos")
+        self.index_path = None if self.db_path == ":memory:" else self.db_path.replace(".db", ".usearch")
+        
+        if self.index_path and os.path.exists(self.index_path):
+            try:
+                self._usearch_index.load(self.index_path)
+            except Exception:
+                pass
+                
+        # Self-healing: if SQLite has chunks, but USearch is empty, rebuild the index
+        if len(self._usearch_index) == 0:
+            try:
+                with self._get_connection() as conn:
+                    rows = conn.execute("SELECT id, embedding FROM chunks").fetchall()
+                if rows:
+                    for r in rows:
+                        key = stable_hash(r["id"])
+                        if key not in self._usearch_index:
+                            emb_array = np.frombuffer(r["embedding"], dtype=np.float32)
+                            self._usearch_index.add(key, emb_array)
+                    if self.index_path:
+                        self._usearch_index.save(self.index_path)
+            except Exception:
+                pass
+                
+        return self._usearch_index
 
     def _init_db(self):
         with self._get_connection() as conn:
@@ -234,7 +273,21 @@ class SQLiteVectorRepository(VectorRepository):
                 FOREIGN KEY (paper_id) REFERENCES nodes(id) ON DELETE CASCADE
             );
             """)
+            # Migration check: add id_hash column if not present
+            cursor = conn.execute("PRAGMA table_info(chunks);")
+            columns = [row["name"] for row in cursor.fetchall()]
+            if "id_hash" not in columns:
+                try:
+                    conn.execute("ALTER TABLE chunks ADD COLUMN id_hash INTEGER;")
+                    rows = conn.execute("SELECT id FROM chunks").fetchall()
+                    for r in rows:
+                        h = stable_hash(r["id"])
+                        conn.execute("UPDATE chunks SET id_hash = ? WHERE id = ?", (h, r["id"]))
+                    conn.commit()
+                except Exception:
+                    pass
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_paper ON chunks(paper_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(id_hash);")
             conn.commit()
 
     def save_chunks(self, chunks: List[Chunk]) -> None:
@@ -242,21 +295,34 @@ class SQLiteVectorRepository(VectorRepository):
             for chunk in chunks:
                 if chunk.embedding is None:
                     continue
-                # Ensure the parent paper node exists to satisfy foreign key constraint
+                # Ensure parent paper exists
                 exists = conn.execute("SELECT 1 FROM nodes WHERE id = ?", (chunk.paper_id,)).fetchone()
                 if not exists:
                     conn.execute(
                         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
                         (chunk.paper_id, "Paper", json.dumps({"title": chunk.paper_id, "placeholder": True}, ensure_ascii=False))
                     )
-                # Serialize list of floats to binary float32 blob
                 emb_array = np.array(chunk.embedding, dtype=np.float32)
                 emb_blob = emb_array.tobytes()
                 conn.execute(
-                    "INSERT OR REPLACE INTO chunks (id, paper_id, text_content, page_number, embedding) VALUES (?, ?, ?, ?, ?)",
-                    (chunk.id, chunk.paper_id, chunk.text_content, chunk.page_number, emb_blob)
+                    "INSERT OR REPLACE INTO chunks (id, paper_id, text_content, page_number, embedding, id_hash) VALUES (?, ?, ?, ?, ?, ?)",
+                    (chunk.id, chunk.paper_id, chunk.text_content, chunk.page_number, emb_blob, stable_hash(chunk.id))
                 )
             conn.commit()
+
+        # Update USearch index
+        valid_chunks = [c for c in chunks if c.embedding is not None]
+        if valid_chunks:
+            ndim = len(valid_chunks[0].embedding)
+            index = self._get_index(ndim)
+            for chunk in valid_chunks:
+                key = stable_hash(chunk.id)
+                if key not in index:
+                    index.add(key, np.array(chunk.embedding, dtype=np.float32))
+            
+            self.index_path = None if self.db_path == ":memory:" else self.db_path.replace(".db", ".usearch")
+            if self.index_path:
+                index.save(self.index_path)
 
     def get_chunks_for_paper(self, paper_id: str) -> List[Chunk]:
         with self._get_connection() as conn:
@@ -277,28 +343,51 @@ class SQLiteVectorRepository(VectorRepository):
                 ))
             return chunks
 
-    def search_similar_chunks(self, query_embedding: List[float], limit: int = 5) -> List[tuple[Chunk, float]]:
-        # Retrieve all chunks from database, compute cosine similarity in memory
+    def get_all_chunks(self) -> List[Chunk]:
         with self._get_connection() as conn:
-            rows = conn.execute("SELECT id, paper_id, text_content, page_number, embedding FROM chunks").fetchall()
+            rows = conn.execute(
+                "SELECT id, paper_id, text_content, page_number, embedding FROM chunks"
+            ).fetchall()
             
-        if not rows:
-            return []
+            chunks = []
+            for r in rows:
+                emb_array = np.frombuffer(r["embedding"], dtype=np.float32)
+                chunks.append(Chunk(
+                    id=r["id"],
+                    paper_id=r["paper_id"],
+                    text_content=r["text_content"],
+                    page_number=r["page_number"],
+                    embedding=emb_array.tolist()
+                ))
+            return chunks
 
+    def search_similar_chunks(self, query_embedding: List[float], limit: int = 5) -> List[tuple[Chunk, float]]:
+        ndim = len(query_embedding)
+        index = self._get_index(ndim)
+        
+        if len(index) == 0:
+            return []
+            
         q_vec = np.array(query_embedding, dtype=np.float32)
-        q_norm = np.linalg.norm(q_vec)
-        if q_norm == 0:
+        matches = index.search(q_vec, limit)
+        
+        if len(matches) == 0:
             return []
-
-        scores = []
+            
+        keys_list = [int(k) for k in matches.keys]
+        placeholders = ",".join("?" for _ in keys_list)
+        
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT id, paper_id, text_content, page_number, embedding, id_hash FROM chunks WHERE id_hash IN ({placeholders})",
+                keys_list
+            ).fetchall()
+            
+        key_to_dist = {int(k): float(d) for k, d in zip(matches.keys, matches.distances)}
+        
+        results = []
         for r in rows:
             emb_array = np.frombuffer(r["embedding"], dtype=np.float32)
-            emb_norm = np.linalg.norm(emb_array)
-            if emb_norm == 0:
-                similarity = 0.0
-            else:
-                similarity = float(np.dot(q_vec, emb_array) / (q_norm * emb_norm))
-            
             chunk = Chunk(
                 id=r["id"],
                 paper_id=r["paper_id"],
@@ -306,8 +395,9 @@ class SQLiteVectorRepository(VectorRepository):
                 page_number=r["page_number"],
                 embedding=emb_array.tolist()
             )
-            scores.append((chunk, similarity))
-
-        # Sort by similarity score descending
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[:limit]
+            dist = key_to_dist.get(r["id_hash"], 1.0)
+            similarity = 1.0 - dist
+            results.append((chunk, similarity))
+            
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:limit]
