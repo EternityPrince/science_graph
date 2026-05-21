@@ -8,6 +8,53 @@ from src.parser import PDFParser
 from src.vector_search import EmbeddingEngine, split_text_to_chunks
 from src.repository.base import GraphRepository, VectorRepository
 from src.config import config
+from src import console as con
+
+
+def _split_text_to_chunks_raw(
+    paper_id: str, text: str, chunk_size: int = None, chunk_overlap: int = None
+) -> List[Chunk]:
+    """Splits a plain text string (not PDF) into overlapping Chunk objects."""
+    chunk_size = chunk_size or config.chunk_size
+    chunk_overlap = chunk_overlap or config.chunk_overlap
+
+    # Split into rough «pages» by double newlines first, then window
+    paragraphs = re.split(r'\n{2,}', text)
+    chunks: List[Chunk] = []
+    chunk_idx = 0
+    page_num = 1
+    buffer = ""
+
+    for para in paragraphs:
+        para_clean = re.sub(r'\s+', ' ', para).strip()
+        if not para_clean:
+            page_num += 1
+            continue
+        buffer += " " + para_clean
+        # Flush when buffer is large enough
+        while len(buffer) >= chunk_size:
+            window = buffer[:chunk_size]
+            if len(window) > 50:
+                chunks.append(Chunk(
+                    id=f"{paper_id}#{chunk_idx}",
+                    paper_id=paper_id,
+                    text_content=window.strip(),
+                    page_number=page_num,
+                ))
+                chunk_idx += 1
+            buffer = buffer[chunk_size - chunk_overlap:]
+
+    # Flush remainder
+    remainder = buffer.strip()
+    if len(remainder) > 50:
+        chunks.append(Chunk(
+            id=f"{paper_id}#{chunk_idx}",
+            paper_id=paper_id,
+            text_content=remainder,
+            page_number=page_num,
+        ))
+
+    return chunks
 
 # List of key AI concepts to extract from papers
 AI_CONCEPTS = {
@@ -58,12 +105,12 @@ class Indexer:
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
         # 1. Parse PDF and extract metadata & references
-        print(f"[*] Parsing PDF structure: {os.path.basename(file_path)}")
+        con.info(f"Parsing [bold]{os.path.basename(file_path)}[/bold]")
         paper, raw_references, full_text = PDFParser.extract_text_and_metadata(file_path)
         
         # 1b. Fetch external metadata from Semantic Scholar API
         from src.external_api import fetch_paper_metadata
-        print(f"[*] Fetching external metadata from Semantic Scholar...")
+        con.dim("Fetching metadata from Semantic Scholar …")
         api_meta = fetch_paper_metadata(doi=paper.doi, title=paper.title)
         
         api_references = []
@@ -82,20 +129,20 @@ class Indexer:
                 paper.doi = api_meta["doi"]
             api_references = api_meta.get("references", [])
             api_citations = api_meta.get("citations", [])
-            print(f"[+] Retrieved metadata from Semantic Scholar for: '{paper.title}'")
+            con.success(f"Metadata enriched from Semantic Scholar: [bold]{paper.title[:60]}[/bold]")
             
         # 1c. LLM-based concept/entity extraction
         llm_authors = []
         llm_concepts = []
         if self.llm_engine:
-            print(f"[*] Extracting concepts and authors using local LLM...")
+            con.dim("Extracting concepts via LLM …")
             # Combine abstract/introduction
             sample_text = (paper.title or "") + "\n\n" + (paper.abstract or "") + "\n\n" + full_text[:4000]
             llm_data = self.llm_engine.extract_concepts_and_metadata(sample_text)
             if llm_data:
                 llm_authors = llm_data.get("authors", [])
                 llm_concepts = llm_data.get("concepts", [])
-                print(f"[+] LLM extracted {len(llm_authors)} authors and {len(llm_concepts)} concepts.")
+                con.dim(f"LLM found {len(llm_authors)} authors, {len(llm_concepts)} concepts")
         
         # Determine archival path
         archive_dir = Path(config.archive_dir)
@@ -177,7 +224,7 @@ class Indexer:
                     self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"raw_text": ref_clean})
 
         # 6. Chunk text and generate embeddings
-        print(f"[*] Chunking and generating embeddings for: {paper.title}")
+        con.dim(f"Chunking and embedding: {paper.title[:60]}")
         chunks = split_text_to_chunks(paper.id, file_path)
         
         if chunks:
@@ -195,5 +242,139 @@ class Indexer:
             os.remove(file_path)
             print(f"[+] PDF moved to archive: {archive_path}")
 
-        print(f"[+] Successfully indexed paper: {paper.title} (ID: {paper.id})")
+        con.success(f"Indexed [bold]{paper.title[:70]}[/bold] (ID: {paper.id[:12]}…)")
+        return paper.id
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Markdown (Obsidian notes)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def index_markdown(self, file_path: str) -> str:
+        """
+        Indexes a Markdown note (.md) into the knowledge graph.
+        Returns the note ID.
+        """
+        from src.parsers.md_parser import parse_markdown
+
+        con.info(f"Parsing note [bold]{os.path.basename(file_path)}[/bold]")
+        paper, wiki_links, body = parse_markdown(file_path)
+
+        # Save note node
+        self.graph_repo.save_paper(paper)
+
+        # Author nodes (if front-matter has authors)
+        for author_name in paper.authors:
+            author_id = self._slugify(author_name)
+            author = Author(id=author_id, name=author_name)
+            self.graph_repo.save_author(author)
+            self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
+
+        # Tags from properties → concept nodes
+        tags: List[str] = paper.properties.get("tags", [])
+        for tag in tags:
+            concept_id = self._slugify(tag)
+            concept = Concept(id=concept_id, name=tag)
+            self.graph_repo.save_concept(concept)
+            self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+
+        # Wiki-links [[Target]] → concept nodes + RELATED_TO edges
+        for link_target in wiki_links:
+            concept_id = self._slugify(link_target)
+            concept = Concept(id=concept_id, name=link_target)
+            self.graph_repo.save_concept(concept)
+            self.graph_repo.add_edge(paper.id, concept_id, "RELATED_TO")
+
+        # Chunk + embed body text
+        con.dim(f"Chunking note: {paper.title[:60]}")
+        chunks = _split_text_to_chunks_raw(paper.id, body)
+        if chunks:
+            embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
+            for chunk, emb in zip(chunks, embeddings):
+                chunk.embedding = emb
+            self.vector_repo.save_chunks(chunks)
+
+        con.success(f"Note indexed: [bold]{paper.title[:70]}[/bold]")
+        return paper.id
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Webpages (URLs)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def index_url(self, url: str) -> str:
+        """
+        Indexes a webpage URL into the knowledge graph.
+        Returns the page ID.
+        """
+        from src.parsers.url_parser import parse_url
+
+        con.info(f"Parsing URL [bold]{url}[/bold]")
+        paper, body = parse_url(url)
+
+        # Save webpage node
+        self.graph_repo.save_paper(paper)
+
+        # Keyword-based concept extraction
+        text_to_scan = (paper.title + " " + body[:10000]).lower()
+        for keyword, concept_name in AI_CONCEPTS.items():
+            if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
+                concept_id = self._slugify(concept_name)
+                concept = Concept(id=concept_id, name=concept_name)
+                self.graph_repo.save_concept(concept)
+                self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+
+        # Chunk + embed body text
+        con.dim(f"Chunking webpage: {paper.title[:60]}")
+        chunks = _split_text_to_chunks_raw(paper.id, body)
+        if chunks:
+            embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
+            for chunk, emb in zip(chunks, embeddings):
+                chunk.embedding = emb
+            self.vector_repo.save_chunks(chunks)
+
+        con.success(f"Webpage indexed: [bold]{paper.title[:70]}[/bold]")
+        return paper.id
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # EPUB books
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def index_epub(self, file_path: str) -> str:
+        """
+        Indexes an EPUB book into the knowledge graph.
+        Returns the book ID.
+        """
+        from src.parsers.epub_parser import parse_epub
+
+        con.info(f"Parsing EPUB [bold]{os.path.basename(file_path)}[/bold]")
+        paper, _, full_text = parse_epub(file_path)
+
+        # Save book node
+        self.graph_repo.save_paper(paper)
+
+        # Author nodes
+        for author_name in paper.authors:
+            author_id = self._slugify(author_name)
+            author = Author(id=author_id, name=author_name)
+            self.graph_repo.save_author(author)
+            self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
+
+        # Keyword-based concept extraction (same fallback as PDF)
+        text_to_scan = (paper.title + " " + (paper.abstract or "") + " " + full_text[:10000]).lower()
+        for keyword, concept_name in AI_CONCEPTS.items():
+            if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
+                concept_id = self._slugify(concept_name)
+                concept = Concept(id=concept_id, name=concept_name)
+                self.graph_repo.save_concept(concept)
+                self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+
+        # Chunk + embed
+        con.dim(f"Chunking book: {paper.title[:60]}")
+        chunks = _split_text_to_chunks_raw(paper.id, full_text)
+        if chunks:
+            embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
+            for chunk, emb in zip(chunks, embeddings):
+                chunk.embedding = emb
+            self.vector_repo.save_chunks(chunks)
+
+        con.success(f"Book indexed: [bold]{paper.title[:70]}[/bold] ({len(chunks)} chunks)")
         return paper.id

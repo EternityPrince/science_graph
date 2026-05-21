@@ -4,6 +4,7 @@ from src.models import Chunk, Paper
 from src.repository.base import GraphRepository, VectorRepository
 from src.vector_search import EmbeddingEngine
 from src.llm_engine import LLMEngine
+from src import console as con
 
 class RAGPipeline:
     def __init__(
@@ -23,9 +24,10 @@ class RAGPipeline:
         if self._reranker is not None:
             return self._reranker
         from sentence_transformers import CrossEncoder
-        print("[*] Loading local Cross-Encoder reranker (mixedbread-ai/mxbai-rerank-xsmall-v1)...")
-        # Lightweight and fast reranker model
-        self._reranker = CrossEncoder("mixedbread-ai/mxbai-rerank-xsmall-v1")
+        con.model_msg("Loading reranker [bold]mxbai-rerank-xsmall-v1[/bold] …")
+        with con.suppress_stderr(), con.suppress_stdout():
+            self._reranker = CrossEncoder("mixedbread-ai/mxbai-rerank-xsmall-v1")
+        con.success("Reranker ready")
         return self._reranker
 
     def _resolve_node_name(self, node_id: str, label: str) -> str:
@@ -149,9 +151,9 @@ class RAGPipeline:
                 scored_candidates.sort(key=lambda x: x[1], reverse=True)
                 
                 final_chunks = [(chunk, float(score)) for chunk, score in scored_candidates[:limit]]
-                print(f"[+] Reranked top {len(final_chunks)} chunks using Cross-Encoder.")
+                con.dim(f"Reranked {len(final_chunks)} chunks")
             except Exception as e:
-                print(f"[!] Cross-Encoder reranking failed ({e}), falling back to RRF candidates.")
+                con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
                 final_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit]]
         else:
             final_chunks = []
@@ -183,5 +185,5 @@ Answer in Russian:
 <|im_start|>assistant
 """
         # 5. Generate completion
-        print("[*] Generating answer using local LLM...")
+        con.search_msg("Generating answer …")
         return self.llm_engine.generate_response(prompt)

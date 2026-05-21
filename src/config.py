@@ -10,6 +10,9 @@ DEFAULT_CONFIG = {
     "db_path": str(DEFAULT_DATA_DIR / "graph.db"),
     "archive_dir": str(DEFAULT_DATA_DIR / "archive"),
     "llm": {
+        "provider": "mlx",
+        "api_key": "",
+        "base_url": "",
         "model_path": "/Users/vladimirkasterin/models/llm/gemma-3-text-12b-it-4bit",
         "max_tokens": 1000,
         "temp": 0.1
@@ -56,6 +59,11 @@ class Config:
             except Exception:
                 return DEFAULT_CONFIG
 
+    def save(self) -> None:
+        """Saves current configuration to the config.yaml file."""
+        with open(self.config_file, "w", encoding="utf-8") as f:
+            yaml.dump(self.data, f, default_flow_style=False, allow_unicode=True)
+
     @property
     def db_path(self) -> str:
         return self.data["db_path"]
@@ -65,16 +73,28 @@ class Config:
         return self.data["archive_dir"]
 
     @property
+    def llm_provider(self) -> str:
+        return self.data["llm"].get("provider", "mlx")
+
+    @property
+    def llm_api_key(self) -> str:
+        return self.data["llm"].get("api_key", "")
+
+    @property
+    def llm_base_url(self) -> str:
+        return self.data["llm"].get("base_url", "")
+
+    @property
     def llm_model_path(self) -> str:
-        return self.data["llm"]["model_path"]
+        return self.data["llm"].get("model_path", "")
 
     @property
     def llm_max_tokens(self) -> int:
-        return self.data["llm"]["max_tokens"]
+        return self.data["llm"].get("max_tokens", 1000)
 
     @property
     def llm_temp(self) -> float:
-        return self.data["llm"]["temp"]
+        return self.data["llm"].get("temp", 0.1)
 
     @property
     def embedding_model_name(self) -> str:

@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Science Graph — Knowledge Explorer</title>
+  <meta name="description" content="Interactive knowledge graph explorer for scientific papers, books and notes with AI-powered RAG chat." />
+
+  <!-- Vis-Network -->
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <!-- Marked.js for Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Reset & Base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0d0e14;
+      --surface:    #12141c;
+      --surface2:   #1a1d28;
+      --surface3:   #222638;
+      --border:     #2a2f45;
+      --border2:    #363d5a;
+      --text:       #e2e4f0;
+      --text2:      #9399b2;
+      --text3:      #5d6382;
+      --accent:     #5c7cfa;
+      --accent2:    #4263eb;
+      --accent-glow:rgba(92,124,250,0.25);
+      --green:      #12b886;
+      --yellow:     #fab005;
+      --red:        #f03e3e;
+      --purple:     #7950f2;
+      --radius:     12px;
+      --radius-sm:  8px;
+      --shadow:     0 4px 24px rgba(0,0,0,0.5);
+      --transition: 0.2s ease;
+
+      --col-paper:   #5c7cfa;
+      --col-note:    #f03e3e;
+      --col-book:    #7950f2;
+      --col-author:  #fab005;
+      --col-concept: #12b886;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+    /* ── Header ─────────────────────────────────────────────────────────────── */
+    #header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 20px;
+      height: 56px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .logo-text {
+      font-size: 15px; font-weight: 700; color: var(--text);
+      letter-spacing: -0.3px;
+    }
+    .logo-sub { font-size: 11px; color: var(--text3); font-weight: 400; }
+
+    /* search */
+    .search-wrap {
+      flex: 1;
+      max-width: 440px;
+      position: relative;
+    }
+    #search-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 12px 8px 36px;
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    #search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .search-icon {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      color: var(--text3); font-size: 15px; pointer-events: none;
+    }
+    #search-results {
+      position: absolute;
+      top: calc(100% + 6px); left: 0; right: 0;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      display: none;
+      z-index: 200;
+      box-shadow: var(--shadow);
+    }
+    #search-results.visible { display: block; }
+    .search-item {
+      padding: 10px 14px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 10px;
+      transition: background var(--transition);
+    }
+    .search-item:hover { background: var(--surface3); }
+    .search-item-title { font-size: 13px; color: var(--text); }
+    .search-item-meta { font-size: 11px; color: var(--text3); }
+
+    /* header actions */
+    .header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+
+    .stat-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; color: var(--text2);
+    }
+    .stat-badge .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: none; cursor: pointer; font-family: inherit;
+      font-size: 13px; font-weight: 500;
+      border-radius: var(--radius-sm);
+      padding: 8px 14px;
+      transition: all var(--transition);
+    }
+    .btn-primary {
+      background: var(--accent); color: #fff;
+    }
+    .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); box-shadow: 0 4px 12px var(--accent-glow); }
+    .btn-ghost {
+      background: var(--surface2); color: var(--text2);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--surface3); color: var(--text); }
+
+    /* ── Layout ──────────────────────────────────────────────────────────────── */
+    #layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Graph area ──────────────────────────────────────────────────────────── */
+    #graph-wrap {
+      flex: 1;
+      position: relative;
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    #mynetwork {
+      width: 100%; height: 100%;
+    }
+
+    /* Graph overlay controls */
+    .graph-controls {
+      position: absolute;
+      top: 14px; left: 14px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 10;
+    }
+
+    .filter-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(18,20,28,0.85);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 12px; font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition);
+      backdrop-filter: blur(8px);
+      user-select: none;
+    }
+    .filter-chip:hover { border-color: var(--border2); }
+    .filter-chip.active { background: rgba(255,255,255,0.08); }
+    .filter-chip .chip-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .filter-chip.inactive { opacity: 0.4; }
+
+    /* Loading overlay */
+    #graph-loading {
+      position: absolute; inset: 0;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 16px;
+      z-index: 20;
+      transition: opacity 0.5s ease;
+    }
+    #graph-loading.hidden { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 14px; color: var(--text2); }
+
+    /* Empty state */
+    #graph-empty {
+      position: absolute; inset: 0;
+      display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px;
+      z-index: 15;
+    }
+    #graph-empty.visible { display: flex; }
+    .empty-icon { font-size: 48px; }
+    .empty-title { font-size: 18px; font-weight: 600; }
+    .empty-sub { font-size: 13px; color: var(--text2); text-align: center; max-width: 300px; }
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────────── */
+    #sidebar {
+      width: 380px;
+      min-width: 320px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px 8px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text3);
+      font-family: inherit;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      transition: all var(--transition);
+    }
+    .tab-btn:hover { color: var(--text2); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tab-panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+    .tab-panel.active { display: flex; }
+
+    /* ── Chat panel ──────────────────────────────────────────────────────────── */
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .msg {
+      display: flex;
+      gap: 10px;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+
+    .msg-avatar {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .msg-user .msg-avatar  { background: var(--accent); }
+    .msg-agent .msg-avatar { background: linear-gradient(135deg, var(--green), #0ca678); }
+
+    .msg-body { flex: 1; min-width: 0; }
+    .msg-name { font-size: 11px; font-weight: 600; color: var(--text3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .msg-text {
+      font-size: 13.5px; line-height: 1.65;
+      color: var(--text);
+      background: var(--surface2);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) var(--radius-sm);
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+    }
+    .msg-user .msg-text {
+      background: rgba(92,124,250,0.12);
+      border-color: rgba(92,124,250,0.25);
+      border-radius: var(--radius-sm) 0 var(--radius-sm) var(--radius-sm);
+    }
+    .msg-text p { margin-bottom: 8px; }
+    .msg-text p:last-child { margin-bottom: 0; }
+    .msg-text code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: rgba(0,0,0,0.3);
+      padding: 1px 5px; border-radius: 4px;
+    }
+    .msg-text pre {
+      background: rgba(0,0,0,0.35);
+      border-radius: 6px; padding: 10px 12px;
+      overflow-x: auto; margin: 8px 0;
+    }
+    .msg-text pre code { background: none; padding: 0; }
+
+    .msg-text .typing-cursor {
+      display: inline-block; width: 2px; height: 14px;
+      background: var(--accent); margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .chat-welcome {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px;
+      color: var(--text3);
+      text-align: center;
+      padding: 24px;
+    }
+    .chat-welcome .icon { font-size: 36px; }
+    .chat-welcome h3 { font-size: 15px; color: var(--text2); font-weight: 600; }
+    .chat-welcome p { font-size: 13px; line-height: 1.5; }
+
+    .chat-input-wrap {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 8px;
+      flex-shrink: 0;
+    }
+    #chat-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit; font-size: 13px;
+      padding: 10px 14px;
+      outline: none; resize: none;
+      min-height: 42px; max-height: 120px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    #chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    #chat-input::placeholder { color: var(--text3); }
+
+    #chat-send {
+      width: 42px; height: 42px;
+      background: var(--accent);
+      border: none; border-radius: var(--radius-sm);
+      color: #fff; font-size: 18px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all var(--transition);
+      flex-shrink: 0;
+    }
+    #chat-send:hover { background: var(--accent2); transform: scale(1.05); }
+    #chat-send:disabled { background: var(--border); cursor: not-allowed; transform: none; }
+
+    /* ── Node details panel ──────────────────────────────────────────────────── */
+    #details-panel {
+      flex: 1; overflow-y: auto;
+      padding: 20px 16px;
+    }
+
+    .details-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; gap: 10px; color: var(--text3); text-align: center;
+    }
+    .details-empty .icon { font-size: 32px; }
+
+    .details-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .details-card h3 {
+      font-size: 14px; font-weight: 600; color: var(--text);
+      margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    }
+    .details-badge {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.5px; padding: 2px 8px; border-radius: 20px;
+    }
+    .badge-paper  { background: rgba(92,124,250,0.2);  color: var(--col-paper); }
+    .badge-note   { background: rgba(240,62,62,0.2);   color: var(--col-note); }
+    .badge-book   { background: rgba(121,80,242,0.2);  color: var(--col-book); }
+    .badge-author { background: rgba(250,176,5,0.2);   color: var(--col-author); }
+    .badge-concept{ background: rgba(18,184,134,0.2);  color: var(--col-concept); }
+
+    .details-row { display: flex; flex-direction: column; gap: 8px; }
+    .details-field { display: flex; flex-direction: column; gap: 2px; }
+    .details-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text3); }
+    .details-value { font-size: 13px; color: var(--text); line-height: 1.5; }
+    .details-value a { color: var(--accent); text-decoration: none; }
+    .details-value a:hover { text-decoration: underline; }
+
+    .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .tag {
+      font-size: 11px; font-weight: 500;
+      padding: 3px 10px; border-radius: 20px;
+      background: var(--surface3); border: 1px solid var(--border);
+      color: var(--text2); cursor: pointer;
+      transition: all var(--transition);
+    }
+    .tag:hover { border-color: var(--accent); color: var(--accent); }
+
+    .abstract-text {
+      font-size: 12.5px; color: var(--text2); line-height: 1.65;
+      max-height: 150px; overflow-y: auto;
+      background: var(--surface3); border-radius: var(--radius-sm);
+      padding: 10px 12px;
+    }
+
+    /* ── Upload panel ────────────────────────────────────────────────────────── */
+    #upload-panel {
+      flex: 1;
+      padding: 20px 16px;
+      overflow-y: auto;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      margin-bottom: 16px;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(92,124,250,0.05);
+    }
+    .drop-zone .drop-icon { font-size: 36px; margin-bottom: 12px; }
+    .drop-zone h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .drop-zone p { font-size: 12px; color: var(--text3); }
+
+    .upload-log {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--text2);
+      min-height: 80px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .log-ok { color: var(--green); }
+    .log-err { color: var(--red); }
+    .log-info { color: var(--text3); }
+
+    /* ── Toast ───────────────────────────────────────────────────────────────── */
+    #toast-container {
+      position: fixed; bottom: 20px; right: 20px;
+      z-index: 9999; display: flex; flex-direction: column; gap: 8px;
+    }
+    .toast {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--text);
+      box-shadow: var(--shadow);
+      animation: slideIn 0.25s ease;
+      max-width: 320px;
+    }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } }
+    .toast.ok { border-left: 3px solid var(--green); }
+    .toast.err { border-left: 3px solid var(--red); }
+    .toast.info { border-left: 3px solid var(--accent); }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<header id="header">
+  <a class="logo" href="/">
+    <div class="logo-icon">🔬</div>
+    <div>
+      <div class="logo-text">Science Graph</div>
+      <div class="logo-sub">Knowledge Explorer</div>
+    </div>
+  </a>
+
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search-input" placeholder="Поиск по статьям, книгам, заметкам…" autocomplete="off" />
+    <div id="search-results"></div>
+  </div>
+
+  <div class="header-actions">
+    <div class="stat-badge">
+      <span class="dot" style="background:var(--col-paper)"></span>
+      <span id="stat-papers">—</span> статей
+    </div>
+    <div class="stat-badge">
+      <span class="dot" style="background:var(--col-concept)"></span>
+      <span id="stat-concepts">—</span> концептов
+    </div>
+    <button class="btn btn-ghost" id="btn-refresh" title="Обновить граф">↺ Обновить</button>
+  </div>
+</header>
+
+<!-- ── Main layout ──────────────────────────────────────────────────────────── -->
+<div id="layout">
+
+  <!-- Graph -->
+  <div id="graph-wrap">
+    <div id="graph-loading">
+      <div class="spinner"></div>
+      <div class="loading-text">Загрузка графа знаний…</div>
+    </div>
+
+    <div id="graph-empty">
+      <div class="empty-icon">🗂️</div>
+      <div class="empty-title">База данных пуста</div>
+      <div class="empty-sub">Загрузите PDF-статьи, Markdown-заметки или EPUB-книги через вкладку «Загрузка» →</div>
+    </div>
+
+    <!-- Filter chips -->
+    <div class="graph-controls" id="filter-chips">
+      <div class="filter-chip active" data-group="paper" id="chip-paper">
+        <span class="chip-dot" style="background:var(--col-paper)"></span> Статьи
+      </div>
+      <div class="filter-chip active" data-group="note" id="chip-note">
+        <span class="chip-dot" style="background:var(--col-note)"></span> Заметки
+      </div>
+      <div class="filter-chip active" data-group="book" id="chip-book">
+        <span class="chip-dot" style="background:var(--col-book)"></span> Книги
+      </div>
+      <div class="filter-chip active" data-group="author" id="chip-author">
+        <span class="chip-dot" style="background:var(--col-author)"></span> Авторы
+      </div>
+      <div class="filter-chip active" data-group="concept" id="chip-concept">
+        <span class="chip-dot" style="background:var(--col-concept)"></span> Концепты
+      </div>
+    </div>
+
+    <div id="mynetwork"></div>
+  </div>
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="sidebar-tabs">
+      <button class="tab-btn active" data-tab="chat" id="tab-chat">💬 Чат</button>
+      <button class="tab-btn" data-tab="details" id="tab-details">📋 Детали</button>
+      <button class="tab-btn" data-tab="upload" id="tab-upload">📤 Загрузка</button>
+    </div>
+
+    <!-- Chat tab -->
+    <div class="tab-panel active" id="panel-chat">
+      <div id="chat-messages">
+        <div class="chat-welcome" id="chat-welcome">
+          <div class="icon">🤖</div>
+          <h3>Исследовательский ассистент</h3>
+          <p>Задайте вопрос по проиндексированным материалам — статьям, книгам, заметкам.</p>
+        </div>
+      </div>
+      <div class="chat-input-wrap">
+        <textarea id="chat-input" placeholder="Ваш вопрос…" rows="1"></textarea>
+        <button id="chat-send" title="Отправить (Enter)">➤</button>
+      </div>
+    </div>
+
+    <!-- Details tab -->
+    <div class="tab-panel" id="panel-details">
+      <div id="details-panel">
+        <div class="details-empty">
+          <div class="icon">👆</div>
+          <p>Кликните на узел графа, чтобы увидеть детали</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload tab -->
+    <div class="tab-panel" id="panel-upload">
+      <div id="upload-panel">
+        <div class="drop-zone" id="drop-zone">
+          <div class="drop-icon">📂</div>
+          <h3>Перетащите файл или кликните</h3>
+          <p>Поддерживаются PDF, Markdown (.md) и EPUB</p>
+          <input type="file" id="file-input" accept=".pdf,.md,.epub" style="display:none" />
+        </div>
+        <div class="upload-log" id="upload-log"><span class="log-info">Ожидание файла…</span></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Science Graph — Web UI
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const API = '';  // same origin
+
+/* ── Utility ──────────────────────────────────────────────────────────────── */
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+function log(msg, type = 'info') {
+  const box = document.getElementById('upload-log');
+  const span = document.createElement('span');
+  span.className = `log-${type}`;
+  span.textContent = msg + '\n';
+  box.appendChild(span);
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ── Tab switching ────────────────────────────────────────────────────────── */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
+  });
+});
+
+/* ── Stats ────────────────────────────────────────────────────────────────── */
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/api/stats`);
+    const d = await r.json();
+    document.getElementById('stat-papers').textContent = d.papers ?? '—';
+    document.getElementById('stat-concepts').textContent = d.concepts ?? '—';
+  } catch {}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GRAPH
+   ═══════════════════════════════════════════════════════════════════════════ */
+let network = null;
+let allNodes = null;
+let allEdges = null;
+const activeFilters = new Set(['paper','note','book','author','concept']);
+
+async function loadGraph() {
+  document.getElementById('graph-loading').classList.remove('hidden');
+  document.getElementById('graph-empty').classList.remove('visible');
+
+  try {
+    const r = await fetch(`${API}/api/graph`);
+    const data = await r.json();
+
+    if (!data.nodes || data.nodes.length === 0) {
+      document.getElementById('graph-loading').classList.add('hidden');
+      document.getElementById('graph-empty').classList.add('visible');
+      return;
+    }
+
+    allNodes = new vis.DataSet(data.nodes);
+    allEdges = new vis.DataSet(data.edges);
+
+    const container = document.getElementById('mynetwork');
+    network = new vis.Network(container, { nodes: allNodes, edges: allEdges }, {
+      nodes: {
+        font: { color: '#c9cde0', size: 12, face: 'Inter' },
+        borderWidth: 1.5,
+        borderWidthSelected: 3,
+      },
+      edges: {
+        smooth: { type: 'continuous', roundness: 0.3 },
+        selectionWidth: 2,
+      },
+      physics: {
+        barnesHut: {
+          gravitationalConstant: -9000,
+          centralGravity: 0.25,
+          springLength: 220,
+          springConstant: 0.04,
+          damping: 0.12,
+        },
+        stabilization: { iterations: 200 },
+      },
+      interaction: {
+        hover: true,
+        tooltipDelay: 150,
+        hideEdgesOnDrag: true,
+      },
+    });
+
+    network.on('stabilizationIterationsDone', () => {
+      document.getElementById('graph-loading').classList.add('hidden');
+      network.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+    });
+
+    network.on('click', async ({ nodes }) => {
+      if (!nodes.length) return;
+      await showNodeDetails(nodes[0]);
+      // Switch to details tab
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab-details').classList.add('active');
+      document.getElementById('panel-details').classList.add('active');
+    });
+
+    network.on('hoverNode', () => { container.style.cursor = 'pointer'; });
+    network.on('blurNode',  () => { container.style.cursor = 'default'; });
+
+  } catch (e) {
+    document.getElementById('graph-loading').classList.add('hidden');
+    toast('Ошибка загрузки графа: ' + e.message, 'err');
+  }
+}
+
+/* ── Filter chips ─────────────────────────────────────────────────────────── */
+document.querySelectorAll('.filter-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const group = chip.dataset.group;
+    if (activeFilters.has(group)) {
+      activeFilters.delete(group);
+      chip.classList.add('inactive');
+      chip.classList.remove('active');
+    } else {
+      activeFilters.add(group);
+      chip.classList.remove('inactive');
+      chip.classList.add('active');
+    }
+    applyFilters();
+  });
+});
+
+function applyFilters() {
+  if (!allNodes) return;
+  const all = allNodes.get();
+  const updates = all.map(n => ({
+    id: n.id,
+    hidden: !activeFilters.has(n.group),
+  }));
+  allNodes.update(updates);
+}
+
+/* ── Refresh ──────────────────────────────────────────────────────────────── */
+document.getElementById('btn-refresh').addEventListener('click', () => {
+  loadGraph();
+  loadStats();
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NODE DETAILS
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function showNodeDetails(nodeId) {
+  const panel = document.getElementById('details-panel');
+  panel.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text3)"><div class="spinner" style="width:24px;height:24px;border-width:2px"></div> Загрузка…</div>`;
+
+  try {
+    const r = await fetch(`${API}/api/paper/${encodeURIComponent(nodeId)}`);
+    if (!r.ok) {
+      panel.innerHTML = `<div class="details-empty"><div class="icon">❓</div><p>Нет данных для этого узла</p></div>`;
+      return;
+    }
+    const d = await r.json();
+    renderDetails(panel, d);
+  } catch (e) {
+    panel.innerHTML = `<div class="details-empty"><div class="icon">⚠️</div><p>${e.message}</p></div>`;
+  }
+}
+
+function renderDetails(panel, d) {
+  const typeLabel = { paper: 'Статья', note: 'Заметка', book: 'Книга' }[d.source_type] || 'Документ';
+  const badgeClass = { paper: 'badge-paper', note: 'badge-note', book: 'badge-book' }[d.source_type] || 'badge-paper';
+
+  let html = `
+    <div class="details-card">
+      <h3>
+        <span class="details-badge ${badgeClass}">${typeLabel}</span>
+        ${esc(d.title)}
+      </h3>
+      <div class="details-row">
+        ${d.authors?.length ? `<div class="details-field"><div class="details-label">Авторы</div><div class="details-value">${esc(d.authors.join(', '))}</div></div>` : ''}
+        ${d.year ? `<div class="details-field"><div class="details-label">Год</div><div class="details-value">${d.year}</div></div>` : ''}
+        ${d.doi ? `<div class="details-field"><div class="details-label">DOI</div><div class="details-value"><a href="https://doi.org/${d.doi}" target="_blank">${esc(d.doi)}</a></div></div>` : ''}
+      </div>
+    </div>`;
+
+  if (d.abstract) {
+    html += `<div class="details-card">
+      <h3>📄 Аннотация</h3>
+      <div class="abstract-text">${esc(d.abstract)}</div>
+    </div>`;
+  }
+
+  if (d.concepts?.length) {
+    html += `<div class="details-card">
+      <h3>🏷️ Концепты</h3>
+      <div class="tag-list">${d.concepts.map(c =>
+        `<span class="tag" onclick="focusNode('${esc(c)}')">${esc(c)}</span>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (d.citations?.length) {
+    html += `<div class="details-card">
+      <h3>📎 Цитирует (${d.citations.length})</h3>
+      <div class="details-row">${d.citations.map(t =>
+        `<div class="details-value" style="font-size:12px;color:var(--text2)">• ${esc(t)}</div>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (d.cited_by?.length) {
+    html += `<div class="details-card">
+      <h3>📌 Цитируется в (${d.cited_by.length})</h3>
+      <div class="details-row">${d.cited_by.map(t =>
+        `<div class="details-value" style="font-size:12px;color:var(--text2)">• ${esc(t)}</div>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  // Ask in chat button
+  html += `<button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="askAbout('${esc(d.title.replace(/'/g,'\\\''))}')">
+    💬 Спросить об этой работе
+  </button>`;
+
+  panel.innerHTML = html;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function askAbout(title) {
+  const input = document.getElementById('chat-input');
+  input.value = `Расскажи подробнее о работе "${title}"`;
+  input.focus();
+  // Switch to chat tab
+  document.getElementById('tab-chat').click();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SEARCH
+   ═══════════════════════════════════════════════════════════════════════════ */
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+let searchTimer = null;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value.trim();
+  if (!q) { searchResults.classList.remove('visible'); return; }
+  searchTimer = setTimeout(() => doSearch(q), 280);
+});
+
+searchInput.addEventListener('blur', () => {
+  setTimeout(() => searchResults.classList.remove('visible'), 200);
+});
+
+async function doSearch(q) {
+  try {
+    const r = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}`);
+    const d = await r.json();
+    renderSearchResults(d.results || []);
+  } catch {}
+}
+
+function renderSearchResults(results) {
+  if (!results.length) { searchResults.classList.remove('visible'); return; }
+  const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+  searchResults.innerHTML = results.map(item => `
+    <div class="search-item" data-id="${esc(item.id)}" onclick="selectSearchResult('${esc(item.id)}')">
+      <span>${typeIcon[item.source_type] || '📄'}</span>
+      <div>
+        <div class="search-item-title">${esc(item.title)}</div>
+        <div class="search-item-meta">${item.year || ''}</div>
+      </div>
+    </div>
+  `).join('');
+  searchResults.classList.add('visible');
+}
+
+async function selectSearchResult(nodeId) {
+  searchResults.classList.remove('visible');
+  searchInput.value = '';
+  // Focus node in graph
+  if (network) {
+    network.selectNodes([nodeId]);
+    network.focus(nodeId, { scale: 1.4, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+  }
+  await showNodeDetails(nodeId);
+  document.getElementById('tab-details').click();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHAT with SSE streaming
+   ═══════════════════════════════════════════════════════════════════════════ */
+const chatMessages = document.getElementById('chat-messages');
+const chatInput   = document.getElementById('chat-input');
+const chatSend    = document.getElementById('chat-send');
+const chatWelcome = document.getElementById('chat-welcome');
+let isStreaming = false;
+
+function addMessage(role, content = '') {
+  if (chatWelcome) chatWelcome.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = `msg msg-${role}`;
+  const avatar = role === 'user' ? '👤' : '🤖';
+  const name   = role === 'user' ? 'Вы' : 'Ассистент';
+  div.innerHTML = `
+    <div class="msg-avatar">${avatar}</div>
+    <div class="msg-body">
+      <div class="msg-name">${name}</div>
+      <div class="msg-text" id="msg-${Date.now()}"></div>
+    </div>`;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div.querySelector('.msg-text');
+}
+
+async function sendMessage() {
+  const q = chatInput.value.trim();
+  if (!q || isStreaming) return;
+
+  isStreaming = true;
+  chatSend.disabled = true;
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+
+  addMessage('user').textContent = q;
+
+  const agentBubble = addMessage('agent');
+  agentBubble.innerHTML = '<span class="typing-cursor"></span>';
+
+  let accumulated = '';
+
+  try {
+    const response = await fetch(`${API}/api/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q, limit: 5 }),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE: parse lines
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete line
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const raw = line.slice(5).trim();
+        if (!raw) continue;
+        try {
+          const ev = JSON.parse(raw);
+          if (ev.type === 'token') {
+            accumulated += ev.text;
+            agentBubble.innerHTML = marked.parse(accumulated) + '<span class="typing-cursor"></span>';
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          } else if (ev.type === 'done') {
+            agentBubble.innerHTML = marked.parse(accumulated);
+          } else if (ev.type === 'error') {
+            agentBubble.innerHTML = `<span style="color:var(--red)">⚠️ ${esc(ev.text)}</span>`;
+          }
+        } catch {}
+      }
+    }
+
+    if (!accumulated) {
+      agentBubble.innerHTML = '<span style="color:var(--text3)">Нет ответа от модели.</span>';
+    }
+
+  } catch (e) {
+    agentBubble.innerHTML = `<span style="color:var(--red)">⚠️ Ошибка: ${esc(e.message)}</span>`;
+  }
+
+  isStreaming = false;
+  chatSend.disabled = false;
+}
+
+chatSend.addEventListener('click', sendMessage);
+chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+// Auto-resize textarea
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FILE UPLOAD
+   ═══════════════════════════════════════════════════════════════════════════ */
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault(); dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) uploadFile(fileInput.files[0]);
+});
+
+async function uploadFile(file) {
+  const logBox = document.getElementById('upload-log');
+  logBox.innerHTML = '';
+  log(`📤 Загрузка: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, 'info');
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    log('⏳ Индексация…', 'info');
+    const r = await fetch(`${API}/api/upload`, { method: 'POST', body: formData });
+    const d = await r.json();
+
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+
+    log(`✅ Успешно проиндексировано: ID = ${d.id}`, 'ok');
+    toast(`✅ ${file.name} добавлен в базу знаний`, 'ok');
+
+    // Refresh graph & stats
+    setTimeout(() => { loadGraph(); loadStats(); }, 800);
+
+  } catch (e) {
+    log(`❌ Ошибка: ${e.message}`, 'err');
+    toast(`Ошибка загрузки: ${e.message}`, 'err');
+  }
+
+  fileInput.value = '';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════════════════════ */
+(async () => {
+  await Promise.all([loadStats(), loadGraph()]);
+})();
+</script>
+</body>
+</html>

@@ -8,20 +8,25 @@ from src.models import Chunk
 class EmbeddingEngine:
     def __init__(self, model_name: str = None):
         self.model_name = model_name or config.embedding_model_name
-        # SentenceTransformer automatically handles MPS/CUDA/CPU device placement
-        self.model = SentenceTransformer(self.model_name)
+        from src import console as con
+        short = self.model_name.split("/")[-1]
+        con.model_msg(f"Loading embeddings [bold]{short}[/bold] …")
+        with con.suppress_stderr(), con.suppress_stdout():
+            self.model = SentenceTransformer(self.model_name)
+        con.success(f"Embeddings ready: [bold]{short}[/bold]")
 
     def get_embedding(self, text: str) -> List[float]:
         """Generates embedding for a single text string."""
-        emb = self.model.encode(text, convert_to_numpy=True)
+        emb = self.model.encode(text, convert_to_numpy=True, show_progress_bar=False)
         return emb.tolist()
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generates embeddings for a list of text strings."""
         if not texts:
             return []
-        embs = self.model.encode(texts, convert_to_numpy=True)
+        embs = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
         return embs.tolist()
+
 
 
 def split_text_to_chunks(paper_id: str, file_path: str, chunk_size: int = None, chunk_overlap: int = None) -> List[Chunk]:
