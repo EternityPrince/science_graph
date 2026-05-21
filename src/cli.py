@@ -107,6 +107,73 @@ def index(
             con.warning(f"{ok}/{len(files)} files indexed ({len(files)-ok} failed)")
 
 
+# ── reindex ───────────────────────────────────────────────────────────────────
+
+@app.command("reindex")
+def reindex(
+    missing_authors: bool = typer.Option(False, "--missing-authors", help="Reindex only papers without authors"),
+    missing_tags: bool = typer.Option(False, "--missing-tags", help="Reindex only papers without topic tags"),
+    all_metadata: bool = typer.Option(False, "--all-metadata", help="Reindex metadata for all papers"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit the number of papers to reindex"),
+    use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM for extracting concepts/tags (slower)"),
+):
+    """Partially re-index paper metadata (authors, year, tags, citations) without regenerating embeddings."""
+    if not all_metadata and not missing_authors and not missing_tags:
+        con.warning("Please specify a filter: --missing-authors, --missing-tags, or --all-metadata")
+        raise typer.Exit(0)
+
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
+
+    conn = sqlite3.connect(graph_repo.db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Find candidate paper IDs
+    query = "SELECT id, properties FROM nodes WHERE label='Paper'"
+    rows = conn.execute(query).fetchall()
+    conn.close()
+
+
+    candidates = []
+    for r in rows:
+        props = json.loads(r["properties"])
+        # Skip placeholder papers
+        if props.get("placeholder"):
+            continue
+            
+        if missing_authors:
+            authors = props.get("authors", [])
+            if not authors:
+                candidates.append(r["id"])
+        elif missing_tags:
+            tags = props.get("tags", [])
+            if not tags:
+                candidates.append(r["id"])
+        else:
+            candidates.append(r["id"])
+
+    if limit:
+        candidates = candidates[:limit]
+
+    if not candidates:
+        con.success("No papers found matching the re-indexing criteria.")
+        return
+
+    con.info(f"Starting metadata re-indexing for [bold]{len(candidates)}[/bold] papers …")
+    
+    success_count = 0
+    for paper_id in candidates:
+        try:
+            if indexer.reindex_metadata(paper_id, use_llm=use_llm):
+                success_count += 1
+        except Exception as e:
+            con.error(f"Failed to re-index {paper_id}: {e}")
+
+    con.blank()
+    con.success(f"Re-indexed {success_count}/{len(candidates)} papers successfully.")
+
+
+
 # ── query ─────────────────────────────────────────────────────────────────────
 
 @app.command("query")
@@ -337,6 +404,10 @@ def storage(
             status_msg = ""
         else:
             if selected_idx is not None:
+                row = rows[selected_idx - 1]
+                props = json.loads(row["properties"])
+                full_path = props.get("file_path") or props.get("url") or "—"
+                con.console.print(f"  [bold cyan]Full Path/URL:[/bold cyan] [dim]{full_path}[/dim]")
                 con.console.print(
                     f"  Row [bold cyan]{selected_idx}[/bold cyan] selected  │  "
                     "[bold]E[/bold] Edit  [bold]X[/bold] Delete  [bold]Esc[/bold] Deselect"
@@ -347,6 +418,7 @@ def storage(
                     "[bold]Tab[/bold] Switch table  "
                     "[bold]1-9…[/bold] Select row  [bold]Q[/bold] Quit"
                 )
+
 
         # ── Input ────────────────────────────────────────────────────────────
         try:
@@ -584,8 +656,9 @@ def visualize(
         elif label == "Concept":
             raw_name = props.get("name", node_id)
             node_label = raw_name.replace("_", " ").title()
-            color = "#12b886"
-            size = 20
+            is_tag = props.get("is_tag", False)
+            color = "#da77f2" if is_tag else "#12b886"
+            size = 18 if is_tag else 20
             shape = "dot"
         else:
             node_label = node_id
@@ -620,6 +693,11 @@ def visualize(
         elif edge_type == "CITES":
             color = "#748ffc"
             width = 2
+        elif edge_type == "HAS_TAG":
+            color = "#da77f2"
+            dashes = True
+            width = 1
+
 
         vis_edges.append({
             "from": r["source_id"],
@@ -662,6 +740,7 @@ def visualize(
                 <span class="legend"><span class="legend-color" style="background:#20c997"></span>Webpage</span>
                 <span class="legend"><span class="legend-color" style="background:#fab005"></span>Author</span>
                 <span class="legend"><span class="legend-color" style="background:#12b886"></span>Concept</span>
+                <span class="legend"><span class="legend-color" style="background:#da77f2"></span>Tag</span>
             </div>
         </div>
         <div class="controls">

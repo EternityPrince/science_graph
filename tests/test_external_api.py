@@ -70,3 +70,26 @@ class TestExternalAPI(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["title"], "Attention Is All You Need")
         self.assertEqual(result["doi"], "10.1145/37565.37566")
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_paper_metadata_by_arxiv_id(self, mock_urlopen):
+        mock_response = MagicMock()
+        mock_response.status = 200
+        raw_response_data = {
+            "paperId": "arxiv_1706.03762",
+            "title": "Attention Is All You Need",
+            "year": 2017,
+            "abstract": "The dominant sequence transduction models...",
+            "authors": [{"name": "Ashish Vaswani"}],
+            "externalIds": {"ArXiv": "1706.03762"},
+            "references": [],
+            "citations": []
+        }
+        mock_response.read.return_value = json.dumps(raw_response_data).encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = fetch_paper_metadata(arxiv_id="1706.03762")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["title"], "Attention Is All You Need")
+        self.assertEqual(result["year"], 2017)
+

@@ -4,8 +4,10 @@ import os
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch, MagicMock
 
 from src.models import Paper
+
 
 
 class TestMarkdownParser(unittest.TestCase):
@@ -164,6 +166,68 @@ class TestIndexerMarkdownIntegration(unittest.TestCase):
         finally:
             os.unlink(f.name)
 
+    @patch("src.external_api.fetch_paper_metadata")
+    def test_reindex_metadata(self, mock_fetch_metadata):
+        from src.indexer import Indexer
+        from src.models import Paper, Concept
+        from unittest.mock import patch
+
+        # 1. Setup mock metadata return value
+        mock_fetch_metadata.return_value = {
+            "title": "Attention Is All You Need",
+            "authors": ["Ashish Vaswani", "Noam Shazeer"],
+            "year": 2017,
+            "abstract": "The dominant sequence transduction models...",
+            "doi": "10.1145/37565.37566",
+            "references": [{"title": "Deep Residual Learning", "doi": "10.1109/CVPR.2016.90"}],
+            "citations": [{"title": "BERT: Pre-training", "doi": "10.18653/v1/N19-1423"}]
+        }
+
+        # 2. Insert a basic Paper node to the database first
+        paper = Paper(
+            id="test_paper_id",
+            title="Old Title",
+            authors=["Old Author"],
+            year=2015,
+            abstract="Old abstract",
+            doi="10.1145/37565.37566",
+            file_path="mock_path.pdf"
+        )
+        self.graph_repo.save_paper(paper)
+
+        # 3. Call reindex_metadata
+        indexer = Indexer(self.graph_repo, self.vector_repo, self.emb_engine)
+        success = indexer.reindex_metadata("test_paper_id", use_llm=False)
+        self.assertTrue(success)
+
+        # 4. Verify updated Paper in database
+        updated_paper = self.graph_repo.get_paper("test_paper_id")
+        self.assertIsNotNone(updated_paper)
+        self.assertEqual(updated_paper.title, "Attention Is All You Need")
+        self.assertEqual(updated_paper.year, 2017)
+        self.assertEqual(updated_paper.abstract, "The dominant sequence transduction models...")
+        self.assertIn("Ashish Vaswani", updated_paper.authors)
+        self.assertIn("Noam Shazeer", updated_paper.authors)
+
+        # Verify old author edge is deleted, new authored edges exist
+        neighbors = self.graph_repo.get_neighbors("test_paper_id", max_depth=1)
+        # Neighbors format: (node_id, label, edge_type, direction)
+        edge_types = [n[2] for n in neighbors]
+        self.assertIn("AUTHORED", edge_types)
+
+        # Check references/citations were created
+        # The reference/citation papers should be created as placeholders
+        ref_id = indexer._slugify("10.1109/CVPR.2016.90")
+        cit_id = indexer._slugify("10.18653/v1/N19-1423")
+        
+        ref_paper = self.graph_repo.get_paper(ref_id)
+        cit_paper = self.graph_repo.get_paper(cit_id)
+        self.assertIsNotNone(ref_paper)
+        self.assertIsNotNone(cit_paper)
+        self.assertEqual(ref_paper.title, "Deep Residual Learning")
+        self.assertEqual(cit_paper.title, "BERT: Pre-training")
+
 
 if __name__ == "__main__":
     unittest.main()
+

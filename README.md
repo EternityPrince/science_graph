@@ -109,14 +109,17 @@ python3 main.py chat
 
 | Command | Description |
 |---------|-------------|
-| `index` | Index PDF, Markdown, or EPUB files |
+| `index` | Index PDF, Markdown, EPUB files, or Web/arXiv URLs |
+| `reindex` | Partially re-index paper metadata without regenerating embeddings |
 | `query` | One-shot RAG question answering |
 | `chat` | Interactive TUI chat with memory |
+| `storage` | Interactive TUI document/author database manager |
 | `review` | Generate a full Markdown literature review |
 | `serve` | Launch the Web UI (FastAPI + vis-network) |
 | `stats` | Show knowledge base statistics |
 | `config` | Show all configuration and model paths |
 | `visualize` | Export an interactive HTML graph |
+
 
 ### `index` — Indexing documents
 
@@ -130,14 +133,38 @@ python3 main.py index --file notes/my_note.md
 # Single EPUB book
 python3 main.py index --file books/deep_learning.epub
 
+# Direct URL / arXiv / DOI link indexing (auto-enriches authors, abstract, and tags)
+python3 main.py index --file https://arxiv.org/abs/1706.03762
+
 # Entire directory (auto-detects format)
 python3 main.py index --dir ~/research/
 
-# With LLM-assisted concept extraction (richer graph, slower)
+# With LLM-assisted concept/tag extraction (richer graph, slower)
 python3 main.py index --dir ~/research/ --use-llm
 
 # Force a specific type
 python3 main.py index --dir ~/obsidian-vault/ --type md
+```
+
+### `reindex` — Partially re-index paper metadata
+
+Updates paper metadata (authors, publication year, topic tags, and citations) from Semantic Scholar / fallbacks without recalculating sentence embeddings:
+
+```bash
+# Update papers that have no authors in the database
+python3 main.py reindex --missing-authors
+
+# Update papers that have no topic tags
+python3 main.py reindex --missing-tags
+
+# Re-index metadata for all papers
+python3 main.py reindex --all-metadata
+
+# Re-index using LLM for tag extraction (slower)
+python3 main.py reindex --missing-tags --use-llm
+
+# Limit the number of updated documents
+python3 main.py reindex --all-metadata --limit 10
 ```
 
 ### `query` — Ask questions
@@ -247,12 +274,14 @@ uv run pytest -v         # verbose output
 uv run pytest tests/test_repository.py   # specific module
 ```
 
-All 13 tests pass. Test coverage includes:
+All 21 tests pass. Test coverage includes:
 - SQLite graph and vector repositories
 - Markdown parser (front-matter, wiki-links, inline tags)
+- URL parser (arXiv ID, DOI, fallback meta tags extraction)
 - Hybrid search (BM25 + dense + reranking)
-- TUI chat session logic
-- External API (Semantic Scholar)
+- TUI chat session logic and CLI commands
+- External API (Semantic Scholar query with exponential retries and arXiv queries)
+- Metadata-only re-indexing pipeline
 
 ---
 
@@ -276,7 +305,8 @@ science-graph/
 │   │   └── index.html         # SPA Web UI (vis-network + SSE chat)
 │   ├── parsers/
 │   │   ├── md_parser.py       # Obsidian Markdown parser
-│   │   └── epub_parser.py     # EPUB parser (ebooklib)
+│   │   ├── epub_parser.py     # EPUB parser (ebooklib)
+│   │   └── url_parser.py      # Academic URL/arXiv/DOI parser
 │   ├── parser.py              # PDF parser (PyMuPDF)
 │   ├── models.py              # Core data models
 │   ├── repository/
@@ -285,6 +315,7 @@ science-graph/
 │   ├── external_api.py        # Semantic Scholar API client
 │   └── tui.py                 # Rich TUI chat
 └── tests/
+    ├── test_cli.py
     ├── test_repository.py
     ├── test_hybrid_search.py
     ├── test_md_epub_indexer.py

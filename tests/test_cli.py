@@ -56,3 +56,45 @@ class TestCLI(unittest.TestCase):
         result = runner.invoke(app, ["storage", "--limit", "10"])
         self.assertEqual(result.exit_code, 0)
 
+    @patch("src.cli.get_services")
+    def test_reindex_no_filter(self, mock_get_services):
+        """Reindex requires at least one filter flag."""
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        result = runner.invoke(app, ["reindex"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Please specify a filter", result.stdout)
+
+    @patch("src.cli.Indexer")
+    @patch("src.cli.sqlite3.connect")
+    @patch("src.cli.get_services")
+    def test_reindex_with_filter(self, mock_get_services, mock_connect, mock_indexer_cls):
+        """Reindex with --missing-authors filters papers and calls reindex_metadata."""
+        mock_indexer_instance = MagicMock()
+        mock_indexer_cls.return_value = mock_indexer_instance
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        
+        mock_conn = MagicMock()
+        mock_connect.return_value = mock_conn
+        
+        # Mock nodes query results: one paper with authors, one paper without, one placeholder
+        row_with_authors = MagicMock()
+        row_with_authors.__getitem__ = lambda s, k: {"id": "p1", "properties": '{"authors": ["John Doe"]}'}[k]
+        
+        row_without_authors = MagicMock()
+        row_without_authors.__getitem__ = lambda s, k: {"id": "p2", "properties": '{"authors": []}'}[k]
+        
+        row_placeholder = MagicMock()
+        row_placeholder.__getitem__ = lambda s, k: {"id": "p3", "properties": '{"placeholder": true}'}[k]
+        
+        mock_conn.execute.return_value.fetchall.return_value = [
+            row_with_authors, row_without_authors, row_placeholder
+        ]
+        
+        mock_indexer_instance.reindex_metadata.return_value = True
+        
+        result = runner.invoke(app, ["reindex", "--missing-authors"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Re-indexed 1/1 papers successfully.", result.stdout)
+        mock_indexer_instance.reindex_metadata.assert_called_once_with("p2", use_llm=False)
+
+
