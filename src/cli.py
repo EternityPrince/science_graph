@@ -181,111 +181,230 @@ def stats():
 def storage(
     limit: int = typer.Option(20, "--limit", "-l", help="Number of items to display per page"),
 ):
-    """Display indexed data in beautiful tables with interactive pagination."""
+    """Display indexed data with interactive pagination, deletion and editing."""
     import click
     import math
+
+    TABLES = ["documents", "authors", "concepts"]
+    TABLE_LABELS = {"documents": "📚 Documents", "authors": "👥 Authors", "concepts": "🧠 Concepts"}
+
     graph_repo, _, _, _ = get_services(load_llm=False, load_embeddings=False)
     conn = sqlite3.connect(graph_repo.db_path)
     conn.row_factory = sqlite3.Row
 
     page = 1
+    active_table = "documents"   # currently focused table
+    selected_idx = None          # 1-based row number within the current page
+    status_msg = ""              # feedback line after actions
+
+    def _get_rows(tbl: str, pg: int):
+        off = (pg - 1) * limit
+        if tbl == "documents":
+            return conn.execute(
+                "SELECT id, properties FROM nodes WHERE label='Paper' LIMIT ? OFFSET ?",
+                (limit, off)
+            ).fetchall()
+        elif tbl == "authors":
+            return conn.execute(
+                """SELECT id, properties,
+                          (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
+                   FROM nodes WHERE label='Author' ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
+                (limit, off)
+            ).fetchall()
+        else:  # concepts
+            return conn.execute(
+                """SELECT id, properties,
+                          (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
+                   FROM nodes WHERE label='Concept' ORDER BY degree DESC LIMIT ? OFFSET ?""",
+                (limit, off)
+            ).fetchall()
+
+    def _count(tbl: str) -> int:
+        label = {"documents": "Paper", "authors": "Author", "concepts": "Concept"}[tbl]
+        return conn.execute(f"SELECT count(*) FROM nodes WHERE label=?", (label,)).fetchone()[0]
+
+    def _delete_node(node_id: str) -> str:
+        try:
+            conn.execute("DELETE FROM edges WHERE source_id=? OR target_id=?", (node_id, node_id))
+            conn.execute("DELETE FROM nodes WHERE id=?", (node_id,))
+            conn.commit()
+            return f"[bold red]✗  Deleted[/bold red] node [dim]{node_id[:40]}[/dim]"
+        except Exception as exc:
+            return f"[red]Error deleting: {exc}[/red]"
+
+    def _edit_node(node_id: str, tbl: str) -> str:
+        """Interactive field editor — prompts for new values for key fields."""
+        row = conn.execute("SELECT properties FROM nodes WHERE id=?", (node_id,)).fetchone()
+        if not row:
+            return "[red]Record not found.[/red]"
+        props = json.loads(row["properties"])
+        con.console.print("\n[bold yellow]— Edit Record —[/bold yellow] (Enter = keep current, Ctrl+C = cancel)\n")
+        try:
+            if tbl == "documents":
+                new_title = input(f"  Title [{props.get('title', '')}]: ").strip()
+                if new_title:
+                    props["title"] = new_title
+                raw_authors = props.get("authors", [])
+                new_authors = input(f"  Authors [{', '.join(raw_authors)}]: ").strip()
+                if new_authors:
+                    props["authors"] = [a.strip() for a in new_authors.split(",") if a.strip()]
+            elif tbl == "authors":
+                new_name = input(f"  Name [{props.get('name', '')}]: ").strip()
+                if new_name:
+                    props["name"] = new_name
+            else:  # concepts
+                new_name = input(f"  Name [{props.get('name', '')}]: ").strip()
+                if new_name:
+                    props["name"] = new_name
+            conn.execute("UPDATE nodes SET properties=? WHERE id=?", (json.dumps(props, ensure_ascii=False), node_id))
+            conn.commit()
+            return "[bold green]✓  Record updated[/bold green]"
+        except KeyboardInterrupt:
+            return "[yellow]Edit cancelled.[/yellow]"
 
     while True:
         con.console.clear()
-        
-        offset = (page - 1) * limit
-        
-        total_docs = conn.execute("SELECT count(*) FROM nodes WHERE label='Paper'").fetchone()[0]
-        total_authors = conn.execute("SELECT count(*) FROM nodes WHERE label='Author'").fetchone()[0]
-        total_concepts = conn.execute("SELECT count(*) FROM nodes WHERE label='Concept'").fetchone()[0]
-        
-        max_total = max(total_docs, total_authors, total_concepts)
-        total_pages = max(1, math.ceil(max_total / limit))
-        page = min(page, total_pages)
-        page = max(1, page)
-        
-        # Fetch Documents
-        papers = conn.execute("SELECT id, properties FROM nodes WHERE label='Paper' LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-        if papers:
-            table = Table(title=f"📚 Documents (Page {page}/{math.ceil(total_docs/limit) or 1})", box=box.ROUNDED, border_style="blue", expand=True, header_style="bold cyan")
-            table.add_column("Type", style="cyan", max_width=12)
+
+        total = _count(active_table)
+        total_pages = max(1, math.ceil(total / limit))
+        page = max(1, min(page, total_pages))
+
+        rows = _get_rows(active_table, page)
+
+        # ── Build the active table ───────────────────────────────────────────
+        tab_title = TABLE_LABELS[active_table]
+        border = {"documents": "blue", "authors": "yellow", "concepts": "magenta"}[active_table]
+        table = Table(
+            title=f"{tab_title}  [dim](page {page}/{total_pages}, {total} total)[/dim]",
+            box=box.ROUNDED, border_style=border, expand=True, header_style="bold cyan",
+        )
+        table.add_column("#", style="dim", max_width=4, justify="right")
+
+        if active_table == "documents":
+            table.add_column("Type", style="cyan", max_width=10)
             table.add_column("Title", style="bold white")
-            table.add_column("Authors", style="green", max_width=30)
+            table.add_column("Authors", style="green", max_width=28)
             table.add_column("Path / URL", style="dim")
-            
-            for p in papers:
-                props = json.loads(p["properties"])
-                source_type = props.get("source_type", "paper")
-                title = props.get("title", p["id"])
-                authors = ", ".join(props.get("authors", [])) or "—"
-                path = props.get("file_path", props.get("url", "—"))
-                table.add_row(source_type, title, authors, path)
-            con.console.print(table)
-            con.blank()
-            
-        # Fetch Authors
-        authors_query = """
-            SELECT id, properties, 
-                   (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count 
-            FROM nodes 
-            WHERE label='Author' 
-            ORDER BY papers_count DESC 
-            LIMIT ? OFFSET ?
-        """
-        authors = conn.execute(authors_query, (limit, offset)).fetchall()
-        if authors:
-            table = Table(title=f"👥 Authors (Page {page}/{math.ceil(total_authors/limit) or 1})", box=box.ROUNDED, border_style="yellow", expand=True, header_style="bold cyan")
+        elif active_table == "authors":
             table.add_column("Author Name", style="bold yellow")
-            table.add_column("Papers Authored", justify="right", style="cyan")
-            for a in authors:
-                props = json.loads(a["properties"])
-                name = props.get("name", a["id"]).title()
-                papers_count = str(a["papers_count"])
-                table.add_row(name, papers_count)
-            con.console.print(table)
-            con.blank()
-            
-        # Fetch Concepts
-        concepts_query = """
-            SELECT id, properties, 
-                   (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree 
-            FROM nodes 
-            WHERE label='Concept' 
-            ORDER BY degree DESC 
-            LIMIT ? OFFSET ?
-        """
-        concepts = conn.execute(concepts_query, (limit, offset)).fetchall()
-        if concepts:
-            table = Table(title=f"🧠 Concepts (Page {page}/{math.ceil(total_concepts/limit) or 1})", box=box.ROUNDED, border_style="magenta", expand=True, header_style="bold cyan")
+            table.add_column("Papers", justify="right", style="cyan", max_width=8)
+        else:
             table.add_column("Concept", style="bold magenta")
-            table.add_column("Mentions", justify="right", style="cyan")
-            
-            for c in concepts:
-                props = json.loads(c["properties"])
-                raw_name = props.get("name", c["id"])
-                name = raw_name.replace("_", " ").title()
-                if len(name) > 75:
-                    name = name[:72] + "..."
-                degree = str(c["degree"])
-                table.add_row(name, degree)
-            con.console.print(table)
-            con.blank()
-            
-        con.console.print(f"[bold cyan]Page {page} of {total_pages}[/bold cyan] | Use [bold]← / A[/bold] for previous, [bold]→ / D[/bold] for next. Press [bold]Q[/bold] to quit.")
-        
-        # Handle input
+            table.add_column("Mentions", justify="right", style="cyan", max_width=8)
+
+        for i, r in enumerate(rows, start=1):
+            num = f"[bold cyan]{i}[/bold cyan]" if selected_idx == i else str(i)
+            props = json.loads(r["properties"])
+
+            if active_table == "documents":
+                stype  = props.get("source_type", "paper")
+                title  = props.get("title", r["id"])
+                if len(title) > 60: title = title[:57] + "…"
+                authors = ", ".join(props.get("authors", [])) or "—"
+                path   = props.get("file_path") or props.get("url") or "—"
+                if len(path) > 55: path = "…" + path[-52:]
+                row_style = "on grey15" if selected_idx == i else ""
+                table.add_row(num, stype, title, authors, path, style=row_style)
+            elif active_table == "authors":
+                name = props.get("name", r["id"]).replace("_", " ").title()
+                cnt  = str(r["papers_count"])
+                row_style = "on grey15" if selected_idx == i else ""
+                table.add_row(num, name, cnt, style=row_style)
+            else:
+                raw  = props.get("name", r["id"])
+                name = raw.replace("_", " ").title()
+                if len(name) > 65: name = name[:62] + "…"
+                cnt  = str(r["degree"])
+                row_style = "on grey15" if selected_idx == i else ""
+                table.add_row(num, name, cnt, style=row_style)
+
+        con.console.print(table)
+
+        # ── Tab bar ──────────────────────────────────────────────────────────
+        tab_bar_parts = []
+        for t in TABLES:
+            label = TABLE_LABELS[t]
+            if t == active_table:
+                tab_bar_parts.append(f"[bold white on blue] {label} [/bold white on blue]")
+            else:
+                tab_bar_parts.append(f"[dim] {label} [/dim]")
+        con.console.print("  " + "  ".join(tab_bar_parts))
+        con.console.print()
+
+        # ── Status / help line ───────────────────────────────────────────────
+        if status_msg:
+            con.console.print(f"  {status_msg}")
+            status_msg = ""
+        else:
+            if selected_idx is not None:
+                con.console.print(
+                    f"  Row [bold cyan]{selected_idx}[/bold cyan] selected  │  "
+                    "[bold]E[/bold] Edit  [bold]X[/bold] Delete  [bold]Esc[/bold] Deselect"
+                )
+            else:
+                con.console.print(
+                    f"  [bold]←/A[/bold] Prev  [bold]→/D[/bold] Next  "
+                    "[bold]Tab[/bold] Switch table  "
+                    "[bold]1-9…[/bold] Select row  [bold]Q[/bold] Quit"
+                )
+
+        # ── Input ────────────────────────────────────────────────────────────
         try:
             c = click.getchar()
         except Exception:
             break
-            
+
         if c in ('q', 'Q', '\x03', '\x04'):
             break
-        elif c in ('a', 'A', '\x1b[D'):
+        elif c in ('a', 'A', '\x1b[D'):           # left / previous page
             page = max(1, page - 1)
-        elif c in ('d', 'D', '\x1b[C'):
+            selected_idx = None
+        elif c in ('d', 'D', '\x1b[C'):           # right / next page
             page = min(total_pages, page + 1)
-            
+            selected_idx = None
+        elif c == '\t':                            # Tab — cycle tables
+            idx = TABLES.index(active_table)
+            active_table = TABLES[(idx + 1) % len(TABLES)]
+            page = 1
+            selected_idx = None
+        elif c == '\x1b':                          # Escape — deselect
+            selected_idx = None
+        elif c.isdigit():                          # digit — start building row number
+            num_str = c
+            # Allow multi-digit input (wait for Enter or non-digit)
+            con.console.print(f"\n  Row #: [bold cyan]{num_str}[/bold cyan]  (Enter to confirm)", end="")
+            while True:
+                nc = click.getchar()
+                if nc in ('\r', '\n'):
+                    break
+                elif nc.isdigit():
+                    num_str += nc
+                    con.console.print(nc, end="")
+                else:
+                    num_str = ""
+                    break
+            if num_str:
+                n = int(num_str)
+                if 1 <= n <= len(rows):
+                    selected_idx = n
+                else:
+                    status_msg = f"[yellow]Row {n} not on this page (1–{len(rows)})[/yellow]"
+        elif c in ('e', 'E') and selected_idx is not None:
+            row = rows[selected_idx - 1]
+            status_msg = _edit_node(row["id"], active_table)
+        elif c in ('x', 'X') and selected_idx is not None:
+            row = rows[selected_idx - 1]
+            props = json.loads(row["properties"])
+            name = props.get("title") or props.get("name") or row["id"]
+            # Confirm
+            con.console.print(f"\n  [bold red]Delete[/bold red] [white]{name[:60]}[/white]?  Y/n  ", end="")
+            confirm = click.getchar()
+            if confirm in ('y', 'Y', '\r', '\n'):
+                status_msg = _delete_node(row["id"])
+                selected_idx = None
+            else:
+                status_msg = "[dim]Deletion cancelled.[/dim]"
+
     conn.close()
 
 
@@ -569,11 +688,14 @@ def visualize(
                 edges: {{ smooth: {{ type: 'continuous' }} }},
                 physics: {{ 
                     barnesHut: {{ 
-                        gravitationalConstant: -10000, 
-                        springLength: 300, 
-                        nodeDistance: 150 
+                        gravitationalConstant: -12000,
+                        centralGravity: 0.2,
+                        springLength: 250,
+                        springConstant: 0.04,
+                        damping: 0.09,
+                        avoidOverlap: 0.3
                     }},
-                    stabilization: {{ iterations: 150 }}
+                    stabilization: {{ iterations: 200 }}
                 }}
             }}
         );

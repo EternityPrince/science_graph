@@ -153,7 +153,31 @@ class Indexer:
         self.graph_repo.save_paper(paper)
         
         # 3. Create Author nodes & AUTHORED edges
-        all_authors = list(set(paper.authors + llm_authors))
+        # Combine: PDF-parsed authors + LLM-parsed authors + NER from first page
+        all_authors_raw = list(paper.authors) + list(llm_authors)
+        
+        # NER on first page as additional fallback when we have very few authors
+        if len(all_authors_raw) < 2:
+            try:
+                from src.ner_engine import extract_persons_from_text
+                import fitz
+                doc = fitz.open(file_path)
+                first_page_text = doc[0].get_text() if len(doc) > 0 else ""
+                doc.close()
+                ner_names = extract_persons_from_text(first_page_text[:2000])
+                all_authors_raw += [n for n in ner_names if 1 < len(n.split()) <= 5]
+            except Exception:
+                pass
+        
+        # Deduplicate (case-insensitive)
+        seen_authors: set = set()
+        all_authors: list = []
+        for a in all_authors_raw:
+            key = a.lower().strip()
+            if key and key not in seen_authors:
+                seen_authors.add(key)
+                all_authors.append(a)
+        
         for author_name in all_authors:
             author_id = self._slugify(author_name)
             author = Author(id=author_id, name=author_name)

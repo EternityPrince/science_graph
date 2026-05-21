@@ -9,6 +9,7 @@ CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.yaml"
 DEFAULT_CONFIG = {
     "db_path": str(DEFAULT_DATA_DIR / "graph.db"),
     "archive_dir": str(DEFAULT_DATA_DIR / "archive"),
+    "hf_token": "",
     "llm": {
         "provider": "mlx",
         "api_key": "",
@@ -35,6 +36,12 @@ class Config:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
         self.data = self._load_or_create_config()
+        
+        # Apply HF token to environment if set
+        hf_token = self.data.get("hf_token", "")
+        if hf_token:
+            os.environ["HF_TOKEN"] = hf_token
+            os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
         
         # Create archive dir if defined
         Path(self.data["archive_dir"]).mkdir(parents=True, exist_ok=True)
@@ -63,6 +70,10 @@ class Config:
         """Saves current configuration to the config.yaml file."""
         with open(self.config_file, "w", encoding="utf-8") as f:
             yaml.dump(self.data, f, default_flow_style=False, allow_unicode=True)
+
+    @property
+    def hf_token(self) -> str:
+        return self.data.get("hf_token", "")
 
     @property
     def db_path(self) -> str:

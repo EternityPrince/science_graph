@@ -111,6 +111,15 @@ def handle_command(cmd_str: str, rag_pipeline: RAGPipeline, console: Console):
                 base_url = prompt(f"Base URL [{config.llm_base_url}]: ").strip()
                 if base_url: config.data["llm"]["base_url"] = base_url
                 
+            # HuggingFace token — always shown
+            masked_hf = ("*" * len(config.hf_token)) if config.hf_token else "(not set)"
+            hf_token = prompt(f"HuggingFace Token (HF_TOKEN) [{masked_hf}]: ", is_password=True).strip()
+            if hf_token:
+                config.data["hf_token"] = hf_token
+                import os
+                os.environ["HF_TOKEN"] = hf_token
+                os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
+                
             config.save()
             console.print("[bold green]Configuration saved![/bold green]")
             console.print("[dim]Note: Some changes (like model) require restarting the application.[/dim]")

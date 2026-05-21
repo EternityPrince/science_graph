@@ -49,26 +49,69 @@ class PDFParser:
         # 3. Extract Authors
         author_meta = doc.metadata.get("author", "")
         authors = []
+        
+        # PDF metadata author field — split by comma/semicolon/and
         if author_meta:
-            # Split by comma, semicolon or 'and'
-            authors = [a.strip() for a in re.split(r',|;| and ', author_meta) if a.strip()]
+            raw = [a.strip() for a in re.split(r',|;|\band\b', author_meta, flags=re.IGNORECASE) if a.strip()]
+            # Accept only plausible names: 2+ words, no digits, reasonable length
+            authors = [a for a in raw if 2 <= len(a.split()) <= 5 and not any(c.isdigit() for c in a) and len(a) < 60]
         
         if not authors:
-            # Fallback heuristic: look at first page under the title
-            # This is very basic, but we'll try to get 1st page text lines
+            # Heuristic: scan first-page lines for a comma-separated author block.
+            # Academic papers typically have authors right after the title.
+            # Pattern: "Firstname Lastname, Firstname Lastname" etc.
+            # We look for lines that look like lists of names (>=2 capitalized words per segment)
             lines = [line.strip() for line in first_page_text.split("\n") if line.strip()]
+            
+            # Find where title ends on first page
             title_idx = -1
-            for idx, line in enumerate(lines):
-                if title in line or (len(title) > 10 and title[:10] in line):
+            for idx, line in enumerate(lines[:10]):
+                if len(title) > 8 and (title[:15].lower() in line.lower() or line.lower() in title.lower()):
                     title_idx = idx
                     break
-            if title_idx != -1 and title_idx + 1 < len(lines):
-                author_line = lines[title_idx + 1]
-                if len(author_line) < 100 and not any(w in author_line.lower() for w in ["abstract", "introduction", "arxiv"]):
-                    authors = [a.strip() for a in re.split(r',|;| and ', author_line) if a.strip()]
+
+            # Check lines after title for author-looking content
+            # Typical: "Ashish Vaswani1, Noam Shazeer1, Niki Parmar1, ..."
+            AUTHOR_LINE_RE = re.compile(
+                r'^([A-Z][a-zé-]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-zé-]+){0,3}[,\*\d]*'
+                r'(?:\s*,\s*[A-Z][a-zé-]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-zé-]+){0,3}[,\*\d]*)*)$'
+            )
+            NAME_TOKEN_RE = re.compile(r'[A-Z][a-zé-]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-zé-]+){0,2}')
+            
+            search_start = max(0, title_idx)
+            for line in lines[search_start:search_start + 10]:
+                # Strip trailing superscript digits/symbols before checking
+                clean_line = re.sub(r'[\d\*†‡§]+', '', line).strip()
+                if len(clean_line) < 5 or len(clean_line) > 300:
+                    continue
+                if any(w in clean_line.lower() for w in ["abstract", "introduction", "arxiv", "http", "@", "university", "google", "deepmind"]):
+                    continue
+                # Count how many name-like tokens we find
+                tokens = NAME_TOKEN_RE.findall(clean_line)
+                if len(tokens) >= 2:
+                    authors = [t.strip() for t in tokens if 1 < len(t.split()) <= 5]
+                    if len(authors) >= 2:
+                        break
+            
+            # Last resort: run NER on the first 2000 chars of the first page
+            if not authors:
+                try:
+                    from src.ner_engine import extract_persons_from_text
+                    ner_names = extract_persons_from_text(first_page_text[:2000])
+                    # Keep only names, not institution/venue names
+                    authors = [n for n in ner_names if 1 < len(n.split()) <= 5][:15]
+                except Exception:
+                    pass
         
-        # Clean authors list
-        authors = [a for a in authors if len(a) > 2 and not any(char.isdigit() for char in a)]
+        # Final cleanup: strip trailing digits/punctuation, deduplicate
+        cleaned = []
+        seen = set()
+        for a in authors:
+            a = re.sub(r'[\d\*†‡§,]+$', '', a).strip()
+            if a and a.lower() not in seen and len(a) > 3:
+                seen.add(a.lower())
+                cleaned.append(a)
+        authors = cleaned
 
         # 4. Extract Year
         year = None

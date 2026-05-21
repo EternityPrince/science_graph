@@ -53,7 +53,7 @@ class SQLiteGraphRepository(GraphRepository):
             conn.commit()
 
     def save_paper(self, paper: Paper) -> None:
-        props = {**paper.properties, "title": paper.title, "authors": paper.authors, "year": paper.year, "doi": paper.doi, "abstract": paper.abstract}
+        props = {**paper.properties, "title": paper.title, "authors": paper.authors, "year": paper.year, "doi": paper.doi, "abstract": paper.abstract, "file_path": paper.file_path}
         with self._get_connection() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
@@ -79,10 +79,11 @@ class SQLiteGraphRepository(GraphRepository):
             )
 
     def save_author(self, author: Author) -> None:
+        props = {**author.properties, "name": author.name}
         with self._get_connection() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
-                (author.id, "Author", json.dumps(author.properties, ensure_ascii=False))
+                (author.id, "Author", json.dumps(props, ensure_ascii=False))
             )
             conn.commit()
 
@@ -99,10 +100,11 @@ class SQLiteGraphRepository(GraphRepository):
             )
 
     def save_concept(self, concept: Concept) -> None:
+        props = {**concept.properties, "name": concept.name}
         with self._get_connection() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
-                (concept.id, "Concept", json.dumps(concept.properties, ensure_ascii=False))
+                (concept.id, "Concept", json.dumps(props, ensure_ascii=False))
             )
             conn.commit()
 
