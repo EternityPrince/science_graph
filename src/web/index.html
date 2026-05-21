@@ -48,6 +48,7 @@
       --col-book:    #7950f2;
       --col-author:  #fab005;
       --col-concept: #12b886;
+      --col-tag:     #e64980;
     }
 
     html, body { height: 100%; }
@@ -100,11 +101,44 @@
     }
     .logo-sub { font-size: 11px; color: var(--text3); font-weight: 400; }
 
+    /* header nav tabs */
+    .header-nav {
+      display: flex;
+      gap: 8px;
+      margin-left: 24px;
+    }
+    .nav-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--text2);
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 500;
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all var(--transition);
+    }
+    .nav-btn:hover {
+      background: var(--surface2);
+      color: var(--text);
+    }
+    .nav-btn.active {
+      background: var(--surface3);
+      border-color: var(--border);
+      color: var(--accent);
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
+    }
+
     /* search */
     .search-wrap {
       flex: 1;
-      max-width: 440px;
+      max-width: 360px;
       position: relative;
+      margin-left: 20px;
     }
     #search-input {
       width: 100%;
@@ -182,9 +216,26 @@
       display: flex;
       flex: 1;
       overflow: hidden;
+      position: relative;
     }
 
-    /* ── Graph area ──────────────────────────────────────────────────────────── */
+    /* ── Main Views ──────────────────────────────────────────────────────────── */
+    .main-view {
+      display: none;
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    .main-view.active {
+      display: flex;
+    }
+
+    /* ── Graph view layout ───────────────────────────────────────────────────── */
+    #view-graph {
+      flex-direction: row;
+    }
+
     #graph-wrap {
       flex: 1;
       position: relative;
@@ -194,6 +245,29 @@
 
     #mynetwork {
       width: 100%; height: 100%;
+    }
+
+    /* Details sidebar (strictly node details) */
+    #details-sidebar {
+      width: 380px;
+      min-width: 320px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar-header {
+      padding: 14px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text3);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
 
     /* Graph overlay controls */
@@ -255,64 +329,48 @@
     .empty-title { font-size: 18px; font-weight: 600; }
     .empty-sub { font-size: 13px; color: var(--text2); text-align: center; max-width: 300px; }
 
-    /* ── Sidebar ─────────────────────────────────────────────────────────────── */
-    #sidebar {
-      width: 380px;
-      min-width: 320px;
+    /* ── Chat view layout ────────────────────────────────────────────────────── */
+    #view-chat {
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      background: var(--bg);
+    }
+    .chat-container {
+      width: 100%;
+      max-width: 840px;
+      height: 100%;
       background: var(--surface);
-      border-left: 1px solid var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      box-shadow: var(--shadow);
     }
 
-    .sidebar-tabs {
-      display: flex;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .tab-btn {
-      flex: 1;
-      padding: 12px 4px;
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      color: var(--text3);
-      font-family: inherit;
-      font-size: 11px; font-weight: 600;
-      cursor: pointer;
-      text-transform: uppercase; letter-spacing: 0.5px;
-      transition: all var(--transition);
-    }
-    .tab-btn:hover { color: var(--text2); }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-    .tab-panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
-    .tab-panel.active { display: flex; }
-
-    /* ── Chat panel ──────────────────────────────────────────────────────────── */
     #chat-messages {
       flex: 1;
       overflow-y: auto;
-      padding: 16px;
+      padding: 20px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 16px;
     }
 
     .msg {
       display: flex;
-      gap: 10px;
+      gap: 12px;
       animation: fadeIn 0.2s ease;
     }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
 
     .msg-avatar {
-      width: 30px; height: 30px;
+      width: 32px; height: 32px;
       border-radius: 50%;
       flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 14px;
+      font-size: 15px;
     }
     .msg-user .msg-avatar  { background: var(--accent); }
     .msg-agent .msg-avatar { background: linear-gradient(135deg, var(--green), #0ca678); }
@@ -320,11 +378,11 @@
     .msg-body { flex: 1; min-width: 0; }
     .msg-name { font-size: 11px; font-weight: 600; color: var(--text3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
     .msg-text {
-      font-size: 13.5px; line-height: 1.65;
+      font-size: 14px; line-height: 1.65;
       color: var(--text);
       background: var(--surface2);
       border-radius: 0 var(--radius-sm) var(--radius-sm) var(--radius-sm);
-      padding: 10px 14px;
+      padding: 12px 16px;
       border: 1px solid var(--border);
     }
     .msg-user .msg-text {
@@ -342,7 +400,7 @@
     }
     .msg-text pre {
       background: rgba(0,0,0,0.35);
-      border-radius: 6px; padding: 10px 12px;
+      border-radius: 6px; padding: 12px;
       overflow-x: auto; margin: 8px 0;
     }
     .msg-text pre code { background: none; padding: 0; }
@@ -359,19 +417,19 @@
       flex: 1;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      gap: 10px;
+      gap: 12px;
       color: var(--text3);
       text-align: center;
       padding: 24px;
     }
-    .chat-welcome .icon { font-size: 36px; }
-    .chat-welcome h3 { font-size: 15px; color: var(--text2); font-weight: 600; }
-    .chat-welcome p { font-size: 13px; line-height: 1.5; }
+    .chat-welcome .icon { font-size: 40px; }
+    .chat-welcome h3 { font-size: 16px; color: var(--text2); font-weight: 600; }
+    .chat-welcome p { font-size: 13.5px; line-height: 1.5; max-width: 320px; }
 
     .chat-input-wrap {
-      padding: 12px 16px;
+      padding: 16px 20px;
       border-top: 1px solid var(--border);
-      display: flex; gap: 8px;
+      display: flex; gap: 10px;
       flex-shrink: 0;
     }
     #chat-input {
@@ -380,17 +438,17 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       color: var(--text);
-      font-family: inherit; font-size: 13px;
-      padding: 10px 14px;
+      font-family: inherit; font-size: 13.5px;
+      padding: 12px 14px;
       outline: none; resize: none;
-      min-height: 42px; max-height: 120px;
+      min-height: 44px; max-height: 120px;
       transition: border-color var(--transition), box-shadow var(--transition);
     }
     #chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     #chat-input::placeholder { color: var(--text3); }
 
     #chat-send {
-      width: 42px; height: 42px;
+      width: 44px; height: 44px;
       background: var(--accent);
       border: none; border-radius: var(--radius-sm);
       color: #fff; font-size: 18px; cursor: pointer;
@@ -401,7 +459,87 @@
     #chat-send:hover { background: var(--accent2); transform: scale(1.05); }
     #chat-send:disabled { background: var(--border); cursor: not-allowed; transform: none; }
 
-    /* ── Node details panel ──────────────────────────────────────────────────── */
+    /* ── Notes view layout ───────────────────────────────────────────────────── */
+    #view-notes {
+      padding: 20px;
+      background: var(--bg);
+      justify-content: center;
+    }
+    .notes-container {
+      display: flex;
+      gap: 20px;
+      width: 100%;
+      height: 100%;
+      max-width: 1200px;
+    }
+    .notes-list-pane {
+      width: 360px;
+      min-width: 300px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+    }
+    .notes-form-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+    }
+
+    /* ── Chronology view layout ──────────────────────────────────────────────── */
+    #view-chronology {
+      padding: 20px;
+      background: var(--bg);
+      justify-content: center;
+    }
+    .chronology-container {
+      display: flex;
+      gap: 20px;
+      width: 100%;
+      height: 100%;
+      max-width: 1200px;
+    }
+    .chronology-left-pane {
+      width: 440px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      height: 100%;
+      overflow-y: auto;
+    }
+    .chronology-right-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+    #timeline-list {
+      flex: 1;
+      overflow-y: auto;
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ── Upload view layout ──────────────────────────────────────────────────── */
+    #view-upload {
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      background: var(--bg);
+    }
+    .upload-container {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Details panel ───────────────────────────────────────────────────────── */
     #details-panel {
       flex: 1; overflow-y: auto;
       padding: 20px 16px;
@@ -419,6 +557,7 @@
       border-radius: var(--radius);
       padding: 16px;
       margin-bottom: 12px;
+      transition: border-color var(--transition);
     }
     .details-card h3 {
       font-size: 14px; font-weight: 600; color: var(--text);
@@ -433,6 +572,7 @@
     .badge-book   { background: rgba(121,80,242,0.2);  color: var(--col-book); }
     .badge-author { background: rgba(250,176,5,0.2);   color: var(--col-author); }
     .badge-concept{ background: rgba(18,184,134,0.2);  color: var(--col-concept); }
+    .badge-tag    { background: rgba(230,73,128,0.2);   color: var(--col-tag); }
 
     .details-row { display: flex; flex-direction: column; gap: 8px; }
     .details-field { display: flex; flex-direction: column; gap: 2px; }
@@ -458,13 +598,7 @@
       padding: 10px 12px;
     }
 
-    /* ── Upload panel ────────────────────────────────────────────────────────── */
-    #upload-panel {
-      flex: 1;
-      padding: 20px 16px;
-      overflow-y: auto;
-    }
-
+    /* ── Upload components ───────────────────────────────────────────────────── */
     .drop-zone {
       border: 2px dashed var(--border);
       border-radius: var(--radius);
@@ -490,8 +624,8 @@
       font-family: 'JetBrains Mono', monospace;
       font-size: 11.5px;
       color: var(--text2);
-      min-height: 80px;
-      max-height: 200px;
+      min-height: 120px;
+      max-height: 240px;
       overflow-y: auto;
       white-space: pre-wrap;
     }
@@ -505,7 +639,6 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 14px;
-      margin-bottom: 12px;
     }
     .heatmap-header {
       font-size: 11px;
@@ -622,6 +755,15 @@
     </div>
   </a>
 
+  <!-- Navigation Bar -->
+  <nav class="header-nav">
+    <button class="nav-btn active" data-view="graph">🗺️ Граф</button>
+    <button class="nav-btn" data-view="chat">💬 Чат</button>
+    <button class="nav-btn" data-view="notes">📝 Заметки</button>
+    <button class="nav-btn" data-view="chronology">📅 Хронология</button>
+    <button class="nav-btn" data-view="upload">📤 Загрузка</button>
+  </nav>
+
   <div class="search-wrap">
     <span class="search-icon">🔍</span>
     <input type="text" id="search-input" placeholder="Поиск по статьям, книгам, заметкам…" autocomplete="off" />
@@ -644,53 +786,60 @@
 <!-- ── Main layout ──────────────────────────────────────────────────────────── -->
 <div id="layout">
 
-  <!-- Graph -->
-  <div id="graph-wrap">
-    <div id="graph-loading">
-      <div class="spinner"></div>
-      <div class="loading-text">Загрузка графа знаний…</div>
+  <!-- View: Graph -->
+  <div id="view-graph" class="main-view active">
+    <div id="graph-wrap">
+      <div id="graph-loading">
+        <div class="spinner"></div>
+        <div class="loading-text">Загрузка графа знаний…</div>
+      </div>
+
+      <div id="graph-empty">
+        <div class="empty-icon">🗂️</div>
+        <div class="empty-title">База данных пуста</div>
+        <div class="empty-sub">Загрузите PDF-статьи, Markdown-заметки или EPUB-книги через вкладку «Загрузка» →</div>
+      </div>
+
+      <!-- Filter chips -->
+      <div class="graph-controls" id="filter-chips">
+        <div class="filter-chip active" data-group="paper" id="chip-paper">
+          <span class="chip-dot" style="background:var(--col-paper)"></span> Статьи
+        </div>
+        <div class="filter-chip active" data-group="note" id="chip-note">
+          <span class="chip-dot" style="background:var(--col-note)"></span> Заметки
+        </div>
+        <div class="filter-chip active" data-group="book" id="chip-book">
+          <span class="chip-dot" style="background:var(--col-book)"></span> Книги
+        </div>
+        <div class="filter-chip active" data-group="author" id="chip-author">
+          <span class="chip-dot" style="background:var(--col-author)"></span> Авторы
+        </div>
+        <div class="filter-chip active" data-group="concept" id="chip-concept">
+          <span class="chip-dot" style="background:var(--col-concept)"></span> Концепты
+        </div>
+        <div class="filter-chip active" data-group="tag" id="chip-tag">
+          <span class="chip-dot" style="background:var(--col-tag)"></span> Теги
+        </div>
+      </div>
+
+      <div id="mynetwork"></div>
     </div>
 
-    <div id="graph-empty">
-      <div class="empty-icon">🗂️</div>
-      <div class="empty-title">База данных пуста</div>
-      <div class="empty-sub">Загрузите PDF-статьи, Markdown-заметки или EPUB-книги через вкладку «Загрузка» →</div>
-    </div>
-
-    <!-- Filter chips -->
-    <div class="graph-controls" id="filter-chips">
-      <div class="filter-chip active" data-group="paper" id="chip-paper">
-        <span class="chip-dot" style="background:var(--col-paper)"></span> Статьи
+    <!-- Right Sidebar strictly for details -->
+    <aside id="details-sidebar">
+      <div class="sidebar-header">📋 Детали узла</div>
+      <div id="details-panel">
+        <div class="details-empty">
+          <div class="icon">👆</div>
+          <p>Кликните на узел графа, чтобы увидеть детали</p>
+        </div>
       </div>
-      <div class="filter-chip active" data-group="note" id="chip-note">
-        <span class="chip-dot" style="background:var(--col-note)"></span> Заметки
-      </div>
-      <div class="filter-chip active" data-group="book" id="chip-book">
-        <span class="chip-dot" style="background:var(--col-book)"></span> Книги
-      </div>
-      <div class="filter-chip active" data-group="author" id="chip-author">
-        <span class="chip-dot" style="background:var(--col-author)"></span> Авторы
-      </div>
-      <div class="filter-chip active" data-group="concept" id="chip-concept">
-        <span class="chip-dot" style="background:var(--col-concept)"></span> Концепты
-      </div>
-    </div>
-
-    <div id="mynetwork"></div>
+    </aside>
   </div>
 
-  <!-- Sidebar -->
-  <aside id="sidebar">
-    <div class="sidebar-tabs">
-      <button class="tab-btn active" data-tab="chat" id="tab-chat">💬 Чат</button>
-      <button class="tab-btn" data-tab="details" id="tab-details">📋 Детали</button>
-      <button class="tab-btn" data-tab="notes" id="tab-notes">📝 Заметки</button>
-      <button class="tab-btn" data-tab="chronology" id="tab-chronology">📅 Хронология</button>
-      <button class="tab-btn" data-tab="upload" id="tab-upload">📤 Загрузка</button>
-    </div>
-
-    <!-- Chat tab -->
-    <div class="tab-panel active" id="panel-chat">
+  <!-- View: Chat -->
+  <div id="view-chat" class="main-view">
+    <div class="chat-container">
       <div id="chat-messages">
         <div class="chat-welcome" id="chat-welcome">
           <div class="icon">🤖</div>
@@ -703,20 +852,23 @@
         <button id="chat-send" title="Отправить (Enter)">➤</button>
       </div>
     </div>
+  </div>
 
-    <!-- Details tab -->
-    <div class="tab-panel" id="panel-details">
-      <div id="details-panel">
-        <div class="details-empty">
-          <div class="icon">👆</div>
-          <p>Кликните на узел графа, чтобы увидеть детали</p>
+  <!-- View: Notes -->
+  <div id="view-notes" class="main-view">
+    <div class="notes-container">
+      <!-- Left side: List of notes -->
+      <div class="notes-list-pane">
+        <div class="details-card">
+          <h3>📋 Мои заметки</h3>
+          <div id="notes-list" style="display: flex; flex-direction: column; gap: 10px; margin-top:12px;">
+            <div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;">Загрузка заметок...</div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Notes tab -->
-    <div class="tab-panel" id="panel-notes">
-      <div style="padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px;">
+      <!-- Right side: Create/Edit notes form -->
+      <div class="notes-form-pane">
         <div class="details-card">
           <h3>📝 Создать заметку</h3>
           <form id="note-form" onsubmit="event.preventDefault(); saveNewNote();" style="margin-top:12px;">
@@ -739,19 +891,15 @@
             <button type="submit" class="btn btn-primary" style="width: 100%;">Сохранить заметку</button>
           </form>
         </div>
-
-        <div class="details-card">
-          <h3>📋 Мои заметки</h3>
-          <div id="notes-list" style="display: flex; flex-direction: column; gap: 10px; margin-top:12px;">
-            <div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;">Загрузка заметок...</div>
-          </div>
-        </div>
       </div>
     </div>
+  </div>
 
-    <!-- Chronology tab -->
-    <div class="tab-panel" id="panel-chronology">
-      <div style="padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px;">
+  <!-- View: Chronology -->
+  <div id="view-chronology" class="main-view">
+    <div class="chronology-container">
+      <!-- Left Column: Heatmap and date filter -->
+      <div class="chronology-left-pane">
         <!-- Heatmap Grid -->
         <div class="heatmap-container">
           <div class="heatmap-header">Календарь активности (53 недели)</div>
@@ -786,20 +934,25 @@
           </div>
           <div id="filter-status-msg" style="font-size: 11px; color: var(--accent); margin-top: 8px; display: none;"></div>
         </div>
+      </div>
 
-        <!-- Timeline -->
-        <div class="details-card">
+      <!-- Right Column: Timeline -->
+      <div class="chronology-right-pane">
+        <div class="details-card" style="height: 100%; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 0;">
           <h3>⏳ Хронология публикаций</h3>
-          <div id="timeline-list" style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px;">
+          <div id="timeline-list">
             <div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;">Загрузка хронологии...</div>
           </div>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Upload tab -->
-    <div class="tab-panel" id="panel-upload">
-      <div id="upload-panel">
+  <!-- View: Upload -->
+  <div id="view-upload" class="main-view">
+    <div class="upload-container">
+      <div class="details-card" style="width: 100%; max-width: 600px; margin-bottom: 0;">
+        <h3 style="margin-bottom: 16px;">📤 Загрузка файлов</h3>
         <div class="drop-zone" id="drop-zone">
           <div class="drop-icon">📂</div>
           <h3>Перетащите файл или кликните</h3>
@@ -809,7 +962,8 @@
         <div class="upload-log" id="upload-log"><span class="log-info">Ожидание файла…</span></div>
       </div>
     </div>
-  </aside>
+  </div>
+
 </div>
 
 <!-- Toast container -->
@@ -841,15 +995,33 @@ function log(msg, type = 'info') {
   box.scrollTop = box.scrollHeight;
 }
 
-/* ── Tab switching ────────────────────────────────────────────────────────── */
-document.querySelectorAll('.tab-btn').forEach(btn => {
+/* ── Main View Switching ──────────────────────────────────────────────────── */
+document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
+    switchView(btn.dataset.view);
   });
 });
+
+function switchView(viewName) {
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    if (b.dataset.view === viewName) {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
+  document.querySelectorAll('.main-view').forEach(v => {
+    if (v.id === `view-${viewName}`) {
+      v.classList.add('active');
+    } else {
+      v.classList.remove('active');
+    }
+  });
+  // Redraw network when switching to graph tab to avoid vis-network rendering artifacts
+  if (viewName === 'graph' && network) {
+    network.redraw();
+  }
+}
 
 /* ── Stats ────────────────────────────────────────────────────────────────── */
 async function loadStats() {
@@ -867,7 +1039,7 @@ async function loadStats() {
 let network = null;
 let allNodes = null;
 let allEdges = null;
-const activeFilters = new Set(['paper','note','book','author','concept']);
+const activeFilters = new Set(['paper','note','book','author','concept','tag']);
 
 async function loadGraph() {
   document.getElementById('graph-loading').classList.remove('hidden');
@@ -922,11 +1094,6 @@ async function loadGraph() {
     network.on('click', async ({ nodes }) => {
       if (!nodes.length) return;
       await showNodeDetails(nodes[0]);
-      // Switch to details tab
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      document.getElementById('tab-details').classList.add('active');
-      document.getElementById('panel-details').classList.add('active');
     });
 
     network.on('hoverNode', () => { container.style.cursor = 'pointer'; });
@@ -997,7 +1164,7 @@ document.getElementById('btn-refresh').addEventListener('click', () => {
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   NODE DETAILS
+   NODE DETAILS (Polymorphic rendering)
    ═══════════════════════════════════════════════════════════════════════════ */
 async function showNodeDetails(nodeId) {
   const panel = document.getElementById('details-panel');
@@ -1017,10 +1184,137 @@ async function showNodeDetails(nodeId) {
 }
 
 function renderDetails(panel, d) {
+  let html = '';
+
+  // ── Render polymorphic Author node ──
+  if (d.type === 'author') {
+    html = `
+      <div class="details-card">
+        <h3>
+          <span class="details-badge badge-author">Автор</span>
+          ${esc(d.name)}
+        </h3>
+        <div class="details-row" style="margin-top: 10px;">
+          <div class="details-field">
+            <div class="details-label">Количество публикаций</div>
+            <div class="details-value">${d.papers_count}</div>
+          </div>
+        </div>
+      </div>`;
+
+    if (d.papers?.length) {
+      const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+      html += `<div class="details-card">
+        <h3>📚 Публикации</h3>
+        <div class="details-row" style="margin-top: 10px; gap: 10px;">
+          ${d.papers.map(p => `
+            <div class="details-value" style="font-size:13px; cursor:pointer; display:flex; gap:6px; align-items:center;" onclick="focusAndDetails('${esc(p.id)}')">
+              <span>${typeIcon[p.source_type] || '📄'}</span>
+              <span style="color: var(--accent);">${esc(p.title)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+    panel.innerHTML = html;
+    return;
+  }
+
+  // ── Render polymorphic Concept node ──
+  if (d.type === 'concept') {
+    html = `
+      <div class="details-card">
+        <h3>
+          <span class="details-badge badge-concept">Концепт</span>
+          ${esc(d.name)}
+        </h3>
+        <div class="details-row" style="margin-top: 10px;">
+          <div class="details-field">
+            <div class="details-label">Описание</div>
+            <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${esc(d.description)}</div>
+          </div>
+        </div>
+      </div>`;
+
+    if (d.papers?.length) {
+      const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+      html += `<div class="details-card">
+        <h3>📚 Упоминания в работах</h3>
+        <div class="details-row" style="margin-top: 10px; gap: 10px;">
+          ${d.papers.map(p => `
+            <div class="details-value" style="font-size:13px; cursor:pointer; display:flex; gap:6px; align-items:center;" onclick="focusAndDetails('${esc(p.id)}')">
+              <span>${typeIcon[p.source_type] || '📄'}</span>
+              <span style="color: var(--accent);">${esc(p.title)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    if (d.related?.length) {
+      html += `<div class="details-card">
+        <h3>🏷️ Связанные теги</h3>
+        <div class="tag-list" style="margin-top: 10px;">
+          ${d.related.map(t => `
+            <span class="tag" style="border-color: var(--col-tag); color: var(--col-tag);" onclick="focusAndDetails('${esc(t.id)}')">${esc(t.name)}</span>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+    panel.innerHTML = html;
+    return;
+  }
+
+  // ── Render polymorphic Tag node ──
+  if (d.type === 'tag') {
+    html = `
+      <div class="details-card">
+        <h3>
+          <span class="details-badge badge-tag">Тег</span>
+          ${esc(d.name)}
+        </h3>
+        <div class="details-row" style="margin-top: 10px;">
+          <div class="details-field">
+            <div class="details-label">Описание</div>
+            <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${esc(d.description)}</div>
+          </div>
+        </div>
+      </div>`;
+
+    if (d.papers?.length) {
+      const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+      html += `<div class="details-card">
+        <h3>📚 Работы с этим тегом</h3>
+        <div class="details-row" style="margin-top: 10px; gap: 10px;">
+          ${d.papers.map(p => `
+            <div class="details-value" style="font-size:13px; cursor:pointer; display:flex; gap:6px; align-items:center;" onclick="focusAndDetails('${esc(p.id)}')">
+              <span>${typeIcon[p.source_type] || '📄'}</span>
+              <span style="color: var(--accent);">${esc(p.title)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    if (d.related?.length) {
+      html += `<div class="details-card">
+        <h3>🧠 Связанные концепты</h3>
+        <div class="tag-list" style="margin-top: 10px;">
+          ${d.related.map(c => `
+            <span class="tag" onclick="focusAndDetails('${esc(c.id)}')">${esc(c.name)}</span>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+    panel.innerHTML = html;
+    return;
+  }
+
+  // ── Render Paper (default document) node ──
   const typeLabel = { paper: 'Статья', note: 'Заметка', book: 'Книга' }[d.source_type] || 'Документ';
   const badgeClass = { paper: 'badge-paper', note: 'badge-note', book: 'badge-book' }[d.source_type] || 'badge-paper';
 
-  let html = `
+  html = `
     <div class="details-card">
       <h3>
         <span class="details-badge ${badgeClass}">${typeLabel}</span>
@@ -1052,9 +1346,18 @@ function renderDetails(panel, d) {
 
   if (d.concepts?.length) {
     html += `<div class="details-card">
-      <h3>🏷️ Концепты</h3>
+      <h3>🧠 Концепты</h3>
       <div class="tag-list" style="margin-top: 10px;">${d.concepts.map(c =>
-        `<span class="tag" onclick="focusNode('${esc(c)}')">${esc(c)}</span>`
+        `<span class="tag" onclick="focusAndDetails('${esc(c.id)}')">${esc(c.name)}</span>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (d.tags?.length) {
+    html += `<div class="details-card">
+      <h3>🏷️ Теги</h3>
+      <div class="tag-list" style="margin-top: 10px;">${d.tags.map(t =>
+        `<span class="tag" style="border-color: var(--col-tag); color: var(--col-tag);" onclick="focusAndDetails('${esc(t.id)}')">${esc(t.name)}</span>`
       ).join('')}</div>
     </div>`;
   }
@@ -1062,8 +1365,8 @@ function renderDetails(panel, d) {
   if (d.citations?.length) {
     html += `<div class="details-card">
       <h3>📎 Цитирует (${d.citations.length})</h3>
-      <div class="details-row" style="margin-top: 10px;">${d.citations.map(t =>
-        `<div class="details-value" style="font-size:12px;color:var(--text2)">• ${esc(t)}</div>`
+      <div class="details-row" style="margin-top: 10px; gap: 8px;">${d.citations.map(t =>
+        `<div class="details-value" style="font-size:12px;color:var(--accent);cursor:pointer;" onclick="focusAndDetails('${esc(t.id)}')">• ${esc(t.title)}</div>`
       ).join('')}</div>
     </div>`;
   }
@@ -1071,8 +1374,8 @@ function renderDetails(panel, d) {
   if (d.cited_by?.length) {
     html += `<div class="details-card">
       <h3>📌 Цитируется в (${d.cited_by.length})</h3>
-      <div class="details-row" style="margin-top: 10px;">${d.cited_by.map(t =>
-        `<div class="details-value" style="font-size:12px;color:var(--text2)">• ${esc(t)}</div>`
+      <div class="details-row" style="margin-top: 10px; gap: 8px;">${d.cited_by.map(t =>
+        `<div class="details-value" style="font-size:12px;color:var(--accent);cursor:pointer;" onclick="focusAndDetails('${esc(t.id)}')">• ${esc(t.title)}</div>`
       ).join('')}</div>
     </div>`;
   }
@@ -1098,11 +1401,10 @@ function esc(s) {
 }
 
 function askAbout(title) {
+  switchView('chat');
   const input = document.getElementById('chat-input');
   input.value = `Расскажи подробнее о работе "${title}"`;
   input.focus();
-  // Switch to chat tab
-  document.getElementById('tab-chat').click();
 }
 
 async function openLocalFile(filePath) {
@@ -1128,6 +1430,12 @@ function focusNode(nodeId) {
     network.selectNodes([nodeId]);
     network.focus(nodeId, { scale: 1.4, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
   }
+}
+
+async function focusAndDetails(nodeId) {
+  switchView('graph');
+  focusNode(nodeId);
+  await showNodeDetails(nodeId);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1174,13 +1482,7 @@ function renderSearchResults(results) {
 async function selectSearchResult(nodeId) {
   searchResults.classList.remove('visible');
   searchInput.value = '';
-  // Focus node in graph
-  if (network) {
-    network.selectNodes([nodeId]);
-    network.focus(nodeId, { scale: 1.4, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
-  }
-  await showNodeDetails(nodeId);
-  document.getElementById('tab-details').click();
+  await focusAndDetails(nodeId);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1311,7 +1613,7 @@ function renderNotesList(notes) {
   list.innerHTML = notes.map(n => {
     const dateStr = n.created_at ? n.created_at.substring(0, 10) : '—';
     return `
-      <div class="details-card" style="margin-bottom:8px;padding:12px;cursor:pointer;border-color:var(--border2);" onclick="selectSearchResult('${esc(n.id)}')">
+      <div class="details-card" style="margin-bottom:8px;padding:12px;cursor:pointer;border-color:var(--border2);" onclick="focusAndDetails('${esc(n.id)}')">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span style="font-size:13px;font-weight:600;color:var(--text);">${esc(n.title)}</span>
         </div>
@@ -1507,7 +1809,7 @@ function renderTimeline() {
     const dateStr = d.created_at ? d.created_at.substring(0, 16).replace('T', ' ') : '—';
     const label = d.label || d.id;
     return `
-      <div class="details-card" style="margin-bottom:8px;padding:12px;cursor:pointer;border-color:var(--border2);" onclick="selectSearchResult('${esc(d.id)}')">
+      <div class="details-card" style="margin-bottom:8px;padding:12px;cursor:pointer;border-color:var(--border2);" onclick="focusAndDetails('${esc(d.id)}')">
         <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:4px;">
           <span>${typeIcon[d.group] || '📄'}</span>
           <span style="font-size:13px;font-weight:600;color:var(--text);line-height:1.4;">${esc(label)}</span>
@@ -1574,6 +1876,7 @@ async function uploadFile(file) {
    INIT
    ═══════════════════════════════════════════════════════════════════════════ */
 (async () => {
+  switchView('graph');
   await Promise.all([loadStats(), loadGraph(), loadNotes()]);
 })();
 </script>

@@ -167,9 +167,14 @@ async def get_graph():
             group = "author"
         elif label == "Concept":
             display = props.get("name", r["id"])
-            color = "#12b886"
-            size = 16
-            group = "concept"
+            if props.get("is_tag"):
+                color = "#e64980"  # pink tag color
+                size = 15
+                group = "tag"
+            else:
+                color = "#12b886"
+                size = 16
+                group = "concept"
         else:
             display = r["id"]
             color = "#868e96"
@@ -213,49 +218,174 @@ async def get_graph():
 @app.get("/api/paper/{paper_id:path}")
 async def get_paper(paper_id: str):
     gr, _ = _get_repos()
-    paper = gr.get_paper(paper_id)
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
 
-    neighbors = gr.get_neighbors(paper_id, max_depth=1)
-    concepts = []
-    authors = []
-    citations = []
-    cited_by = []
+    # Polymorphic retrieval: determine the label and properties of the node
+    conn = sqlite3.connect(gr.db_path)
+    conn.row_factory = sqlite3.Row
+    node_row = conn.execute("SELECT label, properties FROM nodes WHERE id = ?", (paper_id,)).fetchone()
+    
+    if not node_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Node not found")
 
-    for src_id, src_label, edge_type, tgt_id, tgt_label, _ in neighbors:
-        if edge_type == "MENTIONS_CONCEPT":
-            c = gr.get_concept(tgt_id)
-            if c:
-                concepts.append(c.name)
-        elif edge_type == "AUTHORED":
-            a = gr.get_author(src_id)
-            if a:
-                authors.append(a.name)
-        elif edge_type == "CITES" and src_id == paper_id:
-            ref = gr.get_paper(tgt_id)
-            if ref and ref.title:
-                citations.append(ref.title)
-        elif edge_type == "CITES" and tgt_id == paper_id:
-            citer = gr.get_paper(src_id)
-            if citer and citer.title:
-                cited_by.append(citer.title)
+    label = node_row["label"]
+    props = json.loads(node_row["properties"] or "{}")
 
-    return JSONResponse({
-        "id": paper.id,
-        "title": paper.title,
-        "authors": paper.authors or authors,
-        "year": paper.year,
-        "doi": paper.doi,
-        "abstract": paper.abstract,
-        "source_type": paper.properties.get("source_type", "paper"),
-        "concepts": concepts,
-        "citations": citations[:10],
-        "cited_by": cited_by[:10],
-        "file_path": paper.file_path,
-        "summary": paper.properties.get("summary"),
-        "created_at": paper.created_at,
-    })
+    if label == "Paper":
+        paper = gr.get_paper(paper_id)
+        if not paper:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Paper not found")
+
+        neighbors = gr.get_neighbors(paper_id, max_depth=1)
+        concepts = []
+        tags = []
+        authors = []
+        citations = []
+        cited_by = []
+
+        for src_id, src_label, edge_type, tgt_id, tgt_label, edge_props_json in neighbors:
+            if edge_type == "MENTIONS_CONCEPT":
+                # Check if it's a concept or a tag
+                concept_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (tgt_id,)).fetchone()
+                c_name = tgt_id
+                if concept_row:
+                    c_props = json.loads(concept_row["properties"] or "{}")
+                    c_name = c_props.get("name", tgt_id)
+                concepts.append({"id": tgt_id, "name": c_name})
+            elif edge_type == "HAS_TAG":
+                tag_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (tgt_id,)).fetchone()
+                t_name = tgt_id
+                if tag_row:
+                    t_props = json.loads(tag_row["properties"] or "{}")
+                    t_name = t_props.get("name", tgt_id)
+                tags.append({"id": tgt_id, "name": t_name})
+            elif edge_type == "AUTHORED":
+                a = gr.get_author(src_id)
+                if a:
+                    authors.append(a.name)
+            elif edge_type == "CITES" and src_id == paper_id:
+                ref = gr.get_paper(tgt_id)
+                if ref and ref.title:
+                    citations.append({"id": tgt_id, "title": ref.title})
+            elif edge_type == "CITES" and tgt_id == paper_id:
+                citer = gr.get_paper(src_id)
+                if citer and citer.title:
+                    cited_by.append({"id": src_id, "title": citer.title})
+
+        conn.close()
+        
+        # Fallback for authors/concepts list representation if neighbors didn't populate it
+        authors_list = paper.authors or authors
+        
+        return JSONResponse({
+            "type": "paper",
+            "id": paper.id,
+            "title": paper.title,
+            "authors": authors_list,
+            "year": paper.year,
+            "doi": paper.doi,
+            "abstract": paper.abstract,
+            "source_type": paper.properties.get("source_type", "paper"),
+            "concepts": concepts,
+            "tags": tags,
+            "citations": citations[:10],
+            "cited_by": cited_by[:10],
+            "file_path": paper.file_path,
+            "summary": paper.properties.get("summary"),
+            "created_at": paper.created_at,
+        })
+
+    elif label == "Author":
+        # Get papers authored by this author
+        papers_rows = conn.execute(
+            "SELECT n.id, n.properties FROM nodes n JOIN edges e ON n.id = e.target_id WHERE e.source_id = ? AND e.type = 'AUTHORED'",
+            (paper_id,)
+        ).fetchall()
+        
+        papers = []
+        for r in papers_rows:
+            p_props = json.loads(r["properties"] or "{}")
+            papers.append({
+                "id": r["id"],
+                "title": p_props.get("title", r["id"]),
+                "source_type": p_props.get("source_type", "paper")
+            })
+            
+        conn.close()
+        
+        return JSONResponse({
+            "type": "author",
+            "id": paper_id,
+            "name": props.get("name", paper_id),
+            "papers": papers,
+            "papers_count": len(papers)
+        })
+
+    elif label == "Concept":
+        is_tag = props.get("is_tag", False)
+        
+        # Get papers mentioning or tagged with this concept/tag
+        edge_type = "HAS_TAG" if is_tag else "MENTIONS_CONCEPT"
+        papers_rows = conn.execute(
+            "SELECT n.id, n.properties FROM nodes n JOIN edges e ON n.id = e.source_id WHERE e.target_id = ? AND e.type = ?",
+            (paper_id, edge_type)
+        ).fetchall()
+        
+        papers = []
+        for r in papers_rows:
+            p_props = json.loads(r["properties"] or "{}")
+            papers.append({
+                "id": r["id"],
+                "title": p_props.get("title", r["id"]),
+                "source_type": p_props.get("source_type", "paper")
+            })
+
+        # Also get related tags if it's a concept, or related concepts if it's a tag
+        related_entities = []
+        if not is_tag:
+            # For concepts, find tags that appear together on the same papers
+            placeholders = ",".join("?" for _ in papers)
+            if papers:
+                p_ids = [p["id"] for p in papers]
+                tag_rows = conn.execute(
+                    f"SELECT DISTINCT target_id FROM edges WHERE source_id IN ({placeholders}) AND type = 'HAS_TAG'",
+                    p_ids
+                ).fetchall()
+                for tr in tag_rows:
+                    t_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (tr["target_id"],)).fetchone()
+                    t_name = tr["target_id"]
+                    if t_row:
+                        t_props = json.loads(t_row["properties"] or "{}")
+                        t_name = t_props.get("name", tr["target_id"])
+                    related_entities.append({"id": tr["target_id"], "name": t_name})
+        else:
+            # For tags, find concepts that appear together on the same papers
+            placeholders = ",".join("?" for _ in papers)
+            if papers:
+                p_ids = [p["id"] for p in papers]
+                concept_rows = conn.execute(
+                    f"SELECT DISTINCT target_id FROM edges WHERE source_id IN ({placeholders}) AND type = 'MENTIONS_CONCEPT'",
+                    p_ids
+                ).fetchall()
+                for cr in concept_rows:
+                    c_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (cr["target_id"],)).fetchone()
+                    c_name = cr["target_id"]
+                    if c_row:
+                        c_props = json.loads(c_row["properties"] or "{}")
+                        c_name = c_props.get("name", cr["target_id"])
+                    related_entities.append({"id": cr["target_id"], "name": c_name})
+
+        conn.close()
+
+        return JSONResponse({
+            "type": "tag" if is_tag else "concept",
+            "id": paper_id,
+            "name": props.get("name", paper_id),
+            "description": props.get("description", f"No description available for '{props.get('name', paper_id)}'."),
+            "papers": papers,
+            "related": related_entities
+        })
 
 
 # ── /api/search ──────────────────────────────────────────────────────────────

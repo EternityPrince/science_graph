@@ -109,8 +109,11 @@ def index(
 
 # ── reindex ───────────────────────────────────────────────────────────────────
 
-@app.command("reindex")
-def reindex(
+reindex_app = typer.Typer(help="Re-index paper metadata or everything.")
+app.add_typer(reindex_app, name="reindex")
+
+@reindex_app.command("meta")
+def reindex_meta(
     missing_authors: bool = typer.Option(False, "--missing-authors", help="Reindex only papers without authors"),
     missing_tags: bool = typer.Option(False, "--missing-tags", help="Reindex only papers without topic tags"),
     all_metadata: bool = typer.Option(False, "--all-metadata", help="Reindex metadata for all papers"),
@@ -132,7 +135,6 @@ def reindex(
     query = "SELECT id, properties FROM nodes WHERE label='Paper'"
     rows = conn.execute(query).fetchall()
     conn.close()
-
 
     candidates = []
     for r in rows:
@@ -171,6 +173,66 @@ def reindex(
 
     con.blank()
     con.success(f"Re-indexed {success_count}/{len(candidates)} papers successfully.")
+
+
+@reindex_app.command("full")
+def reindex_full(
+    all_papers: bool = typer.Option(False, "--all", help="Reindex all papers"),
+    paper_id: Optional[str] = typer.Option(None, "--id", help="Reindex a single paper by ID"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit the number of papers to reindex"),
+    use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM for extracting concepts/tags (slower)"),
+):
+    """Fully re-index papers (re-chunk and recreate embeddings) by re-ingesting original files/URLs."""
+    if not all_papers and not paper_id:
+        con.warning("Please specify either --all or --id <paper_id>")
+        raise typer.Exit(0)
+
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
+
+    conn = sqlite3.connect(graph_repo.db_path)
+    conn.row_factory = sqlite3.Row
+
+    if paper_id:
+        # Check if exists
+        exists = conn.execute("SELECT id FROM nodes WHERE id = ? AND label = 'Paper'", (paper_id,)).fetchone()
+        conn.close()
+        if not exists:
+            con.error(f"Paper not found: {paper_id}")
+            raise typer.Exit(1)
+        candidates = [paper_id]
+    else:
+        # Find candidate paper IDs
+        query = "SELECT id, properties FROM nodes WHERE label='Paper'"
+        rows = conn.execute(query).fetchall()
+        conn.close()
+        candidates = []
+        for r in rows:
+            props = json.loads(r["properties"])
+            # Skip placeholder papers
+            if props.get("placeholder"):
+                continue
+            candidates.append(r["id"])
+
+    if limit:
+        candidates = candidates[:limit]
+
+    if not candidates:
+        con.success("No papers found matching the re-indexing criteria.")
+        return
+
+    con.info(f"Starting full re-indexing for [bold]{len(candidates)}[/bold] papers …")
+    
+    success_count = 0
+    for pid in candidates:
+        try:
+            if indexer.reindex_full(pid):
+                success_count += 1
+        except Exception as e:
+            con.error(f"Failed to fully re-index {pid}: {e}")
+
+    con.blank()
+    con.success(f"Fully re-indexed {success_count}/{len(candidates)} papers successfully.")
 
 
 
@@ -617,25 +679,30 @@ def storage(
             con.console.print("\n  Press any key to return...")
             click.getchar()
         elif c.isdigit():                          # digit — start building row number
-            num_str = c
-            # Allow multi-digit input (wait for Enter or non-digit)
-            con.console.print(f"\n  Row #: [bold cyan]{num_str}[/bold cyan]  (Enter to confirm)", end="")
-            while True:
+            val = int(c)
+            total_rows = len(rows)
+            if val == 0:
+                status_msg = "[yellow]Row 0 is invalid.[/yellow]"
+            elif val * 10 > total_rows:
+                # Instant selection when unambiguous
+                if 1 <= val <= total_rows:
+                    selected_idx = val
+                else:
+                    status_msg = f"[yellow]Row {val} not on this page (1–{total_rows})[/yellow]"
+            else:
+                # Ambiguous (could be val or val*10 + next_digit <= total_rows)
+                con.console.print(f"\n  Row #: [bold cyan]{val}[/bold cyan]  (Enter to select {val}, or press second digit)", end="")
                 nc = click.getchar()
                 if nc in ('\r', '\n'):
-                    break
+                    selected_idx = val
                 elif nc.isdigit():
-                    num_str += nc
-                    con.console.print(nc, end="")
+                    new_val = val * 10 + int(nc)
+                    if 1 <= new_val <= total_rows:
+                        selected_idx = new_val
+                    else:
+                        status_msg = f"[yellow]Row {new_val} not on this page (1–{total_rows})[/yellow]"
                 else:
-                    num_str = ""
-                    break
-            if num_str:
-                n = int(num_str)
-                if 1 <= n <= len(rows):
-                    selected_idx = n
-                else:
-                    status_msg = f"[yellow]Row {n} not on this page (1–{len(rows)})[/yellow]"
+                    status_msg = "[yellow]Selection cancelled.[/yellow]"
         elif c in ('e', 'E') and selected_idx is not None:
             row = rows[selected_idx - 1]
             status_msg = _edit_node(row["id"], active_table)

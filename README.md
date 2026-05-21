@@ -110,7 +110,8 @@ python3 main.py chat
 | Command | Description |
 |---------|-------------|
 | `index` | Index PDF, Markdown, EPUB files, or Web/arXiv URLs |
-| `reindex` | Partially re-index paper metadata without regenerating embeddings |
+| `reindex meta` | Partially re-index paper metadata without regenerating embeddings |
+| `reindex full` | Fully re-index papers (re-chunk, recreate embeddings) by re-ingesting original files/URLs |
 | `query` | One-shot RAG question answering |
 | `chat` | Interactive TUI chat with memory |
 | `storage` | Interactive TUI database manager (with search, abstract preview, file opening, and LLM summary generation) |
@@ -147,25 +148,47 @@ python3 main.py index --dir ~/research/ --use-llm
 python3 main.py index --dir ~/obsidian-vault/ --type md
 ```
 
-### `reindex` — Partially re-index paper metadata
+### `reindex` — Metadata or Full Re-indexing
 
-Updates paper metadata (authors, publication year, topic tags, and citations) from Semantic Scholar / fallbacks without recalculating sentence embeddings:
+Updates paper metadata or fully re-indexes existing documents.
+
+#### `reindex meta` — Partially re-index paper metadata (without regenerating embeddings)
+
+Updates metadata (authors, publication year, topic tags, and citations) from Semantic Scholar or fallbacks:
 
 ```bash
 # Update papers that have no authors in the database
-python3 main.py reindex --missing-authors
+python3 main.py reindex meta --missing-authors
 
 # Update papers that have no topic tags
-python3 main.py reindex --missing-tags
+python3 main.py reindex meta --missing-tags
 
 # Re-index metadata for all papers
-python3 main.py reindex --all-metadata
+python3 main.py reindex meta --all-metadata
 
 # Re-index using LLM for tag extraction (slower)
-python3 main.py reindex --missing-tags --use-llm
+python3 main.py reindex meta --missing-tags --use-llm
 
 # Limit the number of updated documents
-python3 main.py reindex --all-metadata --limit 10
+python3 main.py reindex meta --all-metadata --limit 10
+```
+
+#### `reindex full` — Fully re-index papers (re-chunk and recreate embeddings)
+
+Deletes the existing paper node and its chunks, then fully re-ingests/re-indexes the original local file or URL:
+
+```bash
+# Re-index all papers in the database
+python3 main.py reindex full --all
+
+# Re-index a single paper by ID
+python3 main.py reindex full --id <paper_id>
+
+# Limit the number of papers to re-index
+python3 main.py reindex full --all --limit 10
+
+# Re-index using LLM for tag and concept extraction
+python3 main.py reindex full --all --use-llm
 ```
 
 ### `query` — Ask questions
@@ -199,13 +222,15 @@ python3 main.py serve --no-open          # don't auto-open browser
 
 The Web UI features:
 - **Premium Obsidian-like dark layout** for sleek visual excellence.
+- **Top Tab-based Navigation** — switches between Graph, Chat, Notes, Chronology, and Upload views.
+- **Dedicated Details Sidebar** — displayed strictly inside the Graph view, rendering polymorphic detail cards tailored for Papers, Authors, Concepts, and Tags.
 - **Interactive knowledge graph** with local `vis-network` (filter by node type, dynamic zoom, and date filters).
+- **Tags as Meta-relationships** — topic tags are represented as distinct pink nodes (`#e64980`, group `tag`) in the graph, with a "Теги" filter chip, and click-to-focus interactivity.
 - **Streaming RAG chat** with Markdown rendering (SSE).
-- **Redesigned Details panel** — showcases paper annotations/abstracts, LLM-generated summaries, and a button to open local files on your server/host machine natively.
 - **Заметки (Notes)** — a Simple Notetaker form to write and save Markdown notes directly, which are auto-indexed with wikilink resolution.
 - **Хронология (Chronology)** — visualizes a 53-week contribution calendar heatmap (CSS-grid layout) and a vertical scrollable timeline of papers sorted by creation date.
 - **Drag & drop upload** — index files directly from the browser.
-- **Live search** — fuzzy title search with graph focus.
+- **Live search** — fuzzy title/concept/author search with graph focus.
 
 ### `config` — Inspect configuration
 
@@ -278,15 +303,17 @@ uv run pytest -v         # verbose output
 uv run pytest tests/test_repository.py   # specific module
 ```
 
-All 33 tests pass. Test coverage includes:
+All 40 tests pass. Test coverage includes:
 - SQLite graph and vector repositories
 - Markdown parser (front-matter parsing, Obsidian-style `[[wikilinks]]` node resolution, fallback filesystem creation dates)
 - URL parser (arXiv ID, DOI, fallback meta tags extraction, local archive copies)
 - Hybrid search (BM25 + dense + reranking)
 - TUI chat session logic and CLI commands
-- TUI `storage` interactions (multi-digit row selection)
+- TUI `storage` interactions (instant unambiguous digit selection & wait-for-second-digit selection)
 - External API (Semantic Scholar query with exponential retries and arXiv queries)
-- Metadata-only re-indexing pipeline
+- Metadata-only and Full re-indexing pipelines (`reindex meta` and `reindex full`)
+- Concept description resolution (predefined dictionary & LLM fallbacks)
+- Pre-generated summaries at ingestion time
 - Database cleanup (removal of degree-0 orphaned concepts)
 
 ---

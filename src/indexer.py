@@ -106,6 +106,42 @@ AI_TOPICS = {
     "large language model": "Large Language Models",
 }
 
+COMMON_CONCEPT_DESCRIPTIONS = {
+    "Transformer Architecture": "A deep learning model architecture based on self-attention mechanisms, widely used in NLP and computer vision.",
+    "Self-Attention": "An attention mechanism relating different positions of a single sequence to compute a representation of the sequence.",
+    "Attention Mechanism": "A technique that mimics cognitive attention, allowing neural networks to focus on specific parts of the input data.",
+    "Reinforcement Learning": "A machine learning paradigm where an agent learns to make decisions by performing actions and receiving rewards.",
+    "Diffusion Models": "A class of generative models that generate data by iteratively removing noise from a random starting point.",
+    "Large Language Models": "Deep learning models trained on vast amounts of text data, capable of understanding and generating human-like text.",
+    "Fine-Tuning": "The process of taking a pre-trained model and further training it on a smaller, domain-specific dataset.",
+    "LoRA (Low-Rank Adaptation)": "A parameter-efficient fine-tuning technique that adapts large models by updating only low-rank matrices.",
+    "Retrieval-Augmented Generation": "A framework that retrieves relevant documents from an external source to improve LLM generation accuracy.",
+    "Mixture of Experts (MoE)": "An ensemble learning technique that uses a gating network to dynamically select specific expert sub-networks for each input.",
+    "Contrastive Learning": "A machine learning approach where a model learns representations by comparing similar and dissimilar samples.",
+    "Prompt Engineering": "The practice of designing and refining input prompts to guide language models toward producing desired outputs.",
+    "Supervised Fine-Tuning": "A form of fine-tuning where the model is trained on labeled task-specific instruction data.",
+    "Reinforcement Learning from Human Feedback (RLHF)": "A technique to align language models with human preferences using reinforcement learning and human feedback.",
+    "Direct Preference Optimization (DPO)": "An algorithm that optimizes language models directly on preference data without training a separate reward model.",
+    "Model Quantization": "The process of reducing the precision of a model's weights to make it smaller and faster with minimal accuracy loss.",
+    "MLX Framework": "An array framework designed for machine learning research on Apple Silicon, developed by Apple.",
+    "LLaMA Models": "A family of open-weights large language models developed by Meta AI.",
+    "Gemma Models": "A family of lightweight open-weights models developed by Google DeepMind.",
+    "Statistics": "The science of collecting, analyzing, presenting, and interpreting data.",
+    "Probability Theory": "The branch of mathematics concerned with analyzing random phenomena and quantifying uncertainty.",
+    "Gradient Descent": "An optimization algorithm used to minimize a loss function by iteratively moving in the direction of steepest descent.",
+    "Optimization Methods": "Mathematical techniques used to find the best alternative or parameter set under given constraints.",
+    "Deep Learning": "A subset of machine learning based on artificial neural networks with multiple layers.",
+    "Machine Learning": "A field of artificial intelligence focused on building systems that learn from data to improve performance.",
+    "Natural Language Processing": "A field of AI focused on the interaction between computers and human language.",
+    "Computer Vision": "A field of AI enabling computers to derive meaningful information from digital images and videos.",
+    "Generative Models": "Models that learn the underlying distribution of a dataset to generate new, similar data samples.",
+    "Linear Regression": "A linear approach for modeling the relationship between a scalar response and one or more explanatory variables.",
+    "Neural Networks": "Computing systems inspired by biological neural networks to recognize patterns and solve complex problems.",
+    "Convex Optimization": "A subfield of mathematical optimization that studies the problem of minimizing convex functions over convex sets.",
+    "Bayesian Methods": "Statistical methods that apply Bayes' theorem to update the probability of a hypothesis as more evidence becomes available.",
+    "Transformers": "Deep learning models based on self-attention, defining the state-of-the-art in modern NLP.",
+}
+
 class Indexer:
     def __init__(self, graph_repo: GraphRepository, vector_repo: VectorRepository, embedding_engine: EmbeddingEngine, llm_engine: Any = None):
         self.graph_repo = graph_repo
@@ -118,6 +154,51 @@ class Indexer:
         text = text.lower().strip()
         text = re.sub(r'[^a-z0-9\s-]', '', text)
         return re.sub(r'[\s-]+', '_', text)
+
+    def _get_concept_description(self, name: str) -> str:
+        # Check dictionary (case-insensitive)
+        for k, v in COMMON_CONCEPT_DESCRIPTIONS.items():
+            if k.lower() == name.lower():
+                return v
+        
+        # If not found and LLM is available, generate description
+        if self.llm_engine:
+            try:
+                prompt = f"Provide a brief, one-sentence definition/description of the AI/ML concept or term: '{name}'. Do not write anything else. Keep it under 20 words."
+                desc = self.llm_engine.generate_response(prompt).strip()
+                desc = re.sub(r'^["\']|["\']$', '', desc).strip()
+                if desc:
+                    return desc
+            except Exception:
+                pass
+                
+        return f"A key concept representing '{name}' within the AI/ML literature."
+
+    def _generate_and_save_summary(self, paper: Paper, full_text: str):
+        """Generates LLM summary for a paper if LLM is available, and saves it."""
+        if not self.llm_engine:
+            return
+        
+        con.dim(f"Generating summary for [bold]{paper.title[:60]}[/bold] via LLM …")
+        try:
+            title = paper.title or paper.id
+            abstract = paper.abstract or ""
+            sample_text = full_text[:4000] if full_text else ""
+            
+            prompt = (
+                f"Summarize the following document. Focus on key contributions, methodologies, and findings.\n\n"
+                f"Title: {title}\n"
+                f"Abstract: {abstract}\n\n"
+                f"Content snippet:\n{sample_text}\n\n"
+                f"Provide a concise, professional markdown summary."
+            )
+            summary = self.llm_engine.generate_response(prompt)
+            if summary:
+                paper.properties["summary"] = summary
+                self.graph_repo.save_paper(paper)
+                con.success(f"Summary generated and saved for {title[:50]}")
+        except Exception as e:
+            con.warning(f"Failed to generate summary: {e}")
 
     def index_pdf(self, file_path: str) -> str:
         """
@@ -225,7 +306,7 @@ class Indexer:
         if llm_concepts:
             for item in llm_concepts:
                 c_name = item.get("name")
-                c_desc = item.get("description", "")
+                c_desc = item.get("description", "") or self._get_concept_description(c_name)
                 if c_name:
                     concept_id = self._slugify(c_name)
                     concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
@@ -237,14 +318,16 @@ class Indexer:
             for keyword, concept_name in AI_CONCEPTS.items():
                 if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
                     concept_id = self._slugify(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name)
+                    c_desc = self._get_concept_description(concept_name)
+                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
                     self.graph_repo.save_concept(concept)
                     self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
 
         # 4b. Save tag nodes and create HAS_TAG edges
         for tag in tags_to_save:
             tag_id = self._slugify(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True})
+            tag_desc = self._get_concept_description(tag)
+            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
             self.graph_repo.save_concept(concept)
             self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
 
@@ -310,6 +393,9 @@ class Indexer:
             os.remove(file_path)
             print(f"[+] PDF moved to archive: {archive_path}")
 
+        # Generate summary
+        self._generate_and_save_summary(paper, full_text)
+
         con.success(f"Indexed [bold]{paper.title[:70]}[/bold] (ID: {paper.id[:12]}…)")
         return paper.id
 
@@ -353,7 +439,8 @@ class Indexer:
 
         for tag in tags:
             concept_id = self._slugify(tag)
-            concept = Concept(id=concept_id, name=tag, properties={"is_tag": True})
+            tag_desc = self._get_concept_description(tag)
+            concept = Concept(id=concept_id, name=tag, properties={"is_tag": True, "description": tag_desc})
             self.graph_repo.save_concept(concept)
             self.graph_repo.add_edge(paper.id, concept_id, "HAS_TAG")
 
@@ -364,7 +451,8 @@ class Indexer:
                 self.graph_repo.add_edge(paper.id, matched_paper.id, "RELATED_TO")
             else:
                 concept_id = self._slugify(link_target)
-                concept = Concept(id=concept_id, name=link_target)
+                c_desc = self._get_concept_description(link_target)
+                concept = Concept(id=concept_id, name=link_target, properties={"description": c_desc})
                 self.graph_repo.save_concept(concept)
                 self.graph_repo.add_edge(paper.id, concept_id, "RELATED_TO")
 
@@ -376,6 +464,9 @@ class Indexer:
             for chunk, emb in zip(chunks, embeddings):
                 chunk.embedding = emb
             self.vector_repo.save_chunks(chunks)
+
+        # Generate summary
+        self._generate_and_save_summary(paper, body)
 
         con.success(f"Note indexed: [bold]{paper.title[:70]}[/bold]")
         return paper.id
@@ -448,7 +539,7 @@ class Indexer:
         if llm_concepts:
             for item in llm_concepts:
                 c_name = item.get("name")
-                c_desc = item.get("description", "")
+                c_desc = item.get("description", "") or self._get_concept_description(c_name)
                 if c_name:
                     concept_id = self._slugify(c_name)
                     concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
@@ -460,14 +551,16 @@ class Indexer:
             for keyword, concept_name in AI_CONCEPTS.items():
                 if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
                     concept_id = self._slugify(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name)
+                    c_desc = self._get_concept_description(concept_name)
+                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
                     self.graph_repo.save_concept(concept)
                     self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
 
         # Save tags and create HAS_TAG edges
         for tag in tags_to_save:
             tag_id = self._slugify(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True})
+            tag_desc = self._get_concept_description(tag)
+            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
             self.graph_repo.save_concept(concept)
             self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
 
@@ -479,6 +572,9 @@ class Indexer:
             for chunk, emb in zip(chunks, embeddings):
                 chunk.embedding = emb
             self.vector_repo.save_chunks(chunks)
+
+        # Generate summary
+        self._generate_and_save_summary(paper, body)
 
         con.success(f"Webpage indexed: [bold]{paper.title[:70]}[/bold]")
         return paper.id
@@ -538,7 +634,7 @@ class Indexer:
         if llm_concepts:
             for item in llm_concepts:
                 c_name = item.get("name")
-                c_desc = item.get("description", "")
+                c_desc = item.get("description", "") or self._get_concept_description(c_name)
                 if c_name:
                     concept_id = self._slugify(c_name)
                     concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
@@ -550,14 +646,16 @@ class Indexer:
             for keyword, concept_name in AI_CONCEPTS.items():
                 if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
                     concept_id = self._slugify(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name)
+                    c_desc = self._get_concept_description(concept_name)
+                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
                     self.graph_repo.save_concept(concept)
                     self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
 
         # Save tags and create HAS_TAG edges
         for tag in tags_to_save:
             tag_id = self._slugify(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True})
+            tag_desc = self._get_concept_description(tag)
+            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
             self.graph_repo.save_concept(concept)
             self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
 
@@ -569,6 +667,9 @@ class Indexer:
             for chunk, emb in zip(chunks, embeddings):
                 chunk.embedding = emb
             self.vector_repo.save_chunks(chunks)
+
+        # Generate summary
+        self._generate_and_save_summary(paper, full_text)
 
         con.success(f"Book indexed: [bold]{paper.title[:70]}[/bold] ({len(chunks)} chunks)")
         return paper.id
@@ -732,7 +833,7 @@ class Indexer:
         if llm_concepts:
             for item in llm_concepts:
                 c_name = item.get("name")
-                c_desc = item.get("description", "")
+                c_desc = item.get("description", "") or self._get_concept_description(c_name)
                 if c_name:
                     concept_id = self._slugify(c_name)
                     concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
@@ -743,14 +844,16 @@ class Indexer:
             for keyword, concept_name in AI_CONCEPTS.items():
                 if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
                     concept_id = self._slugify(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name)
+                    c_desc = self._get_concept_description(concept_name)
+                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
                     self.graph_repo.save_concept(concept)
                     self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
                     
         # Save tags
         for tag in tags_to_save:
             tag_id = self._slugify(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True})
+            tag_desc = self._get_concept_description(tag)
+            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
             self.graph_repo.save_concept(concept)
             self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
             
@@ -778,6 +881,55 @@ class Indexer:
                         self.graph_repo.save_paper(placeholder_paper)
                     self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
 
+        if use_llm and self.llm_engine:
+            self._generate_and_save_summary(paper, text_for_extraction)
+
         con.success(f"Successfully re-indexed metadata for {paper.title[:60]}")
+        return True
+
+    def reindex_full(self, paper_id: str) -> bool:
+        """
+        Performs full reindexing by deleting the paper node and re-indexing the original file/URL.
+        """
+        paper = self.graph_repo.get_paper(paper_id)
+        if not paper:
+            con.error(f"Paper not found in database: {paper_id}")
+            return False
+
+        file_path = paper.file_path
+        if not file_path:
+            con.error(f"No file path or URL stored for paper: {paper_id}")
+            return False
+
+        con.info(f"Performing full re-indexing for [bold]{paper.title[:60]}[/bold] (ID: {paper_id})")
+
+        # Delete the paper node from the database.
+        # This will cascade delete related entries in edges and chunks (due to foreign keys).
+        try:
+            with self.graph_repo._get_connection() as conn:
+                conn.execute("DELETE FROM nodes WHERE id = ?", (paper_id,))
+                conn.commit()
+        except Exception as e:
+            con.error(f"Failed to delete existing paper records: {e}")
+            return False
+
+        # Re-index the paper based on its path/URL
+        try:
+            if file_path.startswith("http://") or file_path.startswith("https://"):
+                self.index_url(file_path)
+            elif file_path.lower().endswith(".pdf"):
+                self.index_pdf(file_path)
+            elif file_path.lower().endswith(".md"):
+                self.index_markdown(file_path)
+            elif file_path.lower().endswith(".epub"):
+                self.index_epub(file_path)
+            else:
+                con.error(f"Unsupported file type for full re-indexing: {file_path}")
+                return False
+        except Exception as e:
+            con.error(f"Full re-indexing failed: {e}")
+            return False
+
+        con.success(f"Successfully performed full re-index for {paper_id}")
         return True
 

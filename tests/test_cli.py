@@ -60,7 +60,7 @@ class TestCLI(unittest.TestCase):
     def test_reindex_no_filter(self, mock_get_services):
         """Reindex requires at least one filter flag."""
         mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
-        result = runner.invoke(app, ["reindex"])
+        result = runner.invoke(app, ["reindex", "meta"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Please specify a filter", result.stdout)
 
@@ -92,7 +92,7 @@ class TestCLI(unittest.TestCase):
         
         mock_indexer_instance.reindex_metadata.return_value = True
         
-        result = runner.invoke(app, ["reindex", "--missing-authors"])
+        result = runner.invoke(app, ["reindex", "meta", "--missing-authors"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Re-indexed 1/1 papers successfully.", result.stdout)
         mock_indexer_instance.reindex_metadata.assert_called_once_with("p2", use_llm=False)
