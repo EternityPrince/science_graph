@@ -24,15 +24,25 @@ class SQLiteGraphRepository(GraphRepository):
 
     def _init_db(self):
         with self._get_connection() as conn:
-            # Create nodes table
+            # Create nodes table with virtual generated title column
             conn.execute("""
             CREATE TABLE IF NOT EXISTS nodes (
                 id TEXT PRIMARY KEY,
                 label TEXT NOT NULL,
-                properties TEXT NOT NULL
+                properties TEXT NOT NULL,
+                title TEXT GENERATED ALWAYS AS (json_extract(properties, '$.title')) VIRTUAL
             );
             """)
             
+            # Schema migration: check if title column exists in nodes table for existing setups
+            cursor = conn.execute("PRAGMA table_info(nodes);")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "title" not in columns:
+                try:
+                    conn.execute("ALTER TABLE nodes ADD COLUMN title TEXT GENERATED ALWAYS AS (json_extract(properties, '$.title')) VIRTUAL;")
+                except sqlite3.OperationalError:
+                    pass
+
             # Create edges table
             conn.execute("""
             CREATE TABLE IF NOT EXISTS edges (
@@ -48,6 +58,7 @@ class SQLiteGraphRepository(GraphRepository):
             
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_label ON nodes(label);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_title ON nodes(title);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);")
             conn.commit()
@@ -92,6 +103,31 @@ class SQLiteGraphRepository(GraphRepository):
                 properties=props
             )
 
+    def get_papers_batch(self, paper_ids: List[str]) -> Dict[str, Paper]:
+        if not paper_ids:
+            return {}
+        unique_ids = list(set(paper_ids))
+        placeholders = ",".join("?" for _ in unique_ids)
+        query = f"SELECT id, properties FROM nodes WHERE id IN ({placeholders}) AND label = 'Paper'"
+        with self._get_connection() as conn:
+            rows = conn.execute(query, unique_ids).fetchall()
+            
+        papers = {}
+        for row in rows:
+            props = json.loads(row["properties"])
+            papers[row["id"]] = Paper(
+                id=row["id"],
+                title=props.get("title", ""),
+                authors=props.get("authors", []),
+                year=props.get("year"),
+                doi=props.get("doi"),
+                abstract=props.get("abstract"),
+                file_path=props.get("file_path"),
+                created_at=props.get("created_at"),
+                properties=props
+            )
+        return papers
+
     def find_paper_by_title(self, title: str) -> Optional[Paper]:
         with self._get_connection() as conn:
             # Check if matching exact ID first
@@ -110,22 +146,33 @@ class SQLiteGraphRepository(GraphRepository):
                     properties=props
                 )
             
-            # Case-insensitive title match over all papers
-            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
-            for r in rows:
-                props = json.loads(r["properties"] or "{}")
-                if props.get("title", "").strip().lower() == title.strip().lower():
-                    return Paper(
-                        id=r["id"],
-                        title=props.get("title", ""),
-                        authors=props.get("authors", []),
-                        year=props.get("year"),
-                        doi=props.get("doi"),
-                        abstract=props.get("abstract"),
-                        file_path=props.get("file_path"),
-                        created_at=props.get("created_at"),
-                        properties=props
-                    )
+            # Case-insensitive title match using indexed title column
+            clean_title = title.strip()
+            row = conn.execute(
+                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND title = ? COLLATE NOCASE",
+                (clean_title,)
+            ).fetchone()
+            
+            if not row:
+                # Fallback to TRIM in case there is trailing/leading whitespace in legacy properties
+                row = conn.execute(
+                    "SELECT id, properties FROM nodes WHERE label = 'Paper' AND TRIM(title) = ? COLLATE NOCASE",
+                    (clean_title,)
+                ).fetchone()
+
+            if row:
+                props = json.loads(row["properties"])
+                return Paper(
+                    id=row["id"],
+                    title=props.get("title", ""),
+                    authors=props.get("authors", []),
+                    year=props.get("year"),
+                    doi=props.get("doi"),
+                    abstract=props.get("abstract"),
+                    file_path=props.get("file_path"),
+                    created_at=props.get("created_at"),
+                    properties=props
+                )
         return None
 
     def save_author(self, author: Author) -> None:
@@ -184,16 +231,13 @@ class SQLiteGraphRepository(GraphRepository):
     def add_edge(self, source_id: str, target_id: str, edge_type: str, properties: Dict[str, Any] = None) -> None:
         props = properties or {}
         with self._get_connection() as conn:
-            # First, check if source and target nodes exist, otherwise insert placeholder nodes
+            # Insert placeholder nodes directly. If they already exist, SQLite IGNOREs it based on the PRIMARY KEY.
             for node_id in (source_id, target_id):
-                exists = conn.execute("SELECT 1 FROM nodes WHERE id = ?", (node_id,)).fetchone()
-                if not exists:
-                    # Insert placeholder node
-                    label = "Paper" if ":" in node_id or "/" in node_id else "Concept"
-                    conn.execute(
-                        "INSERT OR IGNORE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
-                        (node_id, label, json.dumps({"title": node_id, "placeholder": True}, ensure_ascii=False))
-                    )
+                label = "Paper" if ":" in node_id or "/" in node_id else "Concept"
+                conn.execute(
+                    "INSERT OR IGNORE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+                    (node_id, label, json.dumps({"title": node_id, "placeholder": True}, ensure_ascii=False))
+                )
             
             conn.execute(
                 """
@@ -220,7 +264,17 @@ class SQLiteGraphRepository(GraphRepository):
         FROM edges e
         JOIN nodes n1 ON e.source_id = n1.id
         JOIN nodes n2 ON e.target_id = n2.id
-        WHERE e.source_id = ? OR e.target_id = ?
+        WHERE e.source_id = ?
+        UNION ALL
+        SELECT 
+            e.source_id as src_id, n1.label as src_label,
+            e.type as edge_type,
+            e.target_id as tgt_id, n2.label as tgt_label,
+            e.properties as edge_props
+        FROM edges e
+        JOIN nodes n1 ON e.source_id = n1.id
+        JOIN nodes n2 ON e.target_id = n2.id
+        WHERE e.target_id = ? AND e.source_id != ?
         """
         
         visited_edges = set()
@@ -228,7 +282,7 @@ class SQLiteGraphRepository(GraphRepository):
         
         with self._get_connection() as conn:
             # We fetch starting node neighbors
-            rows = conn.execute(query, (node_id, node_id)).fetchall()
+            rows = conn.execute(query, (node_id, node_id, node_id)).fetchall()
             for r in rows:
                 edge_key = (r["src_id"], r["tgt_id"], r["edge_type"])
                 if edge_key not in visited_edges:
@@ -256,7 +310,7 @@ class SQLiteGraphRepository(GraphRepository):
                 current_nodes.update(query_nodes)
                 
                 for q_node in query_nodes:
-                    rows = conn.execute(query, (q_node, q_node)).fetchall()
+                    rows = conn.execute(query, (q_node, q_node, q_node)).fetchall()
                     for r in rows:
                         edge_key = (r["src_id"], r["tgt_id"], r["edge_type"])
                         if edge_key not in visited_edges:
@@ -356,6 +410,39 @@ class SQLiteVectorRepository(VectorRepository):
                 FOREIGN KEY (paper_id) REFERENCES nodes(id) ON DELETE CASCADE
             );
             """)
+            # Create FTS5 virtual table for chunks
+            conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                id UNINDEXED,
+                text_content
+            );
+            """)
+            
+            # Create triggers to sync chunks and chunks_fts
+            conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS chunks_after_insert AFTER INSERT ON chunks BEGIN
+                INSERT OR REPLACE INTO chunks_fts(id, text_content) VALUES (new.id, new.text_content);
+            END;
+            """)
+            conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS chunks_after_update AFTER UPDATE ON chunks BEGIN
+                DELETE FROM chunks_fts WHERE id = old.id;
+                INSERT INTO chunks_fts(id, text_content) VALUES (new.id, new.text_content);
+            END;
+            """)
+            conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS chunks_after_delete AFTER DELETE ON chunks BEGIN
+                DELETE FROM chunks_fts WHERE id = old.id;
+            END;
+            """)
+            
+            # Populate existing chunks if any are missing in chunks_fts
+            conn.execute("""
+            INSERT INTO chunks_fts(id, text_content)
+            SELECT id, text_content FROM chunks
+            WHERE id NOT IN (SELECT id FROM chunks_fts);
+            """)
+
             # Migration check: add id_hash column if not present
             cursor = conn.execute("PRAGMA table_info(chunks);")
             columns = [row["name"] for row in cursor.fetchall()]
@@ -484,3 +571,45 @@ class SQLiteVectorRepository(VectorRepository):
             
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:limit]
+
+    def search_text_bm25(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
+        import re
+        words = re.findall(r'\w+', query)
+        if not words:
+            return []
+        fts_query = " OR ".join(words)
+        
+        with self._get_connection() as conn:
+            try:
+                # bm25 returns negative values where lower is better.
+                # So we sort by bm25(...) ASC and return -bm25(...) as the score.
+                rows = conn.execute(
+                    """
+                    SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, f.score
+                    FROM (
+                        SELECT id, -bm25(chunks_fts) as score
+                        FROM chunks_fts
+                        WHERE chunks_fts MATCH ?
+                        ORDER BY bm25(chunks_fts) ASC
+                        LIMIT ?
+                    ) f
+                    JOIN chunks c ON c.id = f.id
+                    """,
+                    (fts_query, limit)
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+                
+        results = []
+        for r in rows:
+            emb_array = np.frombuffer(r["embedding"], dtype=np.float32)
+            chunk = Chunk(
+                id=r["id"],
+                paper_id=r["paper_id"],
+                text_content=r["text_content"],
+                page_number=r["page_number"],
+                embedding=emb_array.tolist()
+            )
+            results.append((chunk, float(r["score"])))
+        return results
+

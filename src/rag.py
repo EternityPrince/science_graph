@@ -111,33 +111,32 @@ class RAGPipeline:
         # 1. Compute embedding of the query
         query_emb = self.emb_engine.get_embedding(query)
         
-        # 2. Get all chunks for BM25
-        all_chunks = self.vector_repo.get_all_chunks()
-        if not all_chunks:
-            return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."
-            
         # 2b. Perform Dense Search
         dense_results = self.vector_repo.search_similar_chunks(query_emb, limit=limit * 2)
         
         # 2c. Perform BM25 Search
-        from src.vector_search import BM25
-        corpus = [(c.id, c.text_content) for c in all_chunks]
-        bm25 = BM25(corpus)
-        bm25_results = bm25.score(query)[:limit * 2]
+        bm25_results = self.vector_repo.search_text_bm25(query, limit=limit * 2)
         
+        if not dense_results and not bm25_results:
+            return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."
+            
         # 2d. Merge with Reciprocal Rank Fusion (RRF)
-        id_to_chunk = {c.id: c for c in all_chunks}
+        id_to_chunk = {}
+        for chunk, _ in dense_results:
+            id_to_chunk[chunk.id] = chunk
+        for chunk, _ in bm25_results:
+            id_to_chunk[chunk.id] = chunk
+
         rrf_scores = {}
-        
         for rank, (chunk, _) in enumerate(dense_results, start=1):
             rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + (1.0 / (60.0 + rank))
             
-        for rank, (chunk_id, _) in enumerate(bm25_results, start=1):
-            rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + (1.0 / (60.0 + rank))
+        for rank, (chunk, _) in enumerate(bm25_results, start=1):
+            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + (1.0 / (60.0 + rank))
             
         sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
         candidate_ids = sorted_ids[:limit * 2]
-        candidates = [id_to_chunk[cid] for cid in candidate_ids]
+        candidates = [id_to_chunk[cid] for cid in candidate_ids if cid in id_to_chunk]
         
         # 2e. Rerank with Cross-Encoder
         final_chunks = []
@@ -154,7 +153,7 @@ class RAGPipeline:
                 con.dim(f"Reranked {len(final_chunks)} chunks")
             except Exception as e:
                 con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
-                final_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit]]
+                final_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
         else:
             final_chunks = []
 

@@ -27,11 +27,13 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from src.config import config
-from src.indexer import Indexer
-from src.llm_engine import LLMEngine
-from src.rag import RAGPipeline
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
-from src.vector_search import EmbeddingEngine
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from src.indexer import Indexer
+    from src.llm_engine import LLMEngine
+    from src.rag import RAGPipeline
+    from src.vector_search import EmbeddingEngine
 
 # ── Singletons (loaded once at startup) ──────────────────────────────────────
 
@@ -53,6 +55,7 @@ def _get_repos():
 def _get_embedding_engine() -> EmbeddingEngine:
     global _embedding_engine
     if _embedding_engine is None:
+        from src.vector_search import EmbeddingEngine
         _embedding_engine = EmbeddingEngine()
     return _embedding_engine
 
@@ -61,6 +64,7 @@ def _get_llm_engine() -> Optional[LLMEngine]:
     global _llm_engine
     if _llm_engine is None:
         try:
+            from src.llm_engine import LLMEngine
             _llm_engine = LLMEngine()
         except Exception as e:
             print(f"[!] LLM engine unavailable: {e}")
@@ -75,6 +79,7 @@ def _get_rag() -> Optional[RAGPipeline]:
         llm = _get_llm_engine()
         if llm is None:
             return None
+        from src.rag import RAGPipeline
         _rag_pipeline = RAGPipeline(gr, vr, emb, llm)
     return _rag_pipeline
 
@@ -129,6 +134,11 @@ async def get_favicon_ico():
 async def get_stats():
     gr, _ = _get_repos()
     stats = gr.get_stats()
+    try:
+        from src.config import config
+        stats["storage"] = config.get_storage_stats()
+    except Exception:
+        pass
     return JSONResponse(stats)
 
 
@@ -456,25 +466,28 @@ async def query_rag(body: dict):
 
         # Hybrid retrieval
         try:
-            all_chunks = await loop.run_in_executor(None, rag.vector_repo.get_all_chunks)
-            if not all_chunks:
-                yield {"data": json.dumps({"type": "error", "text": "No documents indexed yet."})}
-                return
-
-            from src.vector_search import BM25
             dense = await loop.run_in_executor(
                 None, rag.vector_repo.search_similar_chunks, query_emb, limit * 2
             )
-            corpus = [(c.id, c.text_content) for c in all_chunks]
-            bm25 = BM25(corpus)
-            bm25_results = bm25.score(question)[: limit * 2]
+            bm25_results = await loop.run_in_executor(
+                None, rag.vector_repo.search_text_bm25, question, limit * 2
+            )
 
-            id_to_chunk = {c.id: c for c in all_chunks}
+            if not dense and not bm25_results:
+                yield {"data": json.dumps({"type": "error", "text": "No documents indexed yet."})}
+                return
+
+            id_to_chunk = {}
+            for chunk, _ in dense:
+                id_to_chunk[chunk.id] = chunk
+            for chunk, _ in bm25_results:
+                id_to_chunk[chunk.id] = chunk
+
             rrf: dict = {}
             for rank, (chunk, _) in enumerate(dense, start=1):
                 rrf[chunk.id] = rrf.get(chunk.id, 0.0) + 1.0 / (60.0 + rank)
-            for rank, (cid, _) in enumerate(bm25_results, start=1):
-                rrf[cid] = rrf.get(cid, 0.0) + 1.0 / (60.0 + rank)
+            for rank, (chunk, _) in enumerate(bm25_results, start=1):
+                rrf[chunk.id] = rrf.get(chunk.id, 0.0) + 1.0 / (60.0 + rank)
 
             sorted_ids = sorted(rrf, key=lambda x: rrf[x], reverse=True)[: limit * 2]
             candidates = [id_to_chunk[cid] for cid in sorted_ids if cid in id_to_chunk]
@@ -645,6 +658,7 @@ async def create_note(body: dict):
         gr, vr = _get_repos()
         emb = _get_embedding_engine()
         llm = _get_llm_engine()
+        from src.indexer import Indexer
         indexer = Indexer(gr, vr, emb, llm)
         
         loop = asyncio.get_event_loop()
@@ -674,6 +688,7 @@ async def upload_file(file: UploadFile = File(...)):
         gr, vr = _get_repos()
         emb = _get_embedding_engine()
         llm = _get_llm_engine()
+        from src.indexer import Indexer
         indexer = Indexer(gr, vr, emb, llm)
 
         loop = asyncio.get_event_loop()

@@ -15,7 +15,7 @@ from src import console as con
 
 
 class BaseLLMEngine:
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None) -> str:
+    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
         raise NotImplementedError
 
     def _clean_json_response(self, response: str) -> str:
@@ -29,8 +29,21 @@ class BaseLLMEngine:
             clean = match.group(0)
         return clean
 
+    def _truncate_to_context(self, text: str, max_input_tokens: int) -> str:
+        if not hasattr(self, "tokenizer") or self.tokenizer is None:
+            return text[:max_input_tokens * 4]
+        try:
+            tokens = self.tokenizer.encode(text)
+            if len(tokens) <= max_input_tokens:
+                return text
+            return self.tokenizer.decode(tokens[:max_input_tokens])
+        except Exception:
+            return text[:max_input_tokens * 4]
+
     def extract_concepts_and_metadata(self, text: str) -> Optional[dict]:
         """Extracts authors, scientific concepts, and topic tags from text."""
+        max_input = config.llm_extraction_input_limit
+        safe_text = self._truncate_to_context(text, max_input)
         prompt = (
             "You are a strict scientific text analyzer. Analyze the following paper text (abstract and introduction).\n"
             "Extract:\n"
@@ -46,10 +59,10 @@ class BaseLLMEngine:
             "  \"tags\": [\"tag1\", \"tag2\", \"tag3\"]\n"
             "}\n\n"
             "Do NOT include any markdown code blocks, text outside JSON, or conversational filler. Output ONLY the raw JSON string.\n\n"
-            f"Paper text:\n{text[:5000]}"
+            f"Paper text:\n{safe_text}"
         )
         try:
-            response = self.generate_response(prompt, max_tokens=1000, temp=0.0)
+            response = self.generate_response(prompt, max_tokens=config.llm_extraction_output_limit, temp=0.0, task="extraction")
             clean_resp = self._clean_json_response(response)
             return json.loads(clean_resp)
         except Exception as e:
@@ -59,6 +72,8 @@ class BaseLLMEngine:
 
     def cluster_chunks_by_topic(self, chunks_summary: str, topic: str) -> Optional[dict]:
         """Groups text chunks into thematic sections for the review report."""
+        max_input = config.llm_clustering_input_limit
+        safe_chunks = self._truncate_to_context(chunks_summary, max_input)
         prompt = (
             f"You are a scientific editor preparing a literature review on the topic: '{topic}'.\n"
             "You are given a list of text chunks from papers (each has an id, paper title, and excerpt).\n"
@@ -68,10 +83,10 @@ class BaseLLMEngine:
             "- Assign each chunk_id to exactly one section.\n"
             "- Output ONLY a valid JSON object: {\"Section Title\": [\"chunk_id1\", \"chunk_id2\"], ...}\n"
             "- Do NOT include any text outside the JSON.\n\n"
-            f"Chunks:\n{chunks_summary[:6000]}"
+            f"Chunks:\n{safe_chunks}"
         )
         try:
-            response = self.generate_response(prompt, max_tokens=800, temp=0.0)
+            response = self.generate_response(prompt, max_tokens=config.llm_clustering_output_limit, temp=0.0, task="clustering")
             clean = self._clean_json_response(response)
             return json.loads(clean)
         except Exception as e:
@@ -84,9 +99,11 @@ class BaseLLMEngine:
         section_name: str,
         chunks_text: str,
         topic: str,
-        max_tokens: int = 800,
+        max_tokens: int = None,
     ) -> str:
         """Generates a Markdown section for the review from a cluster of text chunks."""
+        max_input = config.llm_synthesis_input_limit
+        safe_chunks = self._truncate_to_context(chunks_text, max_input)
         prompt = (
             f"You are a scientific writer synthesizing a section of a literature review.\n"
             f"Review topic: '{topic}'\n"
@@ -96,10 +113,10 @@ class BaseLLMEngine:
             "- Highlight agreements and disagreements between approaches.\n"
             "- Use precise, academic language. Do NOT make up facts not in the fragments.\n"
             "- Output pure Markdown (no code blocks, no headers — those are added externally).\n\n"
-            f"Text fragments:\n{chunks_text[:5000]}"
+            f"Text fragments:\n{safe_chunks}"
         )
         try:
-            return self.generate_response(prompt, max_tokens=max_tokens, temp=0.2)
+            return self.generate_response(prompt, max_tokens=max_tokens, temp=0.2, task="synthesis")
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Section synthesis failed for '{section_name}': {e}")
@@ -111,15 +128,10 @@ class MlxLLMEngine(BaseLLMEngine):
         self.model_path = model_path or config.llm_model_path
 
         if not os.path.isdir(self.model_path):
-            fallback_path = "/Users/vladimirkasterin/models/llm/qwen3-8b-4bit"
-            if os.path.isdir(fallback_path):
-                con.warning(f"Model path not found, using fallback: {Path(fallback_path).name}")
-                self.model_path = fallback_path
-            else:
-                raise FileNotFoundError(
-                    f"Local MLX model path not found: {self.model_path}\n"
-                    f"  Run: python3 main.py config  to see configured paths."
-                )
+            raise FileNotFoundError(
+                f"Local MLX model path not found: {self.model_path}\n"
+                f"  Run: python3 main.py config  to see configured paths."
+            )
 
         model_name = Path(self.model_path).name
         con.model_msg(f"Loading MLX LLM [bold]{model_name}[/bold] …")
@@ -130,9 +142,43 @@ class MlxLLMEngine(BaseLLMEngine):
 
         con.success(f"MLX LLM ready: [bold]{model_name}[/bold]")
 
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None) -> str:
-        max_tokens = max_tokens or config.llm_max_tokens
+    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
+        # Determine max_tokens based on priority: passed_argument > task_specific_config > global_config
+        resolved_max_tokens = max_tokens
+        if resolved_max_tokens is None:
+            if task == "extraction":
+                resolved_max_tokens = config.llm_extraction_output_limit
+            elif task == "clustering":
+                resolved_max_tokens = config.llm_clustering_output_limit
+            elif task == "synthesis":
+                resolved_max_tokens = config.llm_synthesis_output_limit
+            
+        if resolved_max_tokens is None:
+            resolved_max_tokens = config.llm_max_tokens
+
         temp = temp if temp is not None else config.llm_temp
+
+        formatted_prompt = prompt
+        # Check if the prompt seems to be already formatted with chat templates
+        is_formatted = any(
+            tag in prompt
+            for tag in [
+                "<|im_start|>",
+                "<|start_header_id|>",
+                "[INST]",
+                "<start_of_turn>",
+                "<|im_end|>"
+            ]
+        )
+
+        if not is_formatted and hasattr(self.tokenizer, "apply_chat_template"):
+            try:
+                messages = [{"role": "user", "content": prompt}]
+                formatted_prompt = self.tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+            except Exception:
+                pass
 
         from mlx_lm import generate
         from mlx_lm.sample_utils import make_sampler
@@ -141,8 +187,8 @@ class MlxLLMEngine(BaseLLMEngine):
         response = generate(
             model=self.model,
             tokenizer=self.tokenizer,
-            prompt=prompt,
-            max_tokens=max_tokens,
+            prompt=formatted_prompt,
+            max_tokens=resolved_max_tokens,
             sampler=sampler,
             verbose=False,
         )
@@ -165,16 +211,36 @@ class OpenAILLMEngine(BaseLLMEngine):
             client_args["base_url"] = base_url
 
         self.client = openai.OpenAI(**client_args)
+
+        # Try loading tiktoken tokenizer, fallback to None
+        try:
+            import tiktoken
+            self.tokenizer = tiktoken.encoding_for_model(self.model_name)
+        except Exception:
+            self.tokenizer = None
+
         con.success(f"OpenAI API LLM ready: [bold]{self.model_name}[/bold]")
 
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None) -> str:
-        max_tokens = max_tokens or config.llm_max_tokens
+    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
+        # Determine max_tokens based on priority: passed_argument > task_specific_config > global_config
+        resolved_max_tokens = max_tokens
+        if resolved_max_tokens is None:
+            if task == "extraction":
+                resolved_max_tokens = config.llm_extraction_output_limit
+            elif task == "clustering":
+                resolved_max_tokens = config.llm_clustering_output_limit
+            elif task == "synthesis":
+                resolved_max_tokens = config.llm_synthesis_output_limit
+            
+        if resolved_max_tokens is None:
+            resolved_max_tokens = config.llm_max_tokens
+
         temp = temp if temp is not None else config.llm_temp
 
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
+            max_tokens=resolved_max_tokens,
             temperature=temp,
         )
         return response.choices[0].message.content.strip()

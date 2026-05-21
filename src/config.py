@@ -14,16 +14,31 @@ DEFAULT_CONFIG = {
         "provider": "mlx",
         "api_key": "",
         "base_url": "",
-        "model_path": "/Users/vladimirkasterin/models/llm/gemma-3-text-12b-it-4bit",
+        "model_path": str(Path.home() / "models" / "llm" / "gemma-3-text-12b-it-4bit"),
         "max_tokens": 1000,
-        "temp": 0.1
+        "temp": 0.1,
+        # Task-specific input token limits
+        "extraction_input_limit": 5000,
+        "clustering_input_limit": 6000,
+        "synthesis_input_limit": 5000,
+        # Task-specific output token limits
+        "extraction_output_limit": 2048,
+        "clustering_output_limit": 1500,
+        "synthesis_output_limit": 1500
     },
     "embedding": {
         "model_name": "sentence-transformers/all-MiniLM-L6-v2",
         "chunk_size": 1000,
         "chunk_overlap": 200
+    },
+    "pdf_compression": {
+        "enabled": True,
+        "dpi_threshold": 151,
+        "dpi_target": 150,
+        "quality": 75
     }
 }
+
 
 class Config:
     def __init__(self):
@@ -48,8 +63,67 @@ class Config:
 
     def _load_or_create_config(self) -> dict:
         if not self.config_file.exists():
+            config_template = f"""# Configuration for PDF Graph Analyzer
+
+# Path to the SQLite database file
+db_path: "{DEFAULT_CONFIG['db_path']}"
+
+# Directory where local archives of websites/PDFs are stored
+archive_dir: "{DEFAULT_CONFIG['archive_dir']}"
+
+# HuggingFace token for downloading gated models/embeddings (optional)
+hf_token: ""
+
+# Large Language Model (LLM) configuration
+llm:
+  # Provider: 'mlx' (for local Apple Silicon) or 'openai' (for OpenAI / OpenRouter / compatible APIs)
+  provider: "mlx"
+
+  # API key for OpenAI/OpenRouter (only used if provider is 'openai')
+  api_key: ""
+
+  # Base URL for API (only used if provider is 'openai')
+  base_url: ""
+
+  # Local path to MLX model directory or HuggingFace repo ID, or OpenAI model name
+  model_path: "{DEFAULT_CONFIG['llm']['model_path']}"
+
+  # Global default maximum output tokens for LLM response
+  max_tokens: 1000
+
+  # Default temperature (0.0 = deterministic, 1.0 = creative)
+  temp: 0.1
+
+  # Task-specific input token limits (used to dynamically truncate inputs to fit context)
+  extraction_input_limit: 5000
+  clustering_input_limit: 6000
+  synthesis_input_limit: 5000
+
+  # Task-specific output token limits (passed to model during generation)
+  extraction_output_limit: 2048
+  clustering_output_limit: 1500
+  synthesis_output_limit: 1500
+
+# Embedding model configuration (used for vector search and indexing)
+embedding:
+  # HuggingFace model name for sentence embeddings
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+
+  # Number of characters per text chunk
+  chunk_size: 1000
+
+  # Number of characters overlap between consecutive chunks
+  chunk_overlap: 200
+
+# PDF compression settings (used to downsample high-DPI scanned PDFs)
+pdf_compression:
+  enabled: true
+  dpi_threshold: 151
+  dpi_target: 150
+  quality: 75
+"""
             with open(self.config_file, "w", encoding="utf-8") as f:
-                yaml.dump(DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True)
+                f.write(config_template)
             return DEFAULT_CONFIG
         
         with open(self.config_file, "r", encoding="utf-8") as f:
@@ -108,6 +182,30 @@ class Config:
         return self.data["llm"].get("temp", 0.1)
 
     @property
+    def llm_extraction_input_limit(self) -> int:
+        return self.data["llm"].get("extraction_input_limit", 5000)
+
+    @property
+    def llm_extraction_output_limit(self) -> int:
+        return self.data["llm"].get("extraction_output_limit", 2048)
+
+    @property
+    def llm_clustering_input_limit(self) -> int:
+        return self.data["llm"].get("clustering_input_limit", 6000)
+
+    @property
+    def llm_clustering_output_limit(self) -> int:
+        return self.data["llm"].get("clustering_output_limit", 1500)
+
+    @property
+    def llm_synthesis_input_limit(self) -> int:
+        return self.data["llm"].get("synthesis_input_limit", 5000)
+
+    @property
+    def llm_synthesis_output_limit(self) -> int:
+        return self.data["llm"].get("synthesis_output_limit", 1500)
+
+    @property
     def embedding_model_name(self) -> str:
         return self.data["embedding"]["model_name"]
 
@@ -118,5 +216,112 @@ class Config:
     @property
     def chunk_overlap(self) -> int:
         return self.data["embedding"]["chunk_overlap"]
+
+    @property
+    def pdf_compression_enabled(self) -> bool:
+        return self.data.get("pdf_compression", {}).get("enabled", True)
+
+    @property
+    def pdf_compression_dpi_threshold(self) -> int:
+        return self.data.get("pdf_compression", {}).get("dpi_threshold", 151)
+
+    @property
+    def pdf_compression_dpi_target(self) -> int:
+        return self.data.get("pdf_compression", {}).get("dpi_target", 150)
+
+    @property
+    def pdf_compression_quality(self) -> int:
+        return self.data.get("pdf_compression", {}).get("quality", 75)
+
+    def get_storage_stats(self) -> dict:
+        import os
+        import json
+        import sqlite3
+        
+        storage_dir = Path(self.data_dir)
+        archive_dir = Path(self.archive_dir)
+        
+        total_size = 0
+        extension_sizes = {}
+        extension_counts = {}
+        
+        archive_sizes_by_source = {}
+        archive_counts_by_source = {}
+        
+        # Get mapping of paper ID to source_type from sqlite
+        paper_source_types = {}
+        db_path = self.db_path
+        if os.path.exists(db_path):
+            try:
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                # Select only label = 'Paper'
+                rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
+                for r in rows:
+                    try:
+                        props = json.loads(r["properties"] or "{}")
+                        stype = props.get("source_type")
+                        if stype:
+                            paper_source_types[r["id"]] = stype
+                    except Exception:
+                        pass
+                conn.close()
+            except Exception:
+                pass
+                
+        if storage_dir.exists():
+            for root, _, files in os.walk(storage_dir):
+                for file in files:
+                    file_path = Path(root) / file
+                    if file_path.is_symlink() or not file_path.is_file():
+                        continue
+                    sz = file_path.stat().st_size
+                    total_size += sz
+                    
+                    ext = file_path.suffix.lower()
+                    if not ext:
+                        ext = "(no extension)"
+                    
+                    extension_sizes[ext] = extension_sizes.get(ext, 0) + sz
+                    extension_counts[ext] = extension_counts.get(ext, 0) + 1
+                    
+                    # Check if inside archive
+                    try:
+                        is_in_archive = archive_dir.resolve() in file_path.resolve().parents
+                    except Exception:
+                        is_in_archive = str(file_path.resolve()).startswith(str(archive_dir.resolve()))
+                        
+                    if is_in_archive:
+                        paper_id = file_path.stem
+                        stype = paper_source_types.get(paper_id)
+                        if not stype:
+                            if ext == ".pdf":
+                                stype = "paper"
+                            elif ext == ".md":
+                                stype = "note"
+                            elif ext == ".epub":
+                                stype = "book"
+                            else:
+                                stype = "other"
+                        archive_sizes_by_source[stype] = archive_sizes_by_source.get(stype, 0) + sz
+                        archive_counts_by_source[stype] = archive_counts_by_source.get(stype, 0) + 1
+                        
+        # Format results
+        ext_list = [
+            {"extension": k, "size": v, "count": extension_counts[k]}
+            for k, v in sorted(extension_sizes.items(), key=lambda x: x[1], reverse=True)
+        ]
+        
+        src_list = [
+            {"source": k, "size": v, "count": archive_counts_by_source[k]}
+            for k, v in sorted(archive_sizes_by_source.items(), key=lambda x: x[1], reverse=True)
+        ]
+        
+        return {
+            "storage_dir": str(storage_dir),
+            "total_size": total_size,
+            "extensions": ext_list,
+            "sources": src_list
+        }
 
 config = Config()

@@ -11,6 +11,48 @@ from src.config import config
 from src import console as con
 
 
+def compress_and_save_pdf(input_path: str, output_path: str, dpi_threshold: int, dpi_target: int, quality: int) -> None:
+    """
+    Recompresses images in a PDF using PyMuPDF and saves the result to output_path.
+    Guarantees no errors due to threshold <= target.
+    """
+    import fitz
+    import tempfile
+    
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open(input_path)
+    actual_threshold = max(dpi_threshold, dpi_target + 1)
+    
+    try:
+        doc.rewrite_images(
+            dpi_threshold=actual_threshold,
+            dpi_target=dpi_target,
+            quality=quality,
+            lossy=True,
+            lossless=True
+        )
+    except Exception as e:
+        con.warning(f"Failed to rewrite images in PDF: {e}")
+        
+    if Path(input_path).resolve() == Path(output_path).resolve():
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_name = tmp.name
+        try:
+            doc.save(tmp_name, garbage=4, deflate=True)
+            doc.close()
+            shutil.move(tmp_name, output_path)
+        except Exception as e:
+            if os.path.exists(tmp_name):
+                try:
+                    os.remove(tmp_name)
+                except Exception:
+                    pass
+            raise e
+    else:
+        doc.save(output_path, garbage=4, deflate=True)
+        doc.close()
+
+
 def _split_text_to_chunks_raw(
     paper_id: str, text: str, chunk_size: int = None, chunk_overlap: int = None
 ) -> List[Chunk]:
@@ -265,6 +307,7 @@ class Indexer:
         # Determine archival path
         archive_dir = Path(config.archive_dir)
         archive_path = archive_dir / f"{paper.id}.pdf"
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
         paper.file_path = str(archive_path)
         
         # 2. Save Paper Node
@@ -388,10 +431,43 @@ class Indexer:
             self.vector_repo.save_chunks(chunks)
 
         # 7. Move PDF to Archive
-        if Path(file_path).resolve() != archive_path.resolve():
-            shutil.copy2(file_path, archive_path)
-            os.remove(file_path)
-            print(f"[+] PDF moved to archive: {archive_path}")
+        if config.pdf_compression_enabled:
+            con.dim(f"Compressing and saving PDF to archive: {archive_path} ...")
+            try:
+                dpi_threshold = config.pdf_compression_dpi_threshold
+                dpi_target = config.pdf_compression_dpi_target
+                quality = config.pdf_compression_quality
+                
+                orig_size = os.path.getsize(file_path)
+                
+                compress_and_save_pdf(
+                    input_path=file_path,
+                    output_path=str(archive_path),
+                    dpi_threshold=dpi_threshold,
+                    dpi_target=dpi_target,
+                    quality=quality
+                )
+                
+                if archive_path.exists():
+                    new_size = archive_path.stat().st_size
+                    ratio = (1 - new_size / orig_size) * 100 if orig_size > 0 else 0
+                    con.success(
+                        f"PDF compressed: {orig_size / 1024 / 1024:.1f} MB -> {new_size / 1024 / 1024:.1f} MB "
+                        f"({ratio:.1f}% saved)"
+                    )
+                
+                if Path(file_path).resolve() != archive_path.resolve():
+                    os.remove(file_path)
+            except Exception as e:
+                con.warning(f"PDF compression failed: {e}. Falling back to standard copy.")
+                if Path(file_path).resolve() != archive_path.resolve():
+                    shutil.copy2(file_path, archive_path)
+                    os.remove(file_path)
+        else:
+            if Path(file_path).resolve() != archive_path.resolve():
+                shutil.copy2(file_path, archive_path)
+                os.remove(file_path)
+                print(f"[+] PDF moved to archive: {archive_path}")
 
         # Generate summary
         self._generate_and_save_summary(paper, full_text)
@@ -517,6 +593,7 @@ class Indexer:
         from pathlib import Path
         archive_dir = Path(config.archive_dir)
         archive_path = archive_dir / f"{paper.id}.md"
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(archive_path, "w", encoding="utf-8") as f:
                 f.write(body)
@@ -766,7 +843,7 @@ class Indexer:
         
         if use_llm and self.llm_engine:
             con.dim("Extracting concepts/tags via LLM …")
-            llm_data = self.llm_engine.extract_concepts_and_metadata(text_for_extraction[:5000])
+            llm_data = self.llm_engine.extract_concepts_and_metadata(text_for_extraction)
             if llm_data:
                 llm_authors = llm_data.get("authors", [])
                 llm_concepts = llm_data.get("concepts", [])

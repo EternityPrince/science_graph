@@ -14,6 +14,11 @@ class GraphRepository(ABC):
         pass
 
     @abstractmethod
+    def get_papers_batch(self, paper_ids: List[str]) -> Dict[str, Paper]:
+        """Retrieves a dictionary of paper_id -> Paper for the requested paper IDs."""
+        pass
+
+    @abstractmethod
     def find_paper_by_title(self, title: str) -> Optional[Paper]:
         """Finds a paper or note by its exact or case-insensitive title."""
         pass
@@ -72,6 +77,14 @@ class VectorRepository(ABC):
     def search_similar_chunks(self, query_embedding: List[float], limit: int = 5) -> List[tuple[Chunk, float]]:
         """
         Searches for similar chunks using cosine similarity.
+        Returns a list of tuples (Chunk, score).
+        """
+        pass
+
+    @abstractmethod
+    def search_text_bm25(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
+        """
+        Searches for chunks using SQLite FTS5 BM25 search.
         Returns a list of tuples (Chunk, score).
         """
         pass

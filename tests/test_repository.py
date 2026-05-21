@@ -100,5 +100,49 @@ class TestSQLiteRepositories(unittest.TestCase):
         results2 = self.vector_repo_temp.search_similar_chunks(query_emb2, limit=1)
         self.assertEqual(results2[0][0].id, "p1#1")
 
+    def test_get_papers_batch(self):
+        # Save two papers
+        paper1 = Paper(id="p1", title="Paper 1", authors=["Author A"], year=2021)
+        paper2 = Paper(id="p2", title="Paper 2", authors=["Author B"], year=2022)
+        self.graph_repo_temp.save_paper(paper1)
+        self.graph_repo_temp.save_paper(paper2)
+        
+        # Batch retrieve them
+        papers = self.graph_repo_temp.get_papers_batch(["p1", "p2", "nonexistent"])
+        self.assertEqual(len(papers), 2)
+        self.assertIn("p1", papers)
+        self.assertIn("p2", papers)
+        self.assertEqual(papers["p1"].title, "Paper 1")
+        self.assertEqual(papers["p2"].title, "Paper 2")
+
+    def test_sqlite_fts5_bm25_search(self):
+        # Save chunks
+        chunk1 = Chunk(
+            id="c1",
+            paper_id="test_doi",
+            text_content="Supervised learning uses labeled training datasets to train models.",
+            page_number=1,
+            embedding=[0.1] * 384
+        )
+        chunk2 = Chunk(
+            id="c2",
+            paper_id="test_doi",
+            text_content="Unsupervised learning algorithms analyze and cluster unlabeled data.",
+            page_number=1,
+            embedding=[0.2] * 384
+        )
+        self.vector_repo_temp.save_chunks([chunk1, chunk2])
+        
+        # Search for "supervised"
+        results = self.vector_repo_temp.search_text_bm25("supervised", limit=5)
+        self.assertTrue(len(results) >= 1)
+        # The best match should be chunk1 since it contains "supervised" (c2 only has "unsupervised")
+        self.assertEqual(results[0][0].id, "c1")
+        
+        # Search for "unsupervised"
+        results2 = self.vector_repo_temp.search_text_bm25("unsupervised", limit=5)
+        self.assertTrue(len(results2) >= 1)
+        self.assertEqual(results2[0][0].id, "c2")
+
 if __name__ == "__main__":
     unittest.main()

@@ -271,7 +271,7 @@ def query(
 
 @app.command("stats")
 def stats():
-    """Show knowledge base statistics."""
+    """Show knowledge base statistics and disk storage details."""
     graph_repo, _, _, _ = get_services(load_llm=False, load_embeddings=False)
     db_stats = graph_repo.get_stats()
 
@@ -289,19 +289,98 @@ def stats():
         show_header=True,
         header_style="bold cyan",
     )
-    table.add_column("Category", style="bold white", min_width=16)
+    table.add_column("Category", style="bold white", min_width=24)
     table.add_column("Count", justify="right", style="bold green")
 
     table.add_row("Papers / Books / Notes", str(db_stats["papers"]))
     table.add_row("Authors", str(db_stats["authors"]))
     table.add_row("Concepts", str(db_stats["concepts"]))
     table.add_row("Graph Edges", str(db_stats["edges"]))
-    table.add_row("─" * 20, "─" * 8)
+    table.add_row("─" * 24, "─" * 8)
     table.add_row("Database Size", db_size or "—")
 
     con.blank()
     con.console.print(table)
     con.blank()
+
+    # Storage stats
+    storage_stats = config.get_storage_stats()
+    
+    def format_size(bytes_val: int) -> str:
+        if bytes_val >= 1024 * 1024 * 1024:
+            return f"{bytes_val / (1024 * 1024 * 1024):.2f} GB"
+        elif bytes_val >= 1024 * 1024:
+            return f"{bytes_val / (1024 * 1024):.2f} MB"
+        elif bytes_val >= 1024:
+            return f"{bytes_val / 1024:.2f} KB"
+        else:
+            return f"{bytes_val} B"
+
+    con.console.print(Panel(
+        f"[bold white]📂 Storage Location:[/bold white] [cyan]{storage_stats['storage_dir']}[/cyan]\n"
+        f"[bold white]📦 Total Storage Size:[/bold white] [green]{format_size(storage_stats['total_size'])}[/green]",
+        title="💾 Disk Storage Information",
+        border_style="blue",
+        expand=False
+    ))
+    con.blank()
+
+    # Breakdown by Extensions
+    if storage_stats["extensions"]:
+        ext_table = Table(
+            title="🗂️ Storage Breakdown by File Type (Extensions)",
+            box=box.MINIMAL_DOUBLE_HEAD,
+            border_style="blue",
+            show_header=True,
+            header_style="bold blue",
+        )
+        ext_table.add_column("Extension", style="bold white")
+        ext_table.add_column("Files Count", justify="right", style="magenta")
+        ext_table.add_column("Size", justify="right", style="green")
+        ext_table.add_column("Percentage", justify="right", style="yellow")
+
+        tot = storage_stats["total_size"]
+        for item in storage_stats["extensions"]:
+            pct = (item["size"] / tot * 100) if tot > 0 else 0
+            ext_table.add_row(
+                item["extension"],
+                str(item["count"]),
+                format_size(item["size"]),
+                f"{pct:.1f}%"
+            )
+        con.console.print(ext_table)
+        con.blank()
+
+    # Breakdown by Sources
+    if storage_stats["sources"]:
+        src_table = Table(
+            title="📥 Archive Breakdown by Source Type",
+            box=box.MINIMAL_DOUBLE_HEAD,
+            border_style="blue",
+            show_header=True,
+            header_style="bold blue",
+        )
+        src_table.add_column("Source Type", style="bold white")
+        src_table.add_column("Files Count", justify="right", style="magenta")
+        src_table.add_column("Size", justify="right", style="green")
+
+        source_labels = {
+            "paper": "📚 Papers / Articles",
+            "note": "📝 Notes (Markdown)",
+            "book": "📖 Books (EPUB)",
+            "webpage": "🌐 Webpages (Scraped)",
+            "other": "❓ Other / Uncategorized"
+        }
+
+        for item in storage_stats["sources"]:
+            lbl = source_labels.get(item["source"], f"❓ {item['source']}")
+            src_table.add_row(
+                lbl,
+                str(item["count"]),
+                format_size(item["size"])
+            )
+        con.console.print(src_table)
+        con.blank()
 
 
 # ── storage ───────────────────────────────────────────────────────────────────

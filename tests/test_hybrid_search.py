@@ -25,12 +25,14 @@ class TestHybridSearch(unittest.TestCase):
         c2 = Chunk(id="chunk_2", paper_id="paper_1", text_content="Reinforcement learning relies on reward functions to train policy networks.", page_number=2)
         c3 = Chunk(id="chunk_3", paper_id="paper_2", text_content="Contrastive learning is a self-supervised learning technique.", page_number=1)
         
-        self.vector_repo.get_all_chunks.return_value = [c1, c2, c3]
-        
-        # 2. Setup mock dense search results
+        # 2. Setup mock dense and BM25 search results
         self.vector_repo.search_similar_chunks.return_value = [
             (c2, 0.9),
             (c1, 0.7)
+        ]
+        self.vector_repo.search_text_bm25.return_value = [
+            (c1, 1.2),
+            (c2, 0.4)
         ]
         
         # 3. Setup mock Cross-Encoder

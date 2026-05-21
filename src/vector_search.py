@@ -1,7 +1,6 @@
 import re
 import math
 from typing import List, Tuple
-from sentence_transformers import SentenceTransformer
 from src.config import config
 from src.models import Chunk
 
@@ -12,6 +11,7 @@ class EmbeddingEngine:
         short = self.model_name.split("/")[-1]
         con.model_msg(f"Loading embeddings [bold]{short}[/bold] …")
         with con.suppress_stderr(), con.suppress_stdout():
+            from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer(self.model_name)
         con.success(f"Embeddings ready: [bold]{short}[/bold]")
 

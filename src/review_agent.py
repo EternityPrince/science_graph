@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from src.models import Chunk, Paper
 from src.rag import RAGPipeline
 from src.repository.base import GraphRepository, VectorRepository
-from src.vector_search import EmbeddingEngine, BM25
+from src.vector_search import EmbeddingEngine
 from src.llm_engine import LLMEngine
 from src import console as con
 
@@ -125,22 +125,23 @@ class ReviewAgent:
     def _hybrid_retrieve(self, query: str, limit: int) -> List[Tuple[Chunk, float]]:
         """Dense + BM25 + RRF + Cross-Encoder reranking (mirrors RAGPipeline.ask)."""
         query_emb = self.emb_engine.get_embedding(query)
-        all_chunks = self.vector_repo.get_all_chunks()
-        if not all_chunks:
+        dense_results = self.vector_repo.search_similar_chunks(query_emb, limit=limit * 2)
+        bm25_results = self.vector_repo.search_text_bm25(query, limit=limit * 2)
+
+        if not dense_results and not bm25_results:
             return []
 
-        dense_results = self.vector_repo.search_similar_chunks(query_emb, limit=limit * 2)
+        id_to_chunk: Dict[str, Chunk] = {}
+        for chunk, _ in dense_results:
+            id_to_chunk[chunk.id] = chunk
+        for chunk, _ in bm25_results:
+            id_to_chunk[chunk.id] = chunk
 
-        corpus = [(c.id, c.text_content) for c in all_chunks]
-        bm25 = BM25(corpus)
-        bm25_results = bm25.score(query)[: limit * 2]
-
-        id_to_chunk = {c.id: c for c in all_chunks}
         rrf_scores: Dict[str, float] = {}
         for rank, (chunk, _) in enumerate(dense_results, start=1):
             rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + 1.0 / (60.0 + rank)
-        for rank, (chunk_id, _) in enumerate(bm25_results, start=1):
-            rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (60.0 + rank)
+        for rank, (chunk, _) in enumerate(bm25_results, start=1):
+            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + 1.0 / (60.0 + rank)
 
         sorted_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)
         candidates = [id_to_chunk[cid] for cid in sorted_ids[: limit * 2] if cid in id_to_chunk]
@@ -163,9 +164,12 @@ class ReviewAgent:
     ) -> Dict[str, List[str]]:
         """Ask LLM to group chunks into thematic sections."""
         # Build a compact summary for the LLM prompt
+        paper_ids = list({chunk.paper_id for chunk, _ in chunks_with_scores})
+        papers = self.graph_repo.get_papers_batch(paper_ids)
+        
         summaries = []
         for chunk, score in chunks_with_scores:
-            paper = self.graph_repo.get_paper(chunk.paper_id)
+            paper = papers.get(chunk.paper_id)
             title = paper.title if paper else chunk.paper_id
             excerpt = chunk.text_content[:200].replace("\n", " ")
             summaries.append({"id": chunk.id, "title": title, "score": round(score, 3), "text": excerpt})
@@ -195,9 +199,12 @@ class ReviewAgent:
 
     def _format_chunks_for_synthesis(self, chunks: List[Chunk]) -> str:
         """Formats chunks with paper metadata for LLM synthesis prompt."""
+        paper_ids = list({chunk.paper_id for chunk in chunks})
+        papers = self.graph_repo.get_papers_batch(paper_ids)
+        
         blocks = []
         for chunk in chunks:
-            paper = self.graph_repo.get_paper(chunk.paper_id)
+            paper = papers.get(chunk.paper_id)
             title = paper.title if paper else chunk.paper_id
             year = f", {paper.year}" if paper and paper.year else ""
             authors = ""
@@ -214,8 +221,9 @@ class ReviewAgent:
     def _build_comparison_table(self, paper_ids: List[str]) -> str:
         """Builds a Markdown comparison table from paper metadata."""
         rows = []
+        papers = self.graph_repo.get_papers_batch(paper_ids)
         for pid in paper_ids:
-            paper = self.graph_repo.get_paper(pid)
+            paper = papers.get(pid)
             if not paper or not paper.title:
                 continue
             # Collect concepts connected to this paper
@@ -257,8 +265,9 @@ class ReviewAgent:
     def _collect_bibliography(self, paper_ids: List[str]) -> List[str]:
         """Assembles APA-style bibliography entries."""
         entries = []
+        papers = self.graph_repo.get_papers_batch(paper_ids)
         for pid in paper_ids:
-            paper = self.graph_repo.get_paper(pid)
+            paper = papers.get(pid)
             if not paper or not paper.title:
                 continue
             authors_str = ""
