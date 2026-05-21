@@ -126,7 +126,7 @@ class ReviewAgent:
         """Dense + BM25 + RRF + Cross-Encoder reranking (mirrors RAGPipeline.ask)."""
         query_emb = self.emb_engine.get_embedding(query)
         dense_results = self.vector_repo.search_similar_chunks(query_emb, limit=limit * 2)
-        bm25_results = self.vector_repo.search_text_bm25(query, limit=limit * 2)
+        bm25_results = self.vector_repo.search_text_fts5(query, limit=limit * 2)
 
         if not dense_results and not bm25_results:
             return []

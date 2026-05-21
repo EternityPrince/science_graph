@@ -1,0 +1,471 @@
+import { fetchStats, openLocalFile, uploadFile, fetchPaperDetails } from './api.js';
+import { toast, log } from './ui.js';
+import { escapeHtml, escapeSingleQuotes } from './utils.js';
+import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters } from './graph.js';
+import { loadNotes, saveNewNote, onNoteSaved, parseWikiLinks } from './notes.js';
+import { sendMessage, registerViewSwitcher as registerChatViewSwitcher, askAbout } from './chat.js';
+
+// Setup view switching
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    switchView(btn.dataset.view);
+  });
+});
+
+export function switchView(viewName) {
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    if (b.dataset.view === viewName) {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
+  document.querySelectorAll('.main-view').forEach(v => {
+    if (v.id === `view-${viewName}`) {
+      v.classList.add('active');
+    } else {
+      v.classList.remove('active');
+    }
+  });
+  
+  // Redraw network when switching to graph tab to avoid vis-network rendering artifacts
+  const network = getNetwork();
+  if (viewName === 'graph' && network) {
+    network.redraw();
+  }
+}
+
+// Stats Loader
+export async function loadStats() {
+  try {
+    const d = await fetchStats();
+    const papersEl = document.getElementById('stat-papers');
+    const conceptsEl = document.getElementById('stat-concepts');
+    if (papersEl) papersEl.textContent = d.papers ?? '—';
+    if (conceptsEl) conceptsEl.textContent = d.concepts ?? '—';
+  } catch (e) {
+    toast('Ошибка загрузки статистики: ' + e.message, 'err');
+  }
+}
+
+// ── Search Autocomplete ──────────────────────────────────────────────────────
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+let searchTimer = null;
+
+if (searchInput && searchResults) {
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (!q) {
+      searchResults.classList.remove('visible');
+      return;
+    }
+    searchTimer = setTimeout(() => doSearch(q), 280);
+  });
+
+  searchInput.addEventListener('blur', () => {
+    setTimeout(() => searchResults.classList.remove('visible'), 200);
+  });
+}
+
+// Expose functions needed by inline onclick handlers in dynamically rendered HTML
+window.focusAndDetails = focusAndDetails;
+window.askAbout = askAbout;
+
+import { searchPapers } from './api.js';
+
+async function doSearch(q) {
+  try {
+    const d = await searchPapers(q);
+    renderSearchResults(d.results || []);
+  } catch (e) {
+    toast('Ошибка поиска: ' + e.message, 'err');
+  }
+}
+
+function renderSearchResults(results) {
+  if (!searchResults) return;
+  if (!results.length) {
+    searchResults.classList.remove('visible');
+    return;
+  }
+  const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+  searchResults.innerHTML = results.map(item => `
+    <div class="search-item" data-id="${escapeHtml(item.id)}" onclick="selectSearchResult('${escapeHtml(item.id)}')">
+      <span>${typeIcon[item.source_type] || '📄'}</span>
+      <div>
+        <div class="search-item-title">${escapeHtml(item.title)}</div>
+        <div class="search-item-meta">${item.year || ''}</div>
+      </div>
+    </div>
+  `).join('');
+  searchResults.classList.add('visible');
+}
+
+async function selectSearchResult(nodeId) {
+  if (searchResults) searchResults.classList.remove('visible');
+  if (searchInput) searchInput.value = '';
+  await focusAndDetails(nodeId);
+}
+
+window.selectSearchResult = selectSearchResult;
+
+// ── File Upload Drag & Drop ──────────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+if (dropZone && fileInput) {
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('drag-over');
+  });
+  
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleUpload(file);
+  });
+  
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleUpload(fileInput.files[0]);
+  });
+}
+
+async function handleUpload(file) {
+  const logBox = document.getElementById('upload-log');
+  if (logBox) logBox.innerHTML = '';
+  
+  log(`📤 Загрузка: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, 'info');
+
+  try {
+    log('⏳ Индексация…', 'info');
+    const d = await uploadFile(file);
+
+    log(`✅ Успешно проиндексировано: ID = ${d.id}`, 'ok');
+    toast(`✅ ${file.name} добавлен в базу знаний`, 'ok');
+
+    // Refresh components
+    setTimeout(async () => {
+      await loadGraph();
+      await loadStats();
+      await loadNotes();
+    }, 800);
+
+  } catch (e) {
+    log(`❌ Ошибка: ${e.message}`, 'err');
+    toast(`Ошибка загрузки: ${e.message}`, 'err');
+  }
+
+  if (fileInput) fileInput.value = '';
+}
+
+// ── Filter Chips ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.filter-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const group = chip.dataset.group;
+    if (activeFilters.has(group)) {
+      activeFilters.delete(group);
+      chip.classList.add('inactive');
+      chip.classList.remove('active');
+    } else {
+      activeFilters.add(group);
+      chip.classList.remove('inactive');
+      chip.classList.add('active');
+    }
+    applyFilters();
+  });
+});
+
+// Refresh button
+const btnRefresh = document.getElementById('btn-refresh');
+if (btnRefresh) {
+  btnRefresh.addEventListener('click', async () => {
+    await Promise.all([loadGraph(), loadStats(), loadNotes()]);
+  });
+}
+
+// Note form submit listener
+const noteForm = document.getElementById('note-form');
+if (noteForm) {
+  noteForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await saveNewNote();
+  });
+}
+
+// Chat Send Button & Input resize
+const chatSend = document.getElementById('chat-send');
+const chatInput = document.getElementById('chat-input');
+
+if (chatSend && chatInput) {
+  chatSend.addEventListener('click', sendMessage);
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  });
+}
+
+// ── Inter-Module Registrations ───────────────────────────────────────────────
+onNodeClick(showNodeDetails);
+registerGraphViewSwitcher(switchView);
+registerChatViewSwitcher(switchView);
+onNoteSaved(async () => {
+  await Promise.all([loadNotes(), loadGraph(), loadStats()]);
+});
+
+// ── Node Details panel polymorphic rendering ──────────────────────────────────
+export async function showNodeDetails(nodeId) {
+  const panel = document.getElementById('details-panel');
+  if (!panel) return;
+  panel.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text3)"><div class="spinner" style="width:24px;height:24px;border-width:2px"></div> Загрузка…</div>`;
+
+  try {
+    const d = await fetchPaperDetails(nodeId);
+    renderDetails(panel, d);
+  } catch (e) {
+    panel.innerHTML = `<div class="details-empty"><div class="icon">⚠️</div><p>${e.message}</p></div>`;
+  }
+}
+
+function renderDetails(panel, d) {
+  let html = '';
+
+  // ── Render polymorphic Author node ──
+  if (d.type === 'author') {
+    html = `
+      <div class="details-card">
+        <h3>
+          <span class="details-badge badge-author">Автор</span>
+          ${escapeHtml(d.name)}
+        </h3>
+        <div class="details-row" style="margin-top: 10px;">
+          <div class="details-field">
+            <div class="details-label">Количество публикаций</div>
+            <div class="details-value">${d.papers_count}</div>
+          </div>
+        </div>
+      </div>`;
+
+    if (d.papers?.length) {
+      const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+      html += `<div class="details-card">
+        <h3>📚 Публикации</h3>
+        <div class="details-row" style="margin-top: 10px; gap: 10px;">
+          ${d.papers.map(p => `
+            <div class="details-value" style="font-size:13px; cursor:pointer; display:flex; gap:6px; align-items:center;" onclick="focusAndDetails('${escapeHtml(p.id)}')">
+              <span>${typeIcon[p.source_type] || '📄'}</span>
+              <span style="color: var(--accent);">${escapeHtml(p.title)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+    panel.innerHTML = html;
+    return;
+  }
+
+  // ── Render polymorphic Concept node ──
+  if (d.type === 'concept') {
+    html = `
+      <div class="details-card">
+        <h3>
+          <span class="details-badge badge-concept">Концепт</span>
+          ${escapeHtml(d.name)}
+        </h3>
+        <div class="details-row" style="margin-top: 10px;">
+          <div class="details-field">
+            <div class="details-label">Описание</div>
+            <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${escapeHtml(d.description)}</div>
+          </div>
+        </div>
+      </div>`;
+
+    if (d.papers?.length) {
+      const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+      html += `<div class="details-card">
+        <h3>📚 Упоминания в работах</h3>
+        <div class="details-row" style="margin-top: 10px; gap: 10px;">
+          ${d.papers.map(p => `
+            <div class="details-value" style="font-size:13px; cursor:pointer; display:flex; gap:6px; align-items:center;" onclick="focusAndDetails('${escapeHtml(p.id)}')">
+              <span>${typeIcon[p.source_type] || '📄'}</span>
+              <span style="color: var(--accent);">${escapeHtml(p.title)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    if (d.related?.length) {
+      html += `<div class="details-card">
+        <h3>🏷️ Связанные теги</h3>
+        <div class="tag-list" style="margin-top: 10px;">
+          ${d.related.map(t => `
+            <span class="tag" style="border-color: var(--col-tag); color: var(--col-tag);" onclick="focusAndDetails('${escapeHtml(t.id)}')">${escapeHtml(t.name)}</span>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+    panel.innerHTML = html;
+    return;
+  }
+
+  // ── Render polymorphic Tag node ──
+  if (d.type === 'tag') {
+    html = `
+      <div class="details-card">
+        <h3>
+          <span class="details-badge badge-tag">Тег</span>
+          ${escapeHtml(d.name)}
+        </h3>
+        <div class="details-row" style="margin-top: 10px;">
+          <div class="details-field">
+            <div class="details-label">Описание</div>
+            <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${escapeHtml(d.description)}</div>
+          </div>
+        </div>
+      </div>`;
+
+    if (d.papers?.length) {
+      const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+      html += `<div class="details-card">
+        <h3>📚 Работы с этим тегом</h3>
+        <div class="details-row" style="margin-top: 10px; gap: 10px;">
+          ${d.papers.map(p => `
+            <div class="details-value" style="font-size:13px; cursor:pointer; display:flex; gap:6px; align-items:center;" onclick="focusAndDetails('${escapeHtml(p.id)}')">
+              <span>${typeIcon[p.source_type] || '📄'}</span>
+              <span style="color: var(--accent);">${escapeHtml(p.title)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    if (d.related?.length) {
+      html += `<div class="details-card">
+        <h3>🧠 Связанные концепты</h3>
+        <div class="tag-list" style="margin-top: 10px;">
+          ${d.related.map(c => `
+            <span class="tag" onclick="focusAndDetails('${escapeHtml(c.id)}')">${escapeHtml(c.name)}</span>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+    panel.innerHTML = html;
+    return;
+  }
+
+  // ── Render Paper (default document) node ──
+  const typeLabel = { paper: 'Статья', note: 'Заметка', book: 'Книга' }[d.source_type] || 'Документ';
+  const badgeClass = { paper: 'badge-paper', note: 'badge-note', book: 'badge-book' }[d.source_type] || 'badge-paper';
+
+  html = `
+    <div class="details-card">
+      <h3>
+        <span class="details-badge ${badgeClass}">${typeLabel}</span>
+        ${escapeHtml(d.title)}
+      </h3>
+      <div class="details-row" style="margin-top: 10px;">
+        ${d.authors?.length ? `<div class="details-field"><div class="details-label">Авторы</div><div class="details-value">${escapeHtml(d.authors.join(', '))}</div></div>` : ''}
+        ${d.year ? `<div class="details-field"><div class="details-label">Год</div><div class="details-value">${d.year}</div></div>` : ''}
+        ${d.doi ? `<div class="details-field"><div class="details-label">DOI</div><div class="details-value"><a href="https://doi.org/${d.doi}" target="_blank">${escapeHtml(d.doi)}</a></div></div>` : ''}
+        ${d.created_at ? `<div class="details-field"><div class="details-label">Добавлен</div><div class="details-value">${d.created_at.substring(0, 16).replace('T', ' ')}</div></div>` : ''}
+      </div>
+    </div>`;
+
+  if (d.abstract) {
+    const processedBody = parseWikiLinks(escapeHtml(d.abstract));
+    html += `<div class="details-card">
+      <h3>📄 Аннотация</h3>
+      <div class="abstract-text" style="margin-top: 10px;">${processedBody}</div>
+    </div>`;
+  }
+
+  if (d.summary) {
+    const parsedMarkdown = marked.parse(d.summary);
+    const sanitizedMarkdown = DOMPurify.sanitize(parsedMarkdown);
+    const processedSummary = parseWikiLinks(sanitizedMarkdown);
+    html += `<div class="details-card">
+      <h3>💡 Краткое содержание (LLM Summary)</h3>
+      <div style="font-size: 13px; color: var(--text2); line-height: 1.6; margin-top: 10px; max-height: 250px; overflow-y: auto; background: var(--surface3); padding: 10px 12px; border-radius: var(--radius-sm);">
+        ${processedSummary}
+      </div>
+    </div>`;
+  }
+
+  if (d.concepts?.length) {
+    html += `<div class="details-card">
+      <h3>🧠 Концепты</h3>
+      <div class="tag-list" style="margin-top: 10px;">${d.concepts.map(c =>
+        `<span class="tag" onclick="focusAndDetails('${escapeHtml(c.id)}')">${escapeHtml(c.name)}</span>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (d.tags?.length) {
+    html += `<div class="details-card">
+      <h3>🏷️ Теги</h3>
+      <div class="tag-list" style="margin-top: 10px;">${d.tags.map(t =>
+        `<span class="tag" style="border-color: var(--col-tag); color: var(--col-tag);" onclick="focusAndDetails('${escapeHtml(t.id)}')">${escapeHtml(t.name)}</span>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (d.citations?.length) {
+    html += `<div class="details-card">
+      <h3>📎 Цитирует (${d.citations.length})</h3>
+      <div class="details-row" style="margin-top: 10px; gap: 8px;">${d.citations.map(t =>
+        `<div class="details-value" style="font-size:12px;color:var(--accent);cursor:pointer;" onclick="focusAndDetails('${escapeHtml(t.id)}')">• ${escapeHtml(t.title)}</div>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (d.cited_by?.length) {
+    html += `<div class="details-card">
+      <h3>📌 Цитируется в (${d.cited_by.length})</h3>
+      <div class="details-row" style="margin-top: 10px; gap: 8px;">${d.cited_by.map(t =>
+        `<div class="details-value" style="font-size:12px;color:var(--accent);cursor:pointer;" onclick="focusAndDetails('${escapeHtml(t.id)}')">• ${escapeHtml(t.title)}</div>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (d.file_path) {
+    html += `<button class="btn btn-ghost" style="width:100%;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="openLocalFile('${escapeSingleQuotes(d.file_path)}')">
+      📂 Открыть локальный файл
+    </button>`;
+  }
+
+  html += `<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="askAbout('${escapeSingleQuotes(d.title)}')">
+    💬 Спросить об этой работе
+  </button>`;
+
+  panel.innerHTML = html;
+}
+
+window.openLocalFile = async (filePath) => {
+  try {
+    const d = await openLocalFile(filePath);
+    toast(`Открыт файл: ${d.message || filePath}`, 'ok');
+  } catch (e) {
+    toast(`Ошибка открытия файла: ${e.message}`, 'err');
+  }
+};
+
+// ── Application Bootstrapping ────────────────────────────────────────────────
+(async () => {
+  switchView('graph');
+  await Promise.all([loadStats(), loadGraph(), loadNotes()]);
+})();

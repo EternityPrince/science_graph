@@ -353,6 +353,110 @@ class SQLiteGraphRepository(GraphRepository):
             conn.commit()
             return cursor.rowcount
 
+    def _row_to_paper(self, node_id: str, props: Dict[str, Any]) -> Paper:
+        return Paper(
+            id=node_id,
+            title=props.get("title", ""),
+            authors=props.get("authors", []),
+            year=props.get("year"),
+            doi=props.get("doi"),
+            abstract=props.get("abstract"),
+            file_path=props.get("file_path"),
+            created_at=props.get("created_at"),
+            properties=props
+        )
+
+    def get_all_nodes(self) -> List[tuple[str, str, str]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, label, properties FROM nodes").fetchall()
+            return [(r["id"], r["label"], r["properties"]) for r in rows]
+
+    def get_all_edges(self) -> List[tuple[str, str, str, str]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT source_id, target_id, type, properties FROM edges").fetchall()
+            return [(r["source_id"], r["target_id"], r["type"], r["properties"]) for r in rows]
+
+    def get_node_by_id(self, node_id: str) -> Optional[tuple[str, str]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT label, properties FROM nodes WHERE id = ?", (node_id,)).fetchone()
+            if row:
+                return (row["label"], row["properties"])
+            return None
+
+    def get_papers_by_author(self, author_id: str) -> List[Paper]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT n.id, n.properties FROM nodes n
+                JOIN edges e ON n.id = e.target_id
+                WHERE e.source_id = ? AND e.type = 'AUTHORED' AND n.label = 'Paper'
+                """,
+                (author_id,)
+            ).fetchall()
+            papers = []
+            for r in rows:
+                props = json.loads(r["properties"])
+                papers.append(self._row_to_paper(r["id"], props))
+            return papers
+
+    def get_papers_by_entity(self, entity_id: str, edge_type: str) -> List[Paper]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT n.id, n.properties FROM nodes n
+                JOIN edges e ON n.id = e.source_id
+                WHERE e.target_id = ? AND e.type = ? AND n.label = 'Paper'
+                """,
+                (entity_id, edge_type)
+            ).fetchall()
+            papers = []
+            for r in rows:
+                props = json.loads(r["properties"])
+                papers.append(self._row_to_paper(r["id"], props))
+            return papers
+
+    def get_distinct_targets(self, source_ids: List[str], edge_type: str) -> List[tuple[str, str]]:
+        if not source_ids:
+            return []
+        placeholders = ",".join("?" for _ in source_ids)
+        query = f"""
+            SELECT DISTINCT n.id, n.properties
+            FROM nodes n
+            JOIN edges e ON n.id = e.target_id
+            WHERE e.source_id IN ({placeholders}) AND e.type = ?
+        """
+        params = list(source_ids) + [edge_type]
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [(r["id"], r["properties"]) for r in rows]
+
+    def search_papers_by_title(self, query: str, limit: int = 20) -> List[Paper]:
+        with self._get_connection() as conn:
+            q_like = f"%{query}%"
+            rows = conn.execute(
+                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND title LIKE ? LIMIT ?",
+                (q_like, limit)
+            ).fetchall()
+            papers = []
+            for r in rows:
+                props = json.loads(r["properties"])
+                papers.append(self._row_to_paper(r["id"], props))
+            return papers
+
+    def get_notes(self) -> List[Paper]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND json_extract(properties, '$.source_type') = 'note'"
+            ).fetchall()
+            papers = []
+            for r in rows:
+                props = json.loads(r["properties"])
+                papers.append(self._row_to_paper(r["id"], props))
+            # Sort by created_at descending
+            papers.sort(key=lambda p: p.created_at or "", reverse=True)
+            return papers
+
+
 
 class SQLiteVectorRepository(VectorRepository):
     def __init__(self, db_path: str):
@@ -572,7 +676,7 @@ class SQLiteVectorRepository(VectorRepository):
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:limit]
 
-    def search_text_bm25(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
+    def search_text_fts5(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
         import re
         words = re.findall(r'\w+', query)
         if not words:

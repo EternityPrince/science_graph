@@ -115,7 +115,7 @@ class TestSQLiteRepositories(unittest.TestCase):
         self.assertEqual(papers["p1"].title, "Paper 1")
         self.assertEqual(papers["p2"].title, "Paper 2")
 
-    def test_sqlite_fts5_bm25_search(self):
+    def test_sqlite_fts5_search(self):
         # Save chunks
         chunk1 = Chunk(
             id="c1",
@@ -134,13 +134,13 @@ class TestSQLiteRepositories(unittest.TestCase):
         self.vector_repo_temp.save_chunks([chunk1, chunk2])
         
         # Search for "supervised"
-        results = self.vector_repo_temp.search_text_bm25("supervised", limit=5)
+        results = self.vector_repo_temp.search_text_fts5("supervised", limit=5)
         self.assertTrue(len(results) >= 1)
         # The best match should be chunk1 since it contains "supervised" (c2 only has "unsupervised")
         self.assertEqual(results[0][0].id, "c1")
         
         # Search for "unsupervised"
-        results2 = self.vector_repo_temp.search_text_bm25("unsupervised", limit=5)
+        results2 = self.vector_repo_temp.search_text_fts5("unsupervised", limit=5)
         self.assertTrue(len(results2) >= 1)
         self.assertEqual(results2[0][0].id, "c2")
 

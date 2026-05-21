@@ -16,82 +16,109 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sqlite3
 import tempfile
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from src.config import config
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from src.indexer import Indexer
-    from src.llm_engine import LLMEngine
-    from src.rag import RAGPipeline
-    from src.vector_search import EmbeddingEngine
+from src.vector_search import EmbeddingEngine
+from src.llm_engine import LLMEngine
+from src.services.rag_service import RAGService
+from src.services.note_service import NoteService
+from src.schemas import (
+    QueryRequest,
+    NoteCreate,
+    NoteResponse,
+    OpenFileRequest,
+    GraphResponse,
+    SearchResponse,
+)
 
-# ── Singletons (loaded once at startup) ──────────────────────────────────────
+# ── Dependency Injection Providers (with caching for performance) ──
 
-_graph_repo: Optional[SQLiteGraphRepository] = None
-_vector_repo: Optional[SQLiteVectorRepository] = None
-_embedding_engine: Optional[EmbeddingEngine] = None
-_llm_engine: Optional[LLMEngine] = None
-_rag_pipeline: Optional[RAGPipeline] = None
-
-
-def _get_repos():
-    global _graph_repo, _vector_repo
-    if _graph_repo is None:
-        _graph_repo = SQLiteGraphRepository(config.db_path)
-        _vector_repo = SQLiteVectorRepository(config.db_path)
-    return _graph_repo, _vector_repo
-
-
-def _get_embedding_engine() -> EmbeddingEngine:
-    global _embedding_engine
-    if _embedding_engine is None:
-        from src.vector_search import EmbeddingEngine
-        _embedding_engine = EmbeddingEngine()
-    return _embedding_engine
+_graph_repo_inst: Optional[SQLiteGraphRepository] = None
+_vector_repo_inst: Optional[SQLiteVectorRepository] = None
+_embedding_engine_inst: Optional[EmbeddingEngine] = None
+_llm_engine_inst: Optional[LLMEngine] = None
+_rag_service_inst: Optional[RAGService] = None
+_note_service_inst: Optional[NoteService] = None
 
 
-def _get_llm_engine() -> Optional[LLMEngine]:
-    global _llm_engine
-    if _llm_engine is None:
+def get_graph_repo() -> SQLiteGraphRepository:
+    global _graph_repo_inst
+    if _graph_repo_inst is None:
+        _graph_repo_inst = SQLiteGraphRepository(config.db_path)
+    return _graph_repo_inst
+
+
+def get_vector_repo() -> SQLiteVectorRepository:
+    global _vector_repo_inst
+    if _vector_repo_inst is None:
+        _vector_repo_inst = SQLiteVectorRepository(config.db_path)
+    return _vector_repo_inst
+
+
+def get_embedding_engine() -> EmbeddingEngine:
+    global _embedding_engine_inst
+    if _embedding_engine_inst is None:
+        _embedding_engine_inst = EmbeddingEngine()
+    return _embedding_engine_inst
+
+
+def get_llm_engine() -> Optional[LLMEngine]:
+    global _llm_engine_inst
+    if _llm_engine_inst is None:
         try:
-            from src.llm_engine import LLMEngine
-            _llm_engine = LLMEngine()
+            _llm_engine_inst = LLMEngine()
         except Exception as e:
             print(f"[!] LLM engine unavailable: {e}")
-    return _llm_engine
+    return _llm_engine_inst
 
 
-def _get_rag() -> Optional[RAGPipeline]:
-    global _rag_pipeline
-    if _rag_pipeline is None:
-        gr, vr = _get_repos()
-        emb = _get_embedding_engine()
-        llm = _get_llm_engine()
-        if llm is None:
+def get_rag_service(
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo),
+    vector_repo: SQLiteVectorRepository = Depends(get_vector_repo),
+    embedding_engine: EmbeddingEngine = Depends(get_embedding_engine),
+    llm_engine: Optional[LLMEngine] = Depends(get_llm_engine)
+) -> Optional[RAGService]:
+    global _rag_service_inst
+    if _rag_service_inst is None:
+        if llm_engine is None:
             return None
-        from src.rag import RAGPipeline
-        _rag_pipeline = RAGPipeline(gr, vr, emb, llm)
-    return _rag_pipeline
+        _rag_service_inst = RAGService(graph_repo, vector_repo, embedding_engine, llm_engine)
+    return _rag_service_inst
 
 
-# ── App ───────────────────────────────────────────────────────────────────────
+def get_note_service(
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo),
+    vector_repo: SQLiteVectorRepository = Depends(get_vector_repo),
+    embedding_engine: EmbeddingEngine = Depends(get_embedding_engine),
+    llm_engine: Optional[LLMEngine] = Depends(get_llm_engine)
+) -> NoteService:
+    global _note_service_inst
+    if _note_service_inst is None:
+        _note_service_inst = NoteService(graph_repo, vector_repo, embedding_engine, llm_engine)
+    return _note_service_inst
+
+
+# ── App Setup ──
 
 app = FastAPI(title="Science Graph", version="0.1.0")
 
-# Serve static files (web/ directory next to this file)
-_WEB_DIR = Path(__file__).parent / "web"
+# Serve static files (frontend/ directory next to this file)
+_WEB_DIR = Path(__file__).parent / "frontend"
 
 # Mount static assets if directory exists (JS, CSS, images)
+if (_WEB_DIR / "js").exists():
+    app.mount("/js", StaticFiles(directory=str(_WEB_DIR / "js")), name="js")
+if (_WEB_DIR / "css").exists():
+    app.mount("/css", StaticFiles(directory=str(_WEB_DIR / "css")), name="css")
 if (_WEB_DIR / "static").exists():
     app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
 
@@ -128,57 +155,48 @@ async def get_favicon_ico():
     raise HTTPException(status_code=404, detail="favicon.ico not found.")
 
 
-# ── /api/stats ────────────────────────────────────────────────────────────────
+# ── /api/stats ──
 
 @app.get("/api/stats")
-async def get_stats():
-    gr, _ = _get_repos()
-    stats = gr.get_stats()
+async def get_stats(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)):
+    stats = await asyncio.to_thread(graph_repo.get_stats)
     try:
-        from src.config import config
-        stats["storage"] = config.get_storage_stats()
+        storage_stats = await asyncio.to_thread(config.get_storage_stats)
+        stats["storage"] = storage_stats
     except Exception:
         pass
     return JSONResponse(stats)
 
 
-# ── /api/graph ────────────────────────────────────────────────────────────────
+# ── /api/graph ──
 
-@app.get("/api/graph")
-async def get_graph():
+@app.get("/api/graph", response_model=GraphResponse)
+async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)):
     """Returns all nodes and edges formatted for vis-network."""
-    gr, _ = _get_repos()
-
-    conn = sqlite3.connect(gr.db_path)
-    conn.row_factory = sqlite3.Row
-
-    nodes_rows = conn.execute("SELECT id, label, properties FROM nodes").fetchall()
-    edges_rows = conn.execute("SELECT source_id, target_id, type FROM edges").fetchall()
-    conn.close()
+    nodes_rows = await asyncio.to_thread(graph_repo.get_all_nodes)
+    edges_rows = await asyncio.to_thread(graph_repo.get_all_edges)
 
     vis_nodes = []
-    for r in nodes_rows:
-        props = json.loads(r["properties"] or "{}")
+    for node_id, label, properties_json in nodes_rows:
+        props = json.loads(properties_json or "{}")
         source_type = props.get("source_type", "paper")
-        label = r["label"]
 
         if label == "Paper":
-            title = props.get("title", r["id"])
+            title = props.get("title", node_id)
             display = title if len(title) < 28 else title[:25] + "…"
-            # Colour by source_type
             color_map = {"note": "#f03e3e", "book": "#7950f2", "paper": "#4c6ef5"}
             color = color_map.get(source_type, "#4c6ef5")
             size = 25
             group = source_type
         elif label == "Author":
-            display = props.get("name", r["id"])
+            display = props.get("name", node_id)
             color = "#fab005"
             size = 18
             group = "author"
         elif label == "Concept":
-            display = props.get("name", r["id"])
+            display = props.get("name", node_id)
             if props.get("is_tag"):
-                color = "#e64980"  # pink tag color
+                color = "#e64980"
                 size = 15
                 group = "tag"
             else:
@@ -186,19 +204,19 @@ async def get_graph():
                 size = 16
                 group = "concept"
         else:
-            display = r["id"]
+            display = node_id
             color = "#868e96"
             size = 14
             group = "other"
 
-        tooltip = f"<b>{label}</b>: {props.get('title', props.get('name', r['id']))}"
+        tooltip = f"<b>{label}</b>: {props.get('title', props.get('name', node_id))}"
         if props.get("year"):
             tooltip += f"<br>Year: {props['year']}"
         if props.get("authors"):
             tooltip += f"<br>Authors: {', '.join(props['authors'][:3])}"
 
         vis_nodes.append({
-            "id": r["id"],
+            "id": node_id,
             "label": display,
             "title": tooltip,
             "color": color,
@@ -207,123 +225,143 @@ async def get_graph():
             "shape": "dot",
             "created_at": props.get("created_at"),
             "source_type": source_type,
+            "full_title": props.get("title", props.get("name", node_id)),
         })
 
     vis_edges = []
-    for r in edges_rows:
+    for source_id, target_id, edge_type, edge_properties in edges_rows:
         vis_edges.append({
-            "from": r["source_id"],
-            "to": r["target_id"],
-            "label": r["type"],
+            "from": source_id,
+            "to": target_id,
+            "label": edge_type,
             "arrows": "to",
             "font": {"size": 8, "align": "top"},
             "color": {"color": "#adb5bd", "highlight": "#74c0fc"},
         })
 
-    return JSONResponse({"nodes": vis_nodes, "edges": vis_edges})
+    return {"nodes": vis_nodes, "edges": vis_edges}
 
 
-# ── /api/paper/{id} ──────────────────────────────────────────────────────────
+# ── /api/paper/{id} ──
 
 @app.get("/api/paper/{paper_id:path}")
-async def get_paper(paper_id: str):
-    gr, _ = _get_repos()
-
-    # Polymorphic retrieval: determine the label and properties of the node
-    conn = sqlite3.connect(gr.db_path)
-    conn.row_factory = sqlite3.Row
-    node_row = conn.execute("SELECT label, properties FROM nodes WHERE id = ?", (paper_id,)).fetchone()
-    
-    if not node_row:
-        conn.close()
+async def get_paper(
+    paper_id: str,
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
+):
+    node = await asyncio.to_thread(graph_repo.get_node_by_id, paper_id)
+    if not node:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    label = node_row["label"]
-    props = json.loads(node_row["properties"] or "{}")
+    label, properties_json = node
+    props = json.loads(properties_json or "{}")
 
     if label == "Paper":
-        paper = gr.get_paper(paper_id)
+        paper = await asyncio.to_thread(graph_repo.get_paper, paper_id)
         if not paper:
-            conn.close()
             raise HTTPException(status_code=404, detail="Paper not found")
 
-        neighbors = gr.get_neighbors(paper_id, max_depth=1)
-        concepts = []
-        tags = []
-        authors = []
-        citations = []
-        cited_by = []
+        neighbors = await asyncio.to_thread(graph_repo.get_neighbors, paper_id, max_depth=1)
+
+        # ── Collect IDs for batch fetching ──
+        concept_ids: list[str] = []
+        tag_ids: list[str] = []
+        author_ids: list[str] = []
+        citation_ids: list[str] = []
+        cited_by_ids: list[str] = []
 
         for src_id, src_label, edge_type, tgt_id, tgt_label, edge_props_json in neighbors:
             if edge_type == "MENTIONS_CONCEPT":
-                # Check if it's a concept or a tag
-                concept_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (tgt_id,)).fetchone()
-                c_name = tgt_id
-                if concept_row:
-                    c_props = json.loads(concept_row["properties"] or "{}")
-                    c_name = c_props.get("name", tgt_id)
-                concepts.append({"id": tgt_id, "name": c_name})
+                concept_ids.append(tgt_id)
             elif edge_type == "HAS_TAG":
-                tag_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (tgt_id,)).fetchone()
-                t_name = tgt_id
-                if tag_row:
-                    t_props = json.loads(tag_row["properties"] or "{}")
-                    t_name = t_props.get("name", tgt_id)
-                tags.append({"id": tgt_id, "name": t_name})
+                tag_ids.append(tgt_id)
             elif edge_type == "AUTHORED":
-                a = gr.get_author(src_id)
-                if a:
-                    authors.append(a.name)
+                author_ids.append(src_id)
             elif edge_type == "CITES" and src_id == paper_id:
-                ref = gr.get_paper(tgt_id)
-                if ref and ref.title:
-                    citations.append({"id": tgt_id, "title": ref.title})
+                citation_ids.append(tgt_id)
             elif edge_type == "CITES" and tgt_id == paper_id:
-                citer = gr.get_paper(src_id)
-                if citer and citer.title:
-                    cited_by.append({"id": src_id, "title": citer.title})
+                cited_by_ids.append(src_id)
 
-        conn.close()
-        
-        # Fallback for authors/concepts list representation if neighbors didn't populate it
-        authors_list = paper.authors or authors
-        
+        # ── Batch fetch citations and cited_by papers ──
+        citations_map = await asyncio.to_thread(
+            graph_repo.get_papers_batch, citation_ids
+        ) if citation_ids else {}
+        cited_by_map = await asyncio.to_thread(
+            graph_repo.get_papers_batch, cited_by_ids
+        ) if cited_by_ids else {}
+
+        # ── Batch fetch concept and tag node info ──
+        async def _get_node(nid: str):
+            return await asyncio.to_thread(graph_repo.get_node_by_id, nid)
+
+        import asyncio as _aio
+        concept_nodes = await _aio.gather(*[_get_node(cid) for cid in concept_ids])
+        tag_nodes = await _aio.gather(*[_get_node(tid) for tid in tag_ids])
+
+        concepts = []
+        for cid, node in zip(concept_ids, concept_nodes):
+            if node:
+                c_props = json.loads(node[1] or "{}")
+                concepts.append({"id": cid, "name": c_props.get("name", cid)})
+            else:
+                concepts.append({"id": cid, "name": cid})
+
+        tags = []
+        for tid, node in zip(tag_ids, tag_nodes):
+            if node:
+                t_props = json.loads(node[1] or "{}")
+                tags.append({"id": tid, "name": t_props.get("name", tid)})
+            else:
+                tags.append({"id": tid, "name": tid})
+
+        # Resolve author names (typically a small set, so individual calls are acceptable)
+        authors = paper.authors or []
+        if not authors and author_ids:
+            author_objs = await _aio.gather(
+                *[asyncio.to_thread(graph_repo.get_author, aid) for aid in author_ids]
+            )
+            authors = [a.name for a in author_objs if a]
+
+        citations = [
+            {"id": pid, "title": p.title}
+            for pid in citation_ids
+            if (p := citations_map.get(pid)) and p.title
+        ][:10]
+
+        cited_by = [
+            {"id": pid, "title": p.title}
+            for pid in cited_by_ids
+            if (p := cited_by_map.get(pid)) and p.title
+        ][:10]
+
         return JSONResponse({
             "type": "paper",
             "id": paper.id,
             "title": paper.title,
-            "authors": authors_list,
+            "authors": authors,
             "year": paper.year,
             "doi": paper.doi,
             "abstract": paper.abstract,
             "source_type": paper.properties.get("source_type", "paper"),
             "concepts": concepts,
             "tags": tags,
-            "citations": citations[:10],
-            "cited_by": cited_by[:10],
+            "citations": citations,
+            "cited_by": cited_by,
             "file_path": paper.file_path,
             "summary": paper.properties.get("summary"),
             "created_at": paper.created_at,
         })
 
     elif label == "Author":
-        # Get papers authored by this author
-        papers_rows = conn.execute(
-            "SELECT n.id, n.properties FROM nodes n JOIN edges e ON n.id = e.target_id WHERE e.source_id = ? AND e.type = 'AUTHORED'",
-            (paper_id,)
-        ).fetchall()
-        
+        papers_list = await asyncio.to_thread(graph_repo.get_papers_by_author, paper_id)
         papers = []
-        for r in papers_rows:
-            p_props = json.loads(r["properties"] or "{}")
+        for p in papers_list:
             papers.append({
-                "id": r["id"],
-                "title": p_props.get("title", r["id"]),
-                "source_type": p_props.get("source_type", "paper")
+                "id": p.id,
+                "title": p.title,
+                "source_type": p.properties.get("source_type", "paper")
             })
-            
-        conn.close()
-        
+
         return JSONResponse({
             "type": "author",
             "id": paper_id,
@@ -334,59 +372,28 @@ async def get_paper(paper_id: str):
 
     elif label == "Concept":
         is_tag = props.get("is_tag", False)
-        
-        # Get papers mentioning or tagged with this concept/tag
         edge_type = "HAS_TAG" if is_tag else "MENTIONS_CONCEPT"
-        papers_rows = conn.execute(
-            "SELECT n.id, n.properties FROM nodes n JOIN edges e ON n.id = e.source_id WHERE e.target_id = ? AND e.type = ?",
-            (paper_id, edge_type)
-        ).fetchall()
-        
+        papers_list = await asyncio.to_thread(graph_repo.get_papers_by_entity, paper_id, edge_type)
+
         papers = []
-        for r in papers_rows:
-            p_props = json.loads(r["properties"] or "{}")
+        for p in papers_list:
             papers.append({
-                "id": r["id"],
-                "title": p_props.get("title", r["id"]),
-                "source_type": p_props.get("source_type", "paper")
+                "id": p.id,
+                "title": p.title,
+                "source_type": p.properties.get("source_type", "paper")
             })
 
-        # Also get related tags if it's a concept, or related concepts if it's a tag
         related_entities = []
-        if not is_tag:
-            # For concepts, find tags that appear together on the same papers
-            placeholders = ",".join("?" for _ in papers)
-            if papers:
-                p_ids = [p["id"] for p in papers]
-                tag_rows = conn.execute(
-                    f"SELECT DISTINCT target_id FROM edges WHERE source_id IN ({placeholders}) AND type = 'HAS_TAG'",
-                    p_ids
-                ).fetchall()
-                for tr in tag_rows:
-                    t_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (tr["target_id"],)).fetchone()
-                    t_name = tr["target_id"]
-                    if t_row:
-                        t_props = json.loads(t_row["properties"] or "{}")
-                        t_name = t_props.get("name", tr["target_id"])
-                    related_entities.append({"id": tr["target_id"], "name": t_name})
-        else:
-            # For tags, find concepts that appear together on the same papers
-            placeholders = ",".join("?" for _ in papers)
-            if papers:
-                p_ids = [p["id"] for p in papers]
-                concept_rows = conn.execute(
-                    f"SELECT DISTINCT target_id FROM edges WHERE source_id IN ({placeholders}) AND type = 'MENTIONS_CONCEPT'",
-                    p_ids
-                ).fetchall()
-                for cr in concept_rows:
-                    c_row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (cr["target_id"],)).fetchone()
-                    c_name = cr["target_id"]
-                    if c_row:
-                        c_props = json.loads(c_row["properties"] or "{}")
-                        c_name = c_props.get("name", cr["target_id"])
-                    related_entities.append({"id": cr["target_id"], "name": c_name})
-
-        conn.close()
+        if papers:
+            paper_ids = [p["id"] for p in papers]
+            related_edge_type = "HAS_TAG" if not is_tag else "MENTIONS_CONCEPT"
+            targets = await asyncio.to_thread(graph_repo.get_distinct_targets, paper_ids, related_edge_type)
+            for t_id, t_props_json in targets:
+                t_props = json.loads(t_props_json or "{}")
+                related_entities.append({
+                    "id": t_id,
+                    "name": t_props.get("name", t_id)
+                })
 
         return JSONResponse({
             "type": "tag" if is_tag else "concept",
@@ -398,285 +405,119 @@ async def get_paper(paper_id: str):
         })
 
 
-# ── /api/search ──────────────────────────────────────────────────────────────
+# ── /api/search ──
 
-@app.get("/api/search")
-async def search(q: str = Query(..., min_length=1)):
+@app.get("/api/search", response_model=SearchResponse)
+async def search(
+    q: str = Query(..., min_length=1),
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
+):
     """Quick keyword search over paper/note/book titles."""
-    gr, _ = _get_repos()
-
-    conn = sqlite3.connect(gr.db_path)
-    conn.row_factory = sqlite3.Row
-    q_like = f"%{q.lower()}%"
-    rows = conn.execute(
-        "SELECT id, label, properties FROM nodes WHERE label = 'Paper' AND LOWER(properties) LIKE ? LIMIT 20",
-        (q_like,),
-    ).fetchall()
-    conn.close()
+    papers = await asyncio.to_thread(graph_repo.search_papers_by_title, q, 20)
 
     results = []
-    for r in rows:
-        props = json.loads(r["properties"] or "{}")
-        title = props.get("title", r["id"])
-        if q.lower() in title.lower():
-            results.append({
-                "id": r["id"],
-                "title": title,
-                "year": props.get("year"),
-                "source_type": props.get("source_type", "paper"),
-            })
+    for paper in papers:
+        results.append({
+            "id": paper.id,
+            "title": paper.title,
+            "year": paper.year,
+            "source_type": paper.properties.get("source_type", "paper")
+        })
 
-    return JSONResponse({"results": results})
+    return {"results": results}
 
 
-# ── /api/query (SSE streaming) ────────────────────────────────────────────────
+# ── /api/query (SSE streaming) ──
 
 @app.post("/api/query")
-async def query_rag(body: dict):
+async def query_rag(
+    body: QueryRequest,
+    rag_service: Optional[RAGService] = Depends(get_rag_service)
+):
     """
     SSE-streamed RAG answer.
-    Body: {"question": "...", "limit": 5}
-    Streams events:
-      - data: {"type": "token", "text": "..."}
-      - data: {"type": "done"}
-      - data: {"type": "error", "text": "..."}
     """
-    question = (body.get("question") or "").strip()
-    limit = int(body.get("limit") or 5)
-
-    if not question:
-        raise HTTPException(status_code=422, detail="'question' field is required")
-
-    rag = _get_rag()
+    if rag_service is None:
+        raise HTTPException(status_code=503, detail="LLM engine is not available.")
 
     async def event_stream() -> AsyncGenerator[dict, None]:
-        if rag is None:
-            yield {"data": json.dumps({"type": "error", "text": "LLM engine is not available."})}
-            return
-
-        # Run blocking RAG in a thread so we don't block the event loop
-        loop = asyncio.get_event_loop()
-
-        # Build context first (fast, no LLM)
-        try:
-            query_emb = await loop.run_in_executor(None, rag.emb_engine.get_embedding, question)
-        except Exception as e:
-            yield {"data": json.dumps({"type": "error", "text": f"Embedding failed: {e}"})}
-            return
-
-        # Hybrid retrieval
-        try:
-            dense = await loop.run_in_executor(
-                None, rag.vector_repo.search_similar_chunks, query_emb, limit * 2
-            )
-            bm25_results = await loop.run_in_executor(
-                None, rag.vector_repo.search_text_bm25, question, limit * 2
-            )
-
-            if not dense and not bm25_results:
-                yield {"data": json.dumps({"type": "error", "text": "No documents indexed yet."})}
-                return
-
-            id_to_chunk = {}
-            for chunk, _ in dense:
-                id_to_chunk[chunk.id] = chunk
-            for chunk, _ in bm25_results:
-                id_to_chunk[chunk.id] = chunk
-
-            rrf: dict = {}
-            for rank, (chunk, _) in enumerate(dense, start=1):
-                rrf[chunk.id] = rrf.get(chunk.id, 0.0) + 1.0 / (60.0 + rank)
-            for rank, (chunk, _) in enumerate(bm25_results, start=1):
-                rrf[chunk.id] = rrf.get(chunk.id, 0.0) + 1.0 / (60.0 + rank)
-
-            sorted_ids = sorted(rrf, key=lambda x: rrf[x], reverse=True)[: limit * 2]
-            candidates = [id_to_chunk[cid] for cid in sorted_ids if cid in id_to_chunk]
-
-            # Rerank
-            try:
-                reranker = await loop.run_in_executor(None, rag._get_reranker)
-                pairs = [(question, c.text_content) for c in candidates]
-                scores = await loop.run_in_executor(None, reranker.predict, pairs)
-                scored = sorted(zip(candidates, [float(s) for s in scores]), key=lambda x: x[1], reverse=True)
-                final_chunks = [(c, s) for c, s in scored[:limit]]
-            except Exception:
-                final_chunks = [(id_to_chunk[cid], rrf[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
-
-            context_text, context_graph = rag.build_context(final_chunks)
-        except Exception as e:
-            yield {"data": json.dumps({"type": "error", "text": f"Retrieval failed: {e}"})}
-            return
-
-        # Build prompt
-        prompt = (
-            "<|im_start|>system\n"
-            "You are a research assistant. Synthesize an answer using the retrieved context.\n"
-            "Always cite paper titles, years, and authors. Use the graph connections if relevant.\n\n"
-            f"### RELEVANT TEXT FRAGMENTS:\n{context_text}\n\n"
-            f"### KNOWLEDGE GRAPH CONNECTIONS:\n{context_graph}\n"
-            "<|im_end|>\n"
-            f"<|im_start|>user\nQuestion: {question}\nAnswer in Russian:\n<|im_end|>\n"
-            "<|im_start|>assistant\n"
-        )
-
-        # Stream tokens via mlx_lm
-        try:
-            from mlx_lm import stream_generate
-
-            def _stream():
-                return stream_generate(
-                    model=rag.llm_engine.model,
-                    tokenizer=rag.llm_engine.tokenizer,
-                    prompt=prompt,
-                    max_tokens=config.llm_max_tokens,
-                )
-
-            gen = await loop.run_in_executor(None, _stream)
-            # stream_generate returns an iterator of GenerationResponse objects
-            for response in gen:
-                token_text = response.text if hasattr(response, "text") else str(response)
-                if token_text:
-                    yield {"data": json.dumps({"type": "token", "text": token_text})}
-                    await asyncio.sleep(0)  # yield control to event loop
-
-        except ImportError:
-            # Fallback: generate full answer at once, stream word by word
-            full_answer = await loop.run_in_executor(
-                None, rag.llm_engine.generate_response, prompt
-            )
-            for word in full_answer.split(" "):
-                yield {"data": json.dumps({"type": "token", "text": word + " "})}
-                await asyncio.sleep(0.01)
-
-        except Exception as e:
-            yield {"data": json.dumps({"type": "error", "text": f"Generation failed: {e}"})}
-            return
-
-        yield {"data": json.dumps({"type": "done"})}
+        async for event in rag_service.stream_rag_response(body.question, body.limit):
+            yield {"data": json.dumps(event)}
 
     return EventSourceResponse(event_stream())
 
 
-# ── /api/open-file ─────────────────────────────────────────────────────────────
+# ── /api/open-file ──
 
 @app.post("/api/open-file")
-async def open_file(body: dict):
-    file_path = body.get("file_path")
-    if not file_path:
-        raise HTTPException(status_code=400, detail="file_path field is required")
-    
-    import subprocess
-    import sys
-    
+async def open_file(body: OpenFileRequest):
+    file_path = body.file_path
     expanded = os.path.expanduser(file_path)
     if not os.path.exists(expanded):
         expanded = str(Path(file_path).resolve())
         if not os.path.exists(expanded):
             raise HTTPException(status_code=404, detail=f"File not found on host: {file_path}")
-            
-    try:
+
+    import subprocess
+    import sys
+
+    def _open():
         if sys.platform == "win32":
             os.startfile(expanded)
         elif sys.platform == "darwin":
-            subprocess.run(["open", expanded])
+            subprocess.run(["open", expanded], check=True)
         else:
-            subprocess.run(["xdg-open", expanded])
+            subprocess.run(["xdg-open", expanded], check=True)
+
+    try:
+        await asyncio.to_thread(_open)
         return {"status": "ok", "message": f"Opened {file_path}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── /api/notes ────────────────────────────────────────────────────────────────
+# ── /api/notes ──
 
-@app.get("/api/notes")
-async def get_notes():
-    gr, _ = _get_repos()
-    conn = sqlite3.connect(gr.db_path)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT id, properties FROM nodes WHERE label='Paper'").fetchall()
-    conn.close()
-    
-    notes = []
-    for r in rows:
-        props = json.loads(r["properties"] or "{}")
-        if props.get("source_type") == "note":
-            notes.append({
-                "id": r["id"],
-                "title": props.get("title", r["id"]),
-                "created_at": props.get("created_at"),
-                "authors": props.get("authors", []),
-                "summary": props.get("summary"),
-                "abstract": props.get("abstract")
-            })
-            
-    notes.sort(key=lambda x: x.get("created_at") or "", reverse=True)
-    return JSONResponse(notes)
+@app.get("/api/notes", response_model=List[NoteResponse])
+async def get_notes(note_service: NoteService = Depends(get_note_service)):
+    notes = await asyncio.to_thread(note_service.get_notes)
+    return notes
 
 
 @app.post("/api/notes")
-async def create_note(body: dict):
-    title = body.get("title")
-    content = body.get("content")
-    authors = body.get("authors") or []
-    tags = body.get("tags") or []
-    
-    if not title or not content:
-        raise HTTPException(status_code=400, detail="title and content are required")
-        
-    import datetime
-    import yaml
-    
-    notes_dir = Path(config.data_dir) / "notes"
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Format file name
-    import re
-    def _safe_filename(text: str) -> str:
-        text = text.lower().strip()
-        text = re.sub(r'[^a-z0-9\s-]', '', text)
-        return re.sub(r'[\s-]+', '_', text)
-        
-    filename = f"{_safe_filename(title)}.md"
-    note_path = notes_dir / filename
-    
-    yaml_front = {
-        "title": title,
-        "created_at": datetime.datetime.now().isoformat(),
-    }
-    if authors:
-        yaml_front["authors"] = authors
-    if tags:
-        yaml_front["tags"] = tags
-        
-    frontmatter_str = yaml.dump(yaml_front, allow_unicode=True).strip()
-    full_md = f"---\n{frontmatter_str}\n---\n\n{content}"
-    
-    note_path.write_text(full_md, encoding="utf-8")
-    
-    # Index note
+async def create_note(
+    body: NoteCreate,
+    note_service: NoteService = Depends(get_note_service)
+):
     try:
-        gr, vr = _get_repos()
-        emb = _get_embedding_engine()
-        llm = _get_llm_engine()
-        from src.indexer import Indexer
-        indexer = Indexer(gr, vr, emb, llm)
-        
-        loop = asyncio.get_event_loop()
-        paper_id = await loop.run_in_executor(None, indexer.index_markdown, str(note_path))
-        
-        return JSONResponse({"status": "ok", "id": paper_id, "file_path": str(note_path)})
+        paper_id, note_path = await asyncio.to_thread(
+            note_service.create_note,
+            body.title,
+            body.content,
+            body.authors,
+            body.tags
+        )
+        return JSONResponse({"status": "ok", "id": paper_id, "file_path": note_path})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── /api/upload ───────────────────────────────────────────────────────────────
+# ── /api/upload ──
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo),
+    vector_repo: SQLiteVectorRepository = Depends(get_vector_repo),
+    embedding_engine: EmbeddingEngine = Depends(get_embedding_engine),
+    llm_engine: Optional[LLMEngine] = Depends(get_llm_engine)
+):
     """Accepts a PDF, .md or .epub file and indexes it."""
     suffix = Path(file.filename).suffix.lower()
     if suffix not in {".pdf", ".md", ".epub"}:
         raise HTTPException(status_code=400, detail="Only PDF, Markdown (.md), and EPUB files are supported.")
+    if llm_engine is None:
+        raise HTTPException(status_code=503, detail="LLM engine is not available for indexing.")
 
     # Save to temp file
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -685,20 +526,18 @@ async def upload_file(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        gr, vr = _get_repos()
-        emb = _get_embedding_engine()
-        llm = _get_llm_engine()
         from src.indexer import Indexer
-        indexer = Indexer(gr, vr, emb, llm)
+        indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
-        loop = asyncio.get_event_loop()
-        if suffix == ".pdf":
-            paper_id = await loop.run_in_executor(None, indexer.index_pdf, tmp_path)
-        elif suffix == ".md":
-            paper_id = await loop.run_in_executor(None, indexer.index_markdown, tmp_path)
-        else:
-            paper_id = await loop.run_in_executor(None, indexer.index_epub, tmp_path)
+        def _index():
+            if suffix == ".pdf":
+                return indexer.index_pdf(tmp_path)
+            elif suffix == ".md":
+                return indexer.index_markdown(tmp_path)
+            else:
+                return indexer.index_epub(tmp_path)
 
+        paper_id = await asyncio.to_thread(_index)
         return JSONResponse({"status": "ok", "id": paper_id, "filename": file.filename})
 
     except Exception as e:

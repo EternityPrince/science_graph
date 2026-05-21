@@ -221,6 +221,19 @@ class OpenAILLMEngine(BaseLLMEngine):
 
         con.success(f"OpenAI API LLM ready: [bold]{self.model_name}[/bold]")
 
+    def _truncate_to_context(self, text: str, max_input_tokens: int) -> str:
+        """Token-aware truncation using tiktoken for OpenAI / OpenRouter models."""
+        if self.tokenizer is None:
+            # Fallback to rough char estimate when tiktoken is unavailable
+            return text[:max_input_tokens * 4]
+        try:
+            token_ids = self.tokenizer.encode(text)
+            if len(token_ids) <= max_input_tokens:
+                return text
+            return self.tokenizer.decode(token_ids[:max_input_tokens])
+        except Exception:
+            return text[:max_input_tokens * 4]
+
     def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
         # Determine max_tokens based on priority: passed_argument > task_specific_config > global_config
         resolved_max_tokens = max_tokens

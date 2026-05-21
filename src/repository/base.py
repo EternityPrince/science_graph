@@ -66,6 +66,46 @@ class GraphRepository(ABC):
         """Deletes Concept nodes with degree 0 and returns the number of deleted nodes."""
         pass
 
+    @abstractmethod
+    def get_all_nodes(self) -> List[tuple[str, str, str]]:
+        """Retrieves all node rows as (id, label, properties)."""
+        pass
+
+    @abstractmethod
+    def get_all_edges(self) -> List[tuple[str, str, str, str]]:
+        """Retrieves all edge rows as (source_id, target_id, type, properties)."""
+        pass
+
+    @abstractmethod
+    def get_node_by_id(self, node_id: str) -> Optional[tuple[str, str]]:
+        """Retrieves label and properties for a node ID."""
+        pass
+
+    @abstractmethod
+    def get_papers_by_author(self, author_id: str) -> List[Paper]:
+        """Retrieves all papers written by a given author ID."""
+        pass
+
+    @abstractmethod
+    def get_papers_by_entity(self, entity_id: str, edge_type: str) -> List[Paper]:
+        """Retrieves all papers connected to a specific entity with a specific edge type."""
+        pass
+
+    @abstractmethod
+    def get_distinct_targets(self, source_ids: List[str], edge_type: str) -> List[tuple[str, str]]:
+        """Retrieves distinct target IDs and target properties for source IDs and an edge type."""
+        pass
+
+    @abstractmethod
+    def search_papers_by_title(self, query: str, limit: int = 20) -> List[Paper]:
+        """Searches papers by title (case-insensitive) using the title column."""
+        pass
+
+    @abstractmethod
+    def get_notes(self) -> List[Paper]:
+        """Retrieves all nodes that represent notes (source_type = 'note')."""
+        pass
+
 
 class VectorRepository(ABC):
     @abstractmethod
@@ -82,7 +122,7 @@ class VectorRepository(ABC):
         pass
 
     @abstractmethod
-    def search_text_bm25(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
+    def search_text_fts5(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
         """
         Searches for chunks using SQLite FTS5 BM25 search.
         Returns a list of tuples (Chunk, score).
