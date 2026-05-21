@@ -53,10 +53,23 @@ class SQLiteGraphRepository(GraphRepository):
             conn.commit()
 
     def save_paper(self, paper: Paper) -> None:
-        props = {**paper.properties, "title": paper.title, "authors": paper.authors, "year": paper.year, "doi": paper.doi, "abstract": paper.abstract, "file_path": paper.file_path}
+        if not paper.created_at:
+            import datetime
+            existing = self.get_paper(paper.id)
+            if existing and existing.created_at:
+                paper.created_at = existing.created_at
+            else:
+                paper.created_at = datetime.datetime.now().isoformat()
+
+        props = {**paper.properties, "title": paper.title, "authors": paper.authors, "year": paper.year, "doi": paper.doi, "abstract": paper.abstract, "file_path": paper.file_path, "created_at": paper.created_at}
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+                """
+                INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    label = excluded.label,
+                    properties = excluded.properties
+                """,
                 (paper.id, "Paper", json.dumps(props, ensure_ascii=False))
             )
             conn.commit()
@@ -75,14 +88,56 @@ class SQLiteGraphRepository(GraphRepository):
                 doi=props.get("doi"),
                 abstract=props.get("abstract"),
                 file_path=props.get("file_path"),
+                created_at=props.get("created_at"),
                 properties=props
             )
+
+    def find_paper_by_title(self, title: str) -> Optional[Paper]:
+        with self._get_connection() as conn:
+            # Check if matching exact ID first
+            row = conn.execute("SELECT id, properties FROM nodes WHERE id = ? AND label = 'Paper'", (title,)).fetchone()
+            if row:
+                props = json.loads(row["properties"])
+                return Paper(
+                    id=row["id"],
+                    title=props.get("title", ""),
+                    authors=props.get("authors", []),
+                    year=props.get("year"),
+                    doi=props.get("doi"),
+                    abstract=props.get("abstract"),
+                    file_path=props.get("file_path"),
+                    created_at=props.get("created_at"),
+                    properties=props
+                )
+            
+            # Case-insensitive title match over all papers
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
+            for r in rows:
+                props = json.loads(r["properties"] or "{}")
+                if props.get("title", "").strip().lower() == title.strip().lower():
+                    return Paper(
+                        id=r["id"],
+                        title=props.get("title", ""),
+                        authors=props.get("authors", []),
+                        year=props.get("year"),
+                        doi=props.get("doi"),
+                        abstract=props.get("abstract"),
+                        file_path=props.get("file_path"),
+                        created_at=props.get("created_at"),
+                        properties=props
+                    )
+        return None
 
     def save_author(self, author: Author) -> None:
         props = {**author.properties, "name": author.name}
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+                """
+                INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    label = excluded.label,
+                    properties = excluded.properties
+                """,
                 (author.id, "Author", json.dumps(props, ensure_ascii=False))
             )
             conn.commit()
@@ -103,10 +158,16 @@ class SQLiteGraphRepository(GraphRepository):
         props = {**concept.properties, "name": concept.name}
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+                """
+                INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    label = excluded.label,
+                    properties = excluded.properties
+                """,
                 (concept.id, "Concept", json.dumps(props, ensure_ascii=False))
             )
             conn.commit()
+
 
     def get_concept(self, concept_id: str) -> Optional[Concept]:
         with self._get_connection() as conn:
@@ -130,12 +191,16 @@ class SQLiteGraphRepository(GraphRepository):
                     # Insert placeholder node
                     label = "Paper" if ":" in node_id or "/" in node_id else "Concept"
                     conn.execute(
-                        "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+                        "INSERT OR IGNORE INTO nodes (id, label, properties) VALUES (?, ?, ?)",
                         (node_id, label, json.dumps({"title": node_id, "placeholder": True}, ensure_ascii=False))
                     )
             
             conn.execute(
-                "INSERT OR REPLACE INTO edges (source_id, target_id, type, properties) VALUES (?, ?, ?, ?)",
+                """
+                INSERT INTO edges (source_id, target_id, type, properties) VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_id, target_id, type) DO UPDATE SET
+                    properties = excluded.properties
+                """,
                 (source_id, target_id, edge_type, json.dumps(props, ensure_ascii=False))
             )
             conn.commit()
@@ -217,6 +282,22 @@ class SQLiteGraphRepository(GraphRepository):
                 "concepts": concept_count,
                 "edges": edge_count
             }
+
+    def cleanup_orphaned_concepts(self) -> int:
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                DELETE FROM nodes
+                WHERE label = 'Concept'
+                AND id NOT IN (
+                    SELECT DISTINCT source_id FROM edges
+                    UNION
+                    SELECT DISTINCT target_id FROM edges
+                )
+                """
+            )
+            conn.commit()
+            return cursor.rowcount
 
 
 class SQLiteVectorRepository(VectorRepository):

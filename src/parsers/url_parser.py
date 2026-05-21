@@ -47,13 +47,94 @@ def parse_url(url: str) -> Tuple[Paper, str]:
 
     # Authors
     meta_authors = []
+    
+    # 1. Standard academic tags
     for meta in soup.find_all("meta", attrs={"name": re.compile(r"^(citation_author|dc\.creator)$", re.I)}):
         val = meta.get("content")
         if val:
-            # Clean author name (sometimes contains extra whitespace or is in Last, First format)
             name = val.strip()
             if name and name not in meta_authors:
                 meta_authors.append(name)
+
+    # 2. General web metadata tags for authors
+    author_meta_names = [
+        "author", "article:author", "og:article:author", "twitter:creator", 
+        "sailthru.author", "parsely-author", "author-name"
+    ]
+    for name_or_prop in author_meta_names:
+        for meta in soup.find_all("meta", attrs={"name": name_or_prop}):
+            val = meta.get("content")
+            if val:
+                names = [n.strip() for n in re.split(r'[,;]|\band\b', val)]
+                for name in names:
+                    if name and name not in meta_authors:
+                        meta_authors.append(name)
+        for meta in soup.find_all("meta", attrs={"property": name_or_prop}):
+            val = meta.get("content")
+            if val:
+                names = [n.strip() for n in re.split(r'[,;]|\band\b', val)]
+                for name in names:
+                    if name and name not in meta_authors:
+                        meta_authors.append(name)
+
+    # 3. HTML microdata itemprop="author" or itemprop="creator"
+    for el in soup.find_all(attrs={"itemprop": re.compile(r"^(author|creator)$", re.I)}):
+        name_el = el.find(attrs={"itemprop": "name"})
+        val = name_el.get_text() if name_el else el.get_text()
+        if val:
+            name = val.strip()
+            if name and name not in meta_authors:
+                meta_authors.append(name)
+
+    # 4. Common CSS classes for author name
+    author_classes = [
+        "author__name", "tm-user-info__username", "user-info__name", "author-name", 
+        "author", "username", "creator", "tm-user-info__user", "post__author"
+    ]
+    for cls in author_classes:
+        for el in soup.find_all(class_=re.compile(r'\b' + re.escape(cls) + r'\b', re.I)):
+            val = el.get_text()
+            if val:
+                name = val.strip()
+                name = re.sub(r'^(by\s+|автор:\s*)', '', name, flags=re.I).strip()
+                if name and len(name) < 50 and name not in meta_authors:
+                    meta_authors.append(name)
+
+    # 5. Search for profile links
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if re.search(r'/(users|author|user)/([^/]+)/?$', href.lower()):
+            val = a.get_text()
+            if val:
+                name = val.strip()
+                name = re.sub(r'^(by\s+|автор:\s*)', '', name, flags=re.I).strip()
+                if name and len(name) < 50 and name not in meta_authors:
+                    meta_authors.append(name)
+
+    # Clean up and filter extracted names
+    cleaned_authors = []
+    for a in meta_authors:
+        a_clean = re.sub(r'\s+', ' ', a).strip()
+        # If it's a URL, don't use it directly; extract the username/name
+        if a_clean.startswith("http://") or a_clean.startswith("https://"):
+            parts = [p for p in a_clean.split('/') if p]
+            if parts:
+                a_clean = parts[-1]
+            else:
+                continue
+        # Check length constraints
+        if not a_clean or len(a_clean) < 2 or len(a_clean) > 50:
+            continue
+        # Avoid common UI/garbage words
+        if a_clean.lower() in ("login", "signin", "sign in", "sign up", "register", "comments", "reply", "subscribe", "anonymous", "admin", "administrator", "moderator"):
+            continue
+        # Filter out email-like or domain-like strings
+        if "@" in a_clean or "." in a_clean and len(a_clean.split()) == 1 and not a_clean.startswith("http"):
+            continue
+        if a_clean not in cleaned_authors:
+            cleaned_authors.append(a_clean)
+            
+    meta_authors = cleaned_authors
 
     # DOI meta tag
     meta_doi = soup.find("meta", attrs={"name": re.compile(r"^(citation_doi|dc\.identifier)$", re.I)})

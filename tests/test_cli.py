@@ -97,4 +97,35 @@ class TestCLI(unittest.TestCase):
         self.assertIn("Re-indexed 1/1 papers successfully.", result.stdout)
         mock_indexer_instance.reindex_metadata.assert_called_once_with("p2", use_llm=False)
 
+    @patch("click.getchar")
+    @patch("src.cli.sqlite3.connect")
+    @patch("src.cli.get_services")
+    def test_storage_multi_digit_selection(self, mock_get_services, mock_connect, mock_getchar):
+        """Typing a multi-digit number in storage selects that row index."""
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        mock_conn = MagicMock()
+        mock_connect.return_value = mock_conn
+        
+        # Simulating keystroke sequence: '1', then '2', then '\r' (Enter), then 'q' (Quit)
+        mock_getchar.side_effect = ['1', '2', '\r', 'q']
+
+        # mock counts and data rows
+        mock_conn.execute.return_value.fetchone.return_value = (15,)
+        
+        rows = []
+        for idx in range(1, 16):
+            row = MagicMock()
+            row.__getitem__ = lambda s, k, i=idx: {
+                "id": f"p{i}",
+                "properties": f'{{"title": "Paper {i}", "source_type": "paper", "authors": ["Author {i}"]}}'
+            }[k]
+            rows.append(row)
+        
+        mock_conn.execute.return_value.fetchall.return_value = rows
+
+        result = runner.invoke(app, ["storage"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Row 12 selected", result.stdout)
+
+
 

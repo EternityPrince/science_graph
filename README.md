@@ -12,7 +12,7 @@ Build a queryable knowledge graph from PDFs, Markdown notes, and EPUB books — 
 
 ## ✨ What it does
 
-You drop PDFs, notes, or EPUB books into Science Graph. It extracts text, generates semantic embeddings, and builds a rich knowledge graph linking papers → authors → concepts → citations. Then you ask questions in plain language and get cited, context-aware answers from your **own** local AI.
+You drop PDFs, notes (supporting Obsidian-style `[[wiki-links]]`), or EPUB books into Science Graph. It extracts text, generates semantic embeddings, and builds a rich knowledge graph linking papers → authors → concepts → citations → related notes. Then you ask questions in plain language and get cited, context-aware answers from your **own** local AI, keep notes chronologically, view your research timeline, and explore a contribution calendar.
 
 **No OpenAI. No internet required. All data stays on your Mac.**
 
@@ -113,12 +113,13 @@ python3 main.py chat
 | `reindex` | Partially re-index paper metadata without regenerating embeddings |
 | `query` | One-shot RAG question answering |
 | `chat` | Interactive TUI chat with memory |
-| `storage` | Interactive TUI document/author database manager |
+| `storage` | Interactive TUI database manager (with search, abstract preview, file opening, and LLM summary generation) |
 | `review` | Generate a full Markdown literature review |
-| `serve` | Launch the Web UI (FastAPI + vis-network) |
+| `serve` | Launch the Web UI (FastAPI, chat, timeline, contribution heatmap, and interactive notetaker) |
 | `stats` | Show knowledge base statistics |
 | `config` | Show all configuration and model paths |
-| `visualize` | Export an interactive HTML graph |
+| `visualize` | Export an interactive HTML graph with dynamic year/date filtering |
+| `cleanup` | Remove orphaned Concept nodes with degree 0 |
 
 
 ### `index` — Indexing documents
@@ -197,11 +198,14 @@ python3 main.py serve --no-open          # don't auto-open browser
 ```
 
 The Web UI features:
-- **Interactive knowledge graph** with vis-network (filter by Papers / Notes / Books / Authors / Concepts)
-- **Streaming RAG chat** with Markdown rendering (SSE)
-- **Node details panel** — abstract, concepts, citations, DOI link
-- **Drag & drop upload** — index files directly from the browser
-- **Live search** — fuzzy title search with graph focus
+- **Premium Obsidian-like dark layout** for sleek visual excellence.
+- **Interactive knowledge graph** with local `vis-network` (filter by node type, dynamic zoom, and date filters).
+- **Streaming RAG chat** with Markdown rendering (SSE).
+- **Redesigned Details panel** — showcases paper annotations/abstracts, LLM-generated summaries, and a button to open local files on your server/host machine natively.
+- **Заметки (Notes)** — a Simple Notetaker form to write and save Markdown notes directly, which are auto-indexed with wikilink resolution.
+- **Хронология (Chronology)** — visualizes a 53-week contribution calendar heatmap (CSS-grid layout) and a vertical scrollable timeline of papers sorted by creation date.
+- **Drag & drop upload** — index files directly from the browser.
+- **Live search** — fuzzy title search with graph focus.
 
 ### `config` — Inspect configuration
 
@@ -274,14 +278,16 @@ uv run pytest -v         # verbose output
 uv run pytest tests/test_repository.py   # specific module
 ```
 
-All 21 tests pass. Test coverage includes:
+All 33 tests pass. Test coverage includes:
 - SQLite graph and vector repositories
-- Markdown parser (front-matter, wiki-links, inline tags)
-- URL parser (arXiv ID, DOI, fallback meta tags extraction)
+- Markdown parser (front-matter parsing, Obsidian-style `[[wikilinks]]` node resolution, fallback filesystem creation dates)
+- URL parser (arXiv ID, DOI, fallback meta tags extraction, local archive copies)
 - Hybrid search (BM25 + dense + reranking)
 - TUI chat session logic and CLI commands
+- TUI `storage` interactions (multi-digit row selection)
 - External API (Semantic Scholar query with exponential retries and arXiv queries)
 - Metadata-only re-indexing pipeline
+- Database cleanup (removal of degree-0 orphaned concepts)
 
 ---
 
@@ -315,12 +321,16 @@ science-graph/
 │   ├── external_api.py        # Semantic Scholar API client
 │   └── tui.py                 # Rich TUI chat
 └── tests/
+    ├── test_cleanup.py
     ├── test_cli.py
-    ├── test_repository.py
-    ├── test_hybrid_search.py
-    ├── test_md_epub_indexer.py
     ├── test_external_api.py
-    └── test_tui.py
+    ├── test_hybrid_search.py
+    ├── test_indexer_wikilinks.py
+    ├── test_md_epub_indexer.py
+    ├── test_md_parser.py
+    ├── test_repository.py
+    ├── test_tui.py
+    └── test_url_parser.py
 ```
 
 ---

@@ -227,6 +227,101 @@ class TestIndexerMarkdownIntegration(unittest.TestCase):
         self.assertEqual(ref_paper.title, "Deep Residual Learning")
         self.assertEqual(cit_paper.title, "BERT: Pre-training")
 
+    @patch("src.external_api.fetch_paper_metadata")
+    def test_reindex_retains_chunks(self, mock_fetch_metadata):
+        from src.indexer import Indexer
+        from src.models import Paper, Chunk
+
+        # 1. Setup mock metadata return value
+        mock_fetch_metadata.return_value = {
+            "title": "Attention Is All You Need",
+            "authors": ["Ashish Vaswani", "Noam Shazeer"],
+            "year": 2017,
+            "abstract": "The dominant sequence transduction models...",
+            "doi": "10.1145/37565.37566"
+        }
+
+        # 2. Insert paper
+        paper = Paper(
+            id="test_paper_id",
+            title="Old Title",
+            authors=["Old Author"],
+            year=2015,
+            abstract="Old abstract",
+            doi="10.1145/37565.37566",
+            file_path="mock_path.pdf"
+        )
+        self.graph_repo.save_paper(paper)
+
+        # 3. Save chunks for this paper in the vector database
+        chunk = Chunk(
+            id="test_paper_id#0",
+            paper_id="test_paper_id",
+            text_content="This is some chunk content.",
+            page_number=1,
+            embedding=[0.1] * 384
+        )
+        self.vector_repo.save_chunks([chunk])
+
+        # Verify chunks exist
+        all_chunks = self.vector_repo.get_all_chunks()
+        self.assertEqual(len(all_chunks), 1)
+        self.assertEqual(all_chunks[0].id, "test_paper_id#0")
+
+        # 4. Call reindex_metadata
+        indexer = Indexer(self.graph_repo, self.vector_repo, self.emb_engine)
+        success = indexer.reindex_metadata("test_paper_id", use_llm=False)
+        self.assertTrue(success)
+
+        # 5. Verify updated Paper in database
+        updated_paper = self.graph_repo.get_paper("test_paper_id")
+        self.assertIsNotNone(updated_paper)
+        self.assertEqual(updated_paper.title, "Attention Is All You Need")
+
+        # 6. Verify that chunks are STILL present in the database (were not deleted by cascade)
+        all_chunks_after = self.vector_repo.get_all_chunks()
+        self.assertEqual(len(all_chunks_after), 1, "Chunks were deleted/lost during metadata reindexing!")
+        self.assertEqual(all_chunks_after[0].id, "test_paper_id#0")
+    @patch("src.parsers.url_parser.parse_url")
+    def test_index_url_saves_local_copy(self, mock_parse_url):
+        from src.indexer import Indexer
+        from src.models import Paper
+        import os
+
+        # 1. Setup mock parse_url
+        mock_paper = Paper(
+            id="test_webpage",
+            title="Test Webpage Title",
+            authors=["Alice Web"],
+            year=2024,
+            doi="",
+            file_path="https://example.com/webpage",
+            properties={"source_type": "webpage", "url": "https://example.com/webpage"}
+        )
+        mock_parse_url.return_value = (mock_paper, "This is mock webpage content in Markdown.")
+
+        # 2. Call index_url
+        indexer = Indexer(self.graph_repo, self.vector_repo, self.emb_engine)
+        paper_id = indexer.index_url("https://example.com/webpage")
+
+        self.assertEqual(paper_id, "test_webpage")
+
+        # 3. Retrieve paper from database and verify local file path is saved
+        paper_in_db = self.graph_repo.get_paper("test_webpage")
+        self.assertIsNotNone(paper_in_db)
+        local_path = paper_in_db.file_path
+        self.assertTrue(local_path.endswith("test_webpage.md"))
+        self.assertTrue(os.path.exists(local_path))
+
+        # Check content is saved
+        with open(local_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertEqual(content, "This is mock webpage content in Markdown.")
+
+        # Cleanup file
+        if os.path.exists(local_path):
+            os.remove(local_path)
+
 
 if __name__ == "__main__":
     unittest.main()

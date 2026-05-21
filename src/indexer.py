@@ -357,12 +357,16 @@ class Indexer:
             self.graph_repo.save_concept(concept)
             self.graph_repo.add_edge(paper.id, concept_id, "HAS_TAG")
 
-        # Wiki-links [[Target]] → concept nodes + RELATED_TO edges
+        # Wiki-links [[Target]] → paper/note nodes or fallback concept nodes + RELATED_TO edges
         for link_target in wiki_links:
-            concept_id = self._slugify(link_target)
-            concept = Concept(id=concept_id, name=link_target)
-            self.graph_repo.save_concept(concept)
-            self.graph_repo.add_edge(paper.id, concept_id, "RELATED_TO")
+            matched_paper = self.graph_repo.find_paper_by_title(link_target)
+            if matched_paper:
+                self.graph_repo.add_edge(paper.id, matched_paper.id, "RELATED_TO")
+            else:
+                concept_id = self._slugify(link_target)
+                concept = Concept(id=concept_id, name=link_target)
+                self.graph_repo.save_concept(concept)
+                self.graph_repo.add_edge(paper.id, concept_id, "RELATED_TO")
 
         # Chunk + embed body text
         con.dim(f"Chunking note: {paper.title[:60]}")
@@ -416,6 +420,19 @@ class Indexer:
                     if tag_name not in tags_to_save:
                         tags_to_save.append(tag_name)
         paper.properties["tags"] = tags_to_save
+
+        # Determine archival path for webpage
+        from src.config import config
+        from pathlib import Path
+        archive_dir = Path(config.archive_dir)
+        archive_path = archive_dir / f"{paper.id}.md"
+        try:
+            with open(archive_path, "w", encoding="utf-8") as f:
+                f.write(body)
+            paper.file_path = str(archive_path)
+            con.dim(f"Saved local archive of website to {archive_path}")
+        except Exception as e:
+            con.warning(f"Could not save local archive of website: {e}")
 
         # Save webpage node
         self.graph_repo.save_paper(paper)

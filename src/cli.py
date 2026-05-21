@@ -263,32 +263,89 @@ def storage(
     active_table = "documents"   # currently focused table
     selected_idx = None          # 1-based row number within the current page
     status_msg = ""              # feedback line after actions
+    search_query = None          # search term
+    llm_engine = None            # lazy LLM engine reference
 
     def _get_rows(tbl: str, pg: int):
         off = (pg - 1) * limit
-        if tbl == "documents":
-            return conn.execute(
-                "SELECT id, properties FROM nodes WHERE label='Paper' LIMIT ? OFFSET ?",
-                (limit, off)
-            ).fetchall()
-        elif tbl == "authors":
-            return conn.execute(
-                """SELECT id, properties,
-                          (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
-                   FROM nodes WHERE label='Author' ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
-                (limit, off)
-            ).fetchall()
-        else:  # concepts
-            return conn.execute(
-                """SELECT id, properties,
-                          (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
-                   FROM nodes WHERE label='Concept' ORDER BY degree DESC LIMIT ? OFFSET ?""",
-                (limit, off)
-            ).fetchall()
+        if not search_query:
+            if tbl == "documents":
+                return conn.execute(
+                    "SELECT id, properties FROM nodes WHERE label='Paper' LIMIT ? OFFSET ?",
+                    (limit, off)
+                ).fetchall()
+            elif tbl == "authors":
+                return conn.execute(
+                    """SELECT id, properties,
+                              (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
+                       FROM nodes WHERE label='Author' ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
+                    (limit, off)
+                ).fetchall()
+            else:  # concepts
+                return conn.execute(
+                    """SELECT id, properties,
+                              (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
+                       FROM nodes WHERE label='Concept' ORDER BY degree DESC LIMIT ? OFFSET ?""",
+                    (limit, off)
+                ).fetchall()
+        else:
+            like_pat = f"%{search_query}%"
+            if tbl == "documents":
+                return conn.execute(
+                    """SELECT id, properties FROM nodes
+                       WHERE label='Paper'
+                       AND (
+                           id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
+                           OR properties LIKE ?
+                       )
+                       LIMIT ? OFFSET ?""",
+                    (like_pat, like_pat, limit, off)
+                ).fetchall()
+            elif tbl == "authors":
+                return conn.execute(
+                    """SELECT id, properties,
+                              (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
+                       FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)
+                       ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
+                    (like_pat, like_pat, limit, off)
+                ).fetchall()
+            else:  # concepts
+                return conn.execute(
+                    """SELECT id, properties,
+                              (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
+                       FROM nodes WHERE label='Concept' AND (id LIKE ? OR properties LIKE ?)
+                       ORDER BY degree DESC LIMIT ? OFFSET ?""",
+                    (like_pat, like_pat, limit, off)
+                ).fetchall()
 
     def _count(tbl: str) -> int:
         label = {"documents": "Paper", "authors": "Author", "concepts": "Concept"}[tbl]
-        return conn.execute(f"SELECT count(*) FROM nodes WHERE label=?", (label,)).fetchone()[0]
+        if not search_query:
+            return conn.execute(f"SELECT count(*) FROM nodes WHERE label=?", (label,)).fetchone()[0]
+        
+        like_pat = f"%{search_query}%"
+        if tbl == "documents":
+            return conn.execute(
+                """
+                SELECT count(*) FROM nodes
+                WHERE label='Paper'
+                AND (
+                    id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
+                    OR properties LIKE ?
+                )
+                """,
+                (like_pat, like_pat)
+            ).fetchone()[0]
+        elif tbl == "authors":
+            return conn.execute(
+                "SELECT count(*) FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)",
+                (like_pat, like_pat)
+            ).fetchone()[0]
+        else: # concepts
+            return conn.execute(
+                "SELECT count(*) FROM nodes WHERE label='Concept' AND (id LIKE ? OR properties LIKE ?)",
+                (like_pat, like_pat)
+            ).fetchone()[0]
 
     def _delete_node(node_id: str) -> str:
         try:
@@ -341,8 +398,9 @@ def storage(
         # ── Build the active table ───────────────────────────────────────────
         tab_title = TABLE_LABELS[active_table]
         border = {"documents": "blue", "authors": "yellow", "concepts": "magenta"}[active_table]
+        search_suffix = f" (filtered: '{search_query}')" if search_query else ""
         table = Table(
-            title=f"{tab_title}  [dim](page {page}/{total_pages}, {total} total)[/dim]",
+            title=f"{tab_title}  [dim](page {page}/{total_pages}, {total} total){search_suffix}[/dim]",
             box=box.ROUNDED, border_style=border, expand=True, header_style="bold cyan",
         )
         table.add_column("#", style="dim", max_width=4, justify="right")
@@ -408,17 +466,22 @@ def storage(
                 props = json.loads(row["properties"])
                 full_path = props.get("file_path") or props.get("url") or "—"
                 con.console.print(f"  [bold cyan]Full Path/URL:[/bold cyan] [dim]{full_path}[/dim]")
+                
+                doc_actions = ""
+                if active_table == "documents":
+                    doc_actions = "  [bold]A[/bold] Annotation  [bold]O[/bold] Open  [bold]S[/bold] Summary  "
                 con.console.print(
-                    f"  Row [bold cyan]{selected_idx}[/bold cyan] selected  │  "
+                    f"  Row [bold cyan]{selected_idx}[/bold cyan] selected  │{doc_actions}"
                     "[bold]E[/bold] Edit  [bold]X[/bold] Delete  [bold]Esc[/bold] Deselect"
                 )
             else:
                 con.console.print(
                     f"  [bold]←/A[/bold] Prev  [bold]→/D[/bold] Next  "
                     "[bold]Tab[/bold] Switch table  "
+                    "[bold]/[/bold] Search  "
+                    "[bold]Esc[/bold] Clear filter  "
                     "[bold]1-9…[/bold] Select row  [bold]Q[/bold] Quit"
                 )
-
 
         # ── Input ────────────────────────────────────────────────────────────
         try:
@@ -428,9 +491,24 @@ def storage(
 
         if c in ('q', 'Q', '\x03', '\x04'):
             break
-        elif c in ('a', 'A', '\x1b[D'):           # left / previous page
-            page = max(1, page - 1)
-            selected_idx = None
+        elif c in ('a', 'A', '\x1b[D'):           # left / previous page or Annotation if doc selected
+            if selected_idx is not None and active_table == "documents":
+                row = rows[selected_idx - 1]
+                props = json.loads(row["properties"])
+                abstract = props.get("abstract") or "No abstract/annotation available."
+                title = props.get("title") or row["id"]
+                con.console.clear()
+                con.console.print(Panel(
+                    abstract,
+                    title=f"[bold green]Annotation: {title[:60]}[/bold green]",
+                    border_style="green",
+                    padding=(1, 2),
+                ))
+                con.console.print("\n  Press any key to return...")
+                click.getchar()
+            else:
+                page = max(1, page - 1)
+                selected_idx = None
         elif c in ('d', 'D', '\x1b[C'):           # right / next page
             page = min(total_pages, page + 1)
             selected_idx = None
@@ -439,8 +517,105 @@ def storage(
             active_table = TABLES[(idx + 1) % len(TABLES)]
             page = 1
             selected_idx = None
-        elif c == '\x1b':                          # Escape — deselect
-            selected_idx = None
+        elif c == '\x1b':                          # Escape — deselect / clear search
+            if selected_idx is not None:
+                selected_idx = None
+            else:
+                search_query = None
+                page = 1
+        elif c == '/':                             # Slash — search query prompt
+            con.console.print("\n  [bold yellow]Search query:[/bold yellow] ", end="")
+            try:
+                # Get user input
+                query_str = input().strip()
+                if query_str:
+                    search_query = query_str
+                else:
+                    search_query = None
+                page = 1
+                selected_idx = None
+            except KeyboardInterrupt:
+                pass
+        elif c in ('o', 'O') and selected_idx is not None and active_table == "documents":
+            row = rows[selected_idx - 1]
+            props = json.loads(row["properties"])
+            path = props.get("file_path") or props.get("url")
+            if not path:
+                status_msg = "[red]No file path or URL associated with this document.[/red]"
+            else:
+                con.console.print(f"\n[green]Opening: {path}[/green]")
+                try:
+                    if path.startswith("http://") or path.startswith("https://"):
+                        webbrowser.open(path)
+                        status_msg = f"[green]Opened URL in browser: {path[:50]}[/green]"
+                    else:
+                        import subprocess
+                        import sys
+                        expanded_path = os.path.expanduser(path)
+                        if not os.path.exists(expanded_path):
+                            expanded_path = str(Path(path).resolve())
+                        
+                        if sys.platform == "win32":
+                            os.startfile(expanded_path)
+                        elif sys.platform == "darwin":
+                            subprocess.run(["open", expanded_path])
+                        else:
+                            subprocess.run(["xdg-open", expanded_path])
+                        status_msg = f"[green]Opened file locally: {os.path.basename(path)}[/green]"
+                except Exception as e:
+                    status_msg = f"[red]Failed to open file: {e}[/red]"
+        elif c in ('s', 'S') and selected_idx is not None and active_table == "documents":
+            row = rows[selected_idx - 1]
+            paper_id = row["id"]
+            props = json.loads(row["properties"])
+            summary = props.get("summary")
+            title = props.get("title") or paper_id
+            
+            if not summary:
+                con.console.print("\n[yellow]Generating LLM Summary... This might take a few seconds.[/yellow]")
+                try:
+                    # Retrieve chunks to construct content sample
+                    chunks = conn.execute(
+                        "SELECT text_content FROM chunks WHERE paper_id = ? ORDER BY id LIMIT 5",
+                        (paper_id,)
+                    ).fetchall()
+                    sample_text = "\n\n".join([ch["text_content"] for ch in chunks]) if chunks else ""
+                    abstract = props.get("abstract") or ""
+                    
+                    # Lazy initialize LLM engine
+                    _, _, _, llm_engine = get_services(load_llm=True, load_embeddings=False)
+                    if not llm_engine:
+                        raise ValueError("LLM Engine could not be initialized. Please check your model path/provider config.")
+                    
+                    prompt = (
+                        f"Summarize the following document. Focus on key contributions, methodologies, and findings.\n\n"
+                        f"Title: {title}\n"
+                        f"Abstract: {abstract}\n\n"
+                        f"Content snippet:\n{sample_text[:3000]}\n\n"
+                        f"Provide a concise, professional markdown summary."
+                    )
+                    summary = llm_engine.generate_response(prompt)
+                    
+                    # Save to DB
+                    props["summary"] = summary
+                    conn.execute(
+                        "UPDATE nodes SET properties = ? WHERE id = ?",
+                        (json.dumps(props, ensure_ascii=False), paper_id)
+                    )
+                    conn.commit()
+                    con.success("Summary generated and saved to database.")
+                except Exception as e:
+                    summary = f"Error generating summary: {e}"
+            
+            con.console.clear()
+            con.console.print(Panel(
+                summary,
+                title=f"[bold cyan]LLM Summary: {title[:60]}[/bold cyan]",
+                border_style="cyan",
+                padding=(1, 2),
+            ))
+            con.console.print("\n  Press any key to return...")
+            click.getchar()
         elif c.isdigit():                          # digit — start building row number
             num_str = c
             # Allow multi-digit input (wait for Enter or non-digit)
@@ -675,6 +850,8 @@ def visualize(
             "shape": shape,
             "group": label,
             "degree": degree,
+            "created_at": props.get("created_at"),
+            "year": props.get("year"),
         })
 
     vis_edges = []
@@ -714,7 +891,44 @@ def visualize(
 <html>
 <head>
     <title>Science Graph — Knowledge Network</title>
-    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script type="text/javascript">
+        // Dynamic loader fallback for vis-network.min.js
+        (function() {{
+            var urls = [
+                "https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js",
+                "https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js",
+                "https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"
+            ];
+            var index = 0;
+            function tryLoad() {{
+                if (index >= urls.length) {{
+                    console.error("Failed to load vis-network from all sources.");
+                    return;
+                }}
+                var script = document.createElement("script");
+                script.type = "text/javascript";
+                script.src = urls[index];
+                script.onload = function() {{
+                    console.log("Successfully loaded vis-network from: " + urls[index]);
+                    if (window.initGraph) {{
+                        window.initGraph();
+                    }}
+                }};
+                script.onerror = function() {{
+                    console.warn("Failed to load vis-network from: " + urls[index] + ". Trying next...");
+                    index++;
+                    tryLoad();
+                }};
+                document.head.appendChild(script);
+            }}
+            // Start loading when document is ready
+            if (document.readyState === "loading") {{
+                document.addEventListener("DOMContentLoaded", tryLoad);
+            }} else {{
+                tryLoad();
+            }}
+        }})();
+    </script>
     <style type="text/css">
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                margin: 0; background-color: #1a1b1e; color: #c1c2c5; display: flex; flex-direction: column; height: 100vh; }}
@@ -745,8 +959,14 @@ def visualize(
         </div>
         <div class="controls">
             <div class="slider-container">
+                <label for="yearFilter">Year:</label>
+                <select id="yearFilter" onchange="applyFilters()" style="background:#1a1b1e; color:#c1c2c5; border:1px solid #2c2e33; border-radius:4px; padding:3px 8px; outline:none; cursor:pointer;">
+                    <option value="all">All Years</option>
+                </select>
+            </div>
+            <div class="slider-container">
                 <label for="degreeSlider">Min Connections:</label>
-                <input type="range" id="degreeSlider" min="1" max="20" value="3" oninput="updateFilter(this.value)">
+                <input type="range" id="degreeSlider" min="1" max="20" value="3" oninput="applyFilters()">
                 <span id="sliderValue" style="font-weight: bold; width: 20px;">3</span>
             </div>
         </div>
@@ -755,48 +975,96 @@ def visualize(
     <script type="text/javascript">
         var allNodes = {json.dumps(vis_nodes, ensure_ascii=False)};
         var allEdges = {json.dumps(vis_edges, ensure_ascii=False)};
-        
-        var nodesView = new vis.DataSet(allNodes);
-        var edgesView = new vis.DataSet(allEdges);
+        var nodesView, edgesView, network;
 
-        var network = new vis.Network(
-            document.getElementById('mynetwork'),
-            {{ nodes: nodesView, edges: edgesView }},
-            {{
-                nodes: {{ font: {{ color: '#c1c2c5', size: 12 }} }},
-                edges: {{ smooth: {{ type: 'continuous' }} }},
-                physics: {{ 
-                    barnesHut: {{ 
-                        gravitationalConstant: -12000,
-                        centralGravity: 0.2,
-                        springLength: 250,
-                        springConstant: 0.04,
-                        damping: 0.09,
-                        avoidOverlap: 0.3
-                    }},
-                    stabilization: {{ iterations: 200 }}
+        function initGraph() {{
+            nodesView = new vis.DataSet(allNodes);
+            edgesView = new vis.DataSet(allEdges);
+
+            network = new vis.Network(
+                document.getElementById('mynetwork'),
+                {{ nodes: nodesView, edges: edgesView }},
+                {{
+                    nodes: {{ font: {{ color: '#c1c2c5', size: 12 }} }},
+                    edges: {{ smooth: {{ type: 'continuous' }} }},
+                    physics: {{ 
+                        barnesHut: {{ 
+                            gravitationalConstant: -12000,
+                            centralGravity: 0.2,
+                            springLength: 250,
+                            springConstant: 0.04,
+                            damping: 0.09,
+                            avoidOverlap: 0.3
+                        }},
+                        stabilization: {{ iterations: 200 }}
+                    }}
                 }}
-            }}
-        );
+            );
 
-        function updateFilter(val) {{
+            // Populate year options dynamically on init
+            var years = new Set();
+            allNodes.forEach(n => {{
+                if (n.year) {{
+                    years.add(n.year);
+                }} else if (n.created_at) {{
+                    var y = new Date(n.created_at).getFullYear();
+                    if (!isNaN(y)) {{
+                        years.add(y);
+                    }}
+                }}
+            }});
+            var sortedYears = Array.from(years).sort((a,b) => b-a);
+            var select = document.getElementById('yearFilter');
+            sortedYears.forEach(y => {{
+                var opt = document.createElement('option');
+                opt.value = y;
+                opt.innerText = y;
+                select.appendChild(opt);
+            }});
+
+            // Initial filter
+            var defaultFilter = allNodes.length < 150 ? 1 : 3;
+            document.getElementById('degreeSlider').value = defaultFilter;
+            applyFilters();
+        }}
+
+        function applyFilters() {{
+            var val = document.getElementById('degreeSlider').value;
             document.getElementById('sliderValue').innerText = val;
             var minDegree = parseInt(val, 10);
+            var yearVal = document.getElementById('yearFilter').value;
             
             // Filter nodes
-            var filteredNodes = allNodes.filter(n => n.degree >= minDegree || n.group === 'Paper');
-            nodesView.clear();
-            nodesView.add(filteredNodes);
+            var filteredNodes = allNodes.filter(n => {{
+                // Check degree
+                var degreeMatch = n.degree >= minDegree || n.group === 'Paper';
+                if (!degreeMatch) return false;
+                
+                // Check year
+                if (yearVal !== 'all') {{
+                    var targetYear = parseInt(yearVal, 10);
+                    var nodeYear = n.year;
+                    if (!nodeYear && n.created_at) {{
+                        var d = new Date(n.created_at);
+                        if (!isNaN(d)) nodeYear = d.getFullYear();
+                    }}
+                    if (nodeYear !== targetYear) return false;
+                }}
+                return true;
+            }});
+            
+            if (nodesView) {{
+                nodesView.clear();
+                nodesView.add(filteredNodes);
+            }}
             
             var validIds = new Set(filteredNodes.map(n => n.id));
             var filteredEdges = allEdges.filter(e => validIds.has(e.from) && validIds.has(e.to));
-            edgesView.clear();
-            edgesView.add(filteredEdges);
+            if (edgesView) {{
+                edgesView.clear();
+                edgesView.add(filteredEdges);
+            }}
         }}
-        // Initial filter
-        var defaultFilter = allNodes.length < 150 ? 1 : 3;
-        document.getElementById('degreeSlider').value = defaultFilter;
-        updateFilter(defaultFilter);
     </script>
 </body>
 </html>"""
@@ -904,6 +1172,18 @@ def serve(
         reload=reload,
         log_level="warning",   # suppress uvicorn INFO noise
     )
+
+
+@app.command("cleanup")
+def cleanup():
+    """Remove orphaned Concept nodes with degree 0 (no connected papers/notes)."""
+    graph_repo, _, _, _ = get_services(load_llm=False, load_embeddings=False)
+    con.dim("Starting database cleanup...")
+    deleted_count = graph_repo.cleanup_orphaned_concepts()
+    if deleted_count > 0:
+        con.success(f"Successfully cleaned up [bold]{deleted_count}[/bold] orphaned concept nodes.")
+    else:
+        con.info("No orphaned concept nodes found in the database.")
 
 
 if __name__ == "__main__":

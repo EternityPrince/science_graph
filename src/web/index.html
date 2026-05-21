@@ -6,8 +6,10 @@
   <title>Science Graph — Knowledge Explorer</title>
   <meta name="description" content="Interactive knowledge graph explorer for scientific papers, books and notes with AI-powered RAG chat." />
 
+  <link rel="icon" type="image/png" href="/favicon.png" />
+
   <!-- Vis-Network -->
-  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <script src="/vis-network.min.js"></script>
   <!-- Marked.js for Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
   <!-- Google Fonts -->
@@ -271,13 +273,13 @@
     }
     .tab-btn {
       flex: 1;
-      padding: 12px 8px;
+      padding: 12px 4px;
       background: none;
       border: none;
       border-bottom: 2px solid transparent;
       color: var(--text3);
       font-family: inherit;
-      font-size: 12px; font-weight: 600;
+      font-size: 11px; font-weight: 600;
       cursor: pointer;
       text-transform: uppercase; letter-spacing: 0.5px;
       transition: all var(--transition);
@@ -497,6 +499,95 @@
     .log-err { color: var(--red); }
     .log-info { color: var(--text3); }
 
+    /* ── Heatmap & Chronology & Forms ───────────────────────────────────────── */
+    .heatmap-container {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .heatmap-header {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text3);
+      margin-bottom: 10px;
+    }
+    .heatmap-grid {
+      display: grid;
+      grid-template-rows: repeat(7, 10px);
+      grid-auto-flow: column;
+      gap: 3px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+    }
+    .heatmap-cell {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      background: var(--surface3);
+      cursor: pointer;
+      transition: outline var(--transition), background-color var(--transition);
+    }
+    .heatmap-cell:hover {
+      outline: 1px solid var(--accent);
+    }
+    .level-0 { background: var(--surface3); }
+    .level-1 { background: #0e6345; }
+    .level-2 { background: #109462; }
+    .level-3 { background: #12b886; }
+    .level-4 { background: #20c997; }
+
+    .heatmap-legend {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 4px;
+      margin-top: 8px;
+      font-size: 10px;
+      color: var(--text3);
+    }
+    .legend-cell {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .form-group label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text3);
+    }
+    .form-control {
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color var(--transition);
+      width: 100%;
+    }
+    .form-control:focus {
+      border-color: var(--accent);
+    }
+    textarea.form-control {
+      resize: vertical;
+      min-height: 90px;
+    }
+
     /* ── Toast ───────────────────────────────────────────────────────────────── */
     #toast-container {
       position: fixed; bottom: 20px; right: 20px;
@@ -593,6 +684,8 @@
     <div class="sidebar-tabs">
       <button class="tab-btn active" data-tab="chat" id="tab-chat">💬 Чат</button>
       <button class="tab-btn" data-tab="details" id="tab-details">📋 Детали</button>
+      <button class="tab-btn" data-tab="notes" id="tab-notes">📝 Заметки</button>
+      <button class="tab-btn" data-tab="chronology" id="tab-chronology">📅 Хронология</button>
       <button class="tab-btn" data-tab="upload" id="tab-upload">📤 Загрузка</button>
     </div>
 
@@ -621,6 +714,89 @@
       </div>
     </div>
 
+    <!-- Notes tab -->
+    <div class="tab-panel" id="panel-notes">
+      <div style="padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px;">
+        <div class="details-card">
+          <h3>📝 Создать заметку</h3>
+          <form id="note-form" onsubmit="event.preventDefault(); saveNewNote();" style="margin-top:12px;">
+            <div class="form-group">
+              <label for="note-title">Название</label>
+              <input type="text" id="note-title" class="form-control" placeholder="Название заметки..." required />
+            </div>
+            <div class="form-group">
+              <label for="note-authors">Авторы (через запятую)</label>
+              <input type="text" id="note-authors" class="form-control" placeholder="Имя Автора, Другой Автор..." />
+            </div>
+            <div class="form-group">
+              <label for="note-tags">Теги (через запятую)</label>
+              <input type="text" id="note-tags" class="form-control" placeholder="tag1, tag2..." />
+            </div>
+            <div class="form-group">
+              <label for="note-content">Содержание (поддерживает [[wiki-ссылки]])</label>
+              <textarea id="note-content" class="form-control" placeholder="Текст заметки с [[другими статьями]]..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Сохранить заметку</button>
+          </form>
+        </div>
+
+        <div class="details-card">
+          <h3>📋 Мои заметки</h3>
+          <div id="notes-list" style="display: flex; flex-direction: column; gap: 10px; margin-top:12px;">
+            <div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;">Загрузка заметок...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chronology tab -->
+    <div class="tab-panel" id="panel-chronology">
+      <div style="padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px;">
+        <!-- Heatmap Grid -->
+        <div class="heatmap-container">
+          <div class="heatmap-header">Календарь активности (53 недели)</div>
+          <div class="heatmap-grid" id="heatmap-grid"></div>
+          <div class="heatmap-legend">
+            <span>Меньше</span>
+            <div class="legend-cell level-0"></div>
+            <div class="legend-cell level-1"></div>
+            <div class="legend-cell level-2"></div>
+            <div class="legend-cell level-3"></div>
+            <div class="legend-cell level-4"></div>
+            <span>Больше</span>
+          </div>
+        </div>
+
+        <!-- Date Range Filter -->
+        <div class="details-card">
+          <h3>📅 Фильтр по датам</h3>
+          <div style="display: flex; gap: 10px; margin-bottom: 10px; margin-top: 12px;">
+            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+              <label for="filter-from-date">С</label>
+              <input type="date" id="filter-from-date" class="form-control" />
+            </div>
+            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+              <label for="filter-to-date">По</label>
+              <input type="date" id="filter-to-date" class="form-control" />
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-ghost" style="flex: 1; font-size: 11px; padding: 6px;" onclick="resetDateFilters()">Сбросить</button>
+            <button class="btn btn-primary" style="flex: 1; font-size: 11px; padding: 6px;" onclick="applyDateFiltersBtn()">Применить</button>
+          </div>
+          <div id="filter-status-msg" style="font-size: 11px; color: var(--accent); margin-top: 8px; display: none;"></div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="details-card">
+          <h3>⏳ Хронология публикаций</h3>
+          <div id="timeline-list" style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px;">
+            <div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;">Загрузка хронологии...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Upload tab -->
     <div class="tab-panel" id="panel-upload">
       <div id="upload-panel">
@@ -645,6 +821,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const API = '';  // same origin
+let activeHeatmapDate = null;
 
 /* ── Utility ──────────────────────────────────────────────────────────────── */
 function toast(msg, type = 'info') {
@@ -755,6 +932,10 @@ async function loadGraph() {
     network.on('hoverNode', () => { container.style.cursor = 'pointer'; });
     network.on('blurNode',  () => { container.style.cursor = 'default'; });
 
+    // Render components that depend on graph data
+    renderHeatmap(data.nodes);
+    renderTimeline();
+
   } catch (e) {
     document.getElementById('graph-loading').classList.add('hidden');
     toast('Ошибка загрузки графа: ' + e.message, 'err');
@@ -781,10 +962,30 @@ document.querySelectorAll('.filter-chip').forEach(chip => {
 function applyFilters() {
   if (!allNodes) return;
   const all = allNodes.get();
-  const updates = all.map(n => ({
-    id: n.id,
-    hidden: !activeFilters.has(n.group),
-  }));
+
+  const fromDate = document.getElementById('filter-from-date')?.value || '';
+  const toDate = document.getElementById('filter-to-date')?.value || '';
+
+  const updates = all.map(n => {
+    let isVisible = activeFilters.has(n.group);
+
+    if (isVisible && n.created_at && ['paper', 'note', 'book'].includes(n.group)) {
+      const docDate = n.created_at.substring(0, 10); // YYYY-MM-DD
+      if (activeHeatmapDate) {
+        if (docDate !== activeHeatmapDate) {
+          isVisible = false;
+        }
+      } else {
+        if (fromDate && docDate < fromDate) isVisible = false;
+        if (toDate && docDate > toDate) isVisible = false;
+      }
+    }
+
+    return {
+      id: n.id,
+      hidden: !isVisible,
+    };
+  });
   allNodes.update(updates);
 }
 
@@ -792,6 +993,7 @@ function applyFilters() {
 document.getElementById('btn-refresh').addEventListener('click', () => {
   loadGraph();
   loadStats();
+  loadNotes();
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -824,24 +1026,34 @@ function renderDetails(panel, d) {
         <span class="details-badge ${badgeClass}">${typeLabel}</span>
         ${esc(d.title)}
       </h3>
-      <div class="details-row">
+      <div class="details-row" style="margin-top: 10px;">
         ${d.authors?.length ? `<div class="details-field"><div class="details-label">Авторы</div><div class="details-value">${esc(d.authors.join(', '))}</div></div>` : ''}
         ${d.year ? `<div class="details-field"><div class="details-label">Год</div><div class="details-value">${d.year}</div></div>` : ''}
         ${d.doi ? `<div class="details-field"><div class="details-label">DOI</div><div class="details-value"><a href="https://doi.org/${d.doi}" target="_blank">${esc(d.doi)}</a></div></div>` : ''}
+        ${d.created_at ? `<div class="details-field"><div class="details-label">Добавлен</div><div class="details-value">${d.created_at.substring(0, 16).replace('T', ' ')}</div></div>` : ''}
       </div>
     </div>`;
 
   if (d.abstract) {
     html += `<div class="details-card">
       <h3>📄 Аннотация</h3>
-      <div class="abstract-text">${esc(d.abstract)}</div>
+      <div class="abstract-text" style="margin-top: 10px;">${esc(d.abstract)}</div>
+    </div>`;
+  }
+
+  if (d.summary) {
+    html += `<div class="details-card">
+      <h3>💡 Краткое содержание (LLM Summary)</h3>
+      <div style="font-size: 13px; color: var(--text2); line-height: 1.6; margin-top: 10px; max-height: 250px; overflow-y: auto; background: var(--surface3); padding: 10px 12px; border-radius: var(--radius-sm);">
+        ${marked.parse(d.summary)}
+      </div>
     </div>`;
   }
 
   if (d.concepts?.length) {
     html += `<div class="details-card">
       <h3>🏷️ Концепты</h3>
-      <div class="tag-list">${d.concepts.map(c =>
+      <div class="tag-list" style="margin-top: 10px;">${d.concepts.map(c =>
         `<span class="tag" onclick="focusNode('${esc(c)}')">${esc(c)}</span>`
       ).join('')}</div>
     </div>`;
@@ -850,7 +1062,7 @@ function renderDetails(panel, d) {
   if (d.citations?.length) {
     html += `<div class="details-card">
       <h3>📎 Цитирует (${d.citations.length})</h3>
-      <div class="details-row">${d.citations.map(t =>
+      <div class="details-row" style="margin-top: 10px;">${d.citations.map(t =>
         `<div class="details-value" style="font-size:12px;color:var(--text2)">• ${esc(t)}</div>`
       ).join('')}</div>
     </div>`;
@@ -859,14 +1071,21 @@ function renderDetails(panel, d) {
   if (d.cited_by?.length) {
     html += `<div class="details-card">
       <h3>📌 Цитируется в (${d.cited_by.length})</h3>
-      <div class="details-row">${d.cited_by.map(t =>
+      <div class="details-row" style="margin-top: 10px;">${d.cited_by.map(t =>
         `<div class="details-value" style="font-size:12px;color:var(--text2)">• ${esc(t)}</div>`
       ).join('')}</div>
     </div>`;
   }
 
+  // File Opener button if file_path is available
+  if (d.file_path) {
+    html += `<button class="btn btn-ghost" style="width:100%;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="openLocalFile('${esc(d.file_path.replace(/'/g, '\\\''))}')">
+      📂 Открыть локальный файл
+    </button>`;
+  }
+
   // Ask in chat button
-  html += `<button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="askAbout('${esc(d.title.replace(/'/g,'\\\''))}')">
+  html += `<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="askAbout('${esc(d.title.replace(/'/g,'\\\''))}')">
     💬 Спросить об этой работе
   </button>`;
 
@@ -884,6 +1103,31 @@ function askAbout(title) {
   input.focus();
   // Switch to chat tab
   document.getElementById('tab-chat').click();
+}
+
+async function openLocalFile(filePath) {
+  try {
+    const r = await fetch(`${API}/api/open-file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: filePath })
+    });
+    const d = await r.json();
+    if (r.ok) {
+      toast(`Открыт файл: ${d.message || filePath}`, 'ok');
+    } else {
+      throw new Error(d.detail || 'Не удалось открыть файл');
+    }
+  } catch (e) {
+    toast(`Ошибка открытия файла: ${e.message}`, 'err');
+  }
+}
+
+function focusNode(nodeId) {
+  if (network) {
+    network.selectNodes([nodeId]);
+    network.focus(nodeId, { scale: 1.4, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1045,6 +1289,238 @@ chatInput.addEventListener('input', () => {
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   NOTES / SIMPLE NOTETAKER
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function loadNotes() {
+  try {
+    const r = await fetch(`${API}/api/notes`);
+    const notes = await r.json();
+    renderNotesList(notes);
+  } catch (e) {
+    console.error("Failed to load notes", e);
+  }
+}
+
+function renderNotesList(notes) {
+  const list = document.getElementById('notes-list');
+  if (!notes || notes.length === 0) {
+    list.innerHTML = `<div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;">Заметок пока нет</div>`;
+    return;
+  }
+
+  list.innerHTML = notes.map(n => {
+    const dateStr = n.created_at ? n.created_at.substring(0, 10) : '—';
+    return `
+      <div class="details-card" style="margin-bottom:8px;padding:12px;cursor:pointer;border-color:var(--border2);" onclick="selectSearchResult('${esc(n.id)}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="font-size:13px;font-weight:600;color:var(--text);">${esc(n.title)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);display:flex;justify-content:space-between;">
+          <span>${esc(n.authors.join(', ')) || 'Без автора'}</span>
+          <span>${dateStr}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function saveNewNote() {
+  const title = document.getElementById('note-title').value.trim();
+  const content = document.getElementById('note-content').value.trim();
+  const authorsRaw = document.getElementById('note-authors').value.trim();
+  const tagsRaw = document.getElementById('note-tags').value.trim();
+
+  const authors = authorsRaw ? authorsRaw.split(',').map(a => a.trim()) : [];
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()) : [];
+
+  const btn = document.querySelector('#note-form button[type="submit"]');
+  btn.disabled = true;
+  btn.textContent = 'Сохранение...';
+
+  try {
+    const r = await fetch(`${API}/api/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content, authors, tags })
+    });
+
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || 'Ошибка создания заметки');
+
+    toast('Заметка успешно создана', 'ok');
+    document.getElementById('note-form').reset();
+
+    // Reload notes, graph, and stats
+    await loadNotes();
+    await loadGraph();
+    await loadStats();
+  } catch (e) {
+    toast(`Ошибка: ${e.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Сохранить заметку';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHRONOLOGY & HEATMAP
+   ═══════════════════════════════════════════════════════════════════════════ */
+function renderHeatmap(nodes) {
+  const grid = document.getElementById('heatmap-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  const dateCounts = {};
+  nodes.forEach(n => {
+    if (n.created_at) {
+      const dt = n.created_at.substring(0, 10);
+      dateCounts[dt] = (dateCounts[dt] || 0) + 1;
+    }
+  });
+
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(today.getDate() - 370); // 371 days ago to fill the 53 weeks x 7 days grid perfectly
+
+  for (let i = 0; i < 371; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const dateStr = d.toISOString().substring(0, 10);
+    const count = dateCounts[dateStr] || 0;
+
+    // Determine level
+    let level = 0;
+    if (count === 1) level = 1;
+    else if (count === 2) level = 2;
+    else if (count === 3) level = 3;
+    else if (count >= 4) level = 4;
+
+    const cell = document.createElement('div');
+    cell.className = `heatmap-cell level-${level}`;
+    cell.dataset.date = dateStr;
+
+    // Formatted date string for tooltip
+    const options = { day: 'numeric', month: 'short', year: 'numeric' };
+    const formattedDate = d.toLocaleDateString('ru-RU', options);
+    cell.title = `${formattedDate}: ${count} док.`;
+
+    cell.addEventListener('click', () => {
+      toggleHeatmapDate(dateStr, cell);
+    });
+
+    grid.appendChild(cell);
+  }
+}
+
+function toggleHeatmapDate(dateStr, cell) {
+  const cells = document.querySelectorAll('.heatmap-cell');
+  const filterMsg = document.getElementById('filter-status-msg');
+
+  if (activeHeatmapDate === dateStr) {
+    activeHeatmapDate = null;
+    cell.style.outline = 'none';
+    if (filterMsg) filterMsg.style.display = 'none';
+    toast('Фильтр по дню сброшен', 'info');
+  } else {
+    activeHeatmapDate = dateStr;
+    cells.forEach(c => c.style.outline = 'none');
+    cell.style.outline = '2px solid var(--accent)';
+    if (filterMsg) {
+      filterMsg.textContent = `Выбран день: ${dateStr}`;
+      filterMsg.style.display = 'block';
+    }
+    toast(`Фильтр по дню: ${dateStr}`, 'ok');
+  }
+  applyFilters();
+  renderTimeline();
+}
+
+function resetDateFilters() {
+  document.getElementById('filter-from-date').value = '';
+  document.getElementById('filter-to-date').value = '';
+
+  activeHeatmapDate = null;
+  const cells = document.querySelectorAll('.heatmap-cell');
+  cells.forEach(c => c.style.outline = 'none');
+
+  const filterMsg = document.getElementById('filter-status-msg');
+  if (filterMsg) filterMsg.style.display = 'none';
+
+  applyFilters();
+  renderTimeline();
+  toast('Фильтры дат сброшены', 'info');
+}
+
+function applyDateFiltersBtn() {
+  activeHeatmapDate = null;
+  const cells = document.querySelectorAll('.heatmap-cell');
+  cells.forEach(c => c.style.outline = 'none');
+
+  const filterMsg = document.getElementById('filter-status-msg');
+  if (filterMsg) filterMsg.style.display = 'none';
+
+  applyFilters();
+  renderTimeline();
+
+  const fromDate = document.getElementById('filter-from-date').value;
+  const toDate = document.getElementById('filter-to-date').value;
+  toast(`Фильтр применен: c ${fromDate || '...'} по ${toDate || '...'}`, 'ok');
+}
+
+function renderTimeline() {
+  const list = document.getElementById('timeline-list');
+  if (!list || !allNodes) return;
+
+  // Get all documents/notes/books from allNodes DataSet
+  const docs = allNodes.get({
+    filter: function(item) {
+      return ['paper', 'note', 'book'].includes(item.group);
+    }
+  });
+
+  // Sort by created_at descending
+  docs.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
+  // Filter by dates
+  const fromDate = document.getElementById('filter-from-date')?.value || '';
+  const toDate = document.getElementById('filter-to-date')?.value || '';
+
+  const filteredDocs = docs.filter(n => {
+    if (!n.created_at) return false;
+    const docDate = n.created_at.substring(0, 10);
+    if (activeHeatmapDate) {
+      return docDate === activeHeatmapDate;
+    }
+    if (fromDate && docDate < fromDate) return false;
+    if (toDate && docDate > toDate) return false;
+    return true;
+  });
+
+  if (filteredDocs.length === 0) {
+    list.innerHTML = `<div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;">В выбранном диапазоне нет документов</div>`;
+    return;
+  }
+
+  const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+
+  list.innerHTML = filteredDocs.map(d => {
+    const dateStr = d.created_at ? d.created_at.substring(0, 16).replace('T', ' ') : '—';
+    const label = d.label || d.id;
+    return `
+      <div class="details-card" style="margin-bottom:8px;padding:12px;cursor:pointer;border-color:var(--border2);" onclick="selectSearchResult('${esc(d.id)}')">
+        <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:4px;">
+          <span>${typeIcon[d.group] || '📄'}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text);line-height:1.4;">${esc(label)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);text-align:right;">
+          <span>${dateStr}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    FILE UPLOAD
    ═══════════════════════════════════════════════════════════════════════════ */
 const dropZone = document.getElementById('drop-zone');
@@ -1083,8 +1559,8 @@ async function uploadFile(file) {
     log(`✅ Успешно проиндексировано: ID = ${d.id}`, 'ok');
     toast(`✅ ${file.name} добавлен в базу знаний`, 'ok');
 
-    // Refresh graph & stats
-    setTimeout(() => { loadGraph(); loadStats(); }, 800);
+    // Refresh graph & stats & notes
+    setTimeout(() => { loadGraph(); loadStats(); loadNotes(); }, 800);
 
   } catch (e) {
     log(`❌ Ошибка: ${e.message}`, 'err');
@@ -1098,7 +1574,7 @@ async function uploadFile(file) {
    INIT
    ═══════════════════════════════════════════════════════════════════════════ */
 (async () => {
-  await Promise.all([loadStats(), loadGraph()]);
+  await Promise.all([loadStats(), loadGraph(), loadNotes()]);
 })();
 </script>
 </body>

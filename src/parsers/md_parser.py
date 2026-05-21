@@ -83,6 +83,25 @@ def parse_markdown(file_path: str) -> Tuple[Paper, List[str], str]:
     paragraphs = [p.strip() for p in re.split(r'\n\n+', body) if p.strip()]
     abstract = paragraphs[0][:800] if paragraphs else ""
 
+    import datetime
+    created_at = None
+    for field_name in ["created_at", "created", "date"]:
+        val = meta.get(field_name)
+        if val:
+            if isinstance(val, (datetime.date, datetime.datetime)):
+                created_at = val.isoformat()
+            else:
+                created_at = str(val).strip()
+            break
+            
+    if not created_at:
+        try:
+            stat = path.stat()
+            t = getattr(stat, 'st_birthtime', stat.st_mtime)
+            created_at = datetime.datetime.fromtimestamp(t).isoformat()
+        except Exception:
+            created_at = datetime.datetime.now().isoformat()
+
     paper = Paper(
         id=paper_id,
         title=title,
@@ -91,6 +110,7 @@ def parse_markdown(file_path: str) -> Tuple[Paper, List[str], str]:
         doi=None,
         abstract=abstract,
         file_path=file_path,
+        created_at=created_at,
         properties={
             "source_type": "note",
             "tags": all_tags,

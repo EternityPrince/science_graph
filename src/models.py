@@ -10,6 +10,7 @@ class Paper:
     doi: Optional[str] = None
     abstract: Optional[str] = None
     file_path: Optional[str] = None
+    created_at: Optional[str] = None
     properties: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass

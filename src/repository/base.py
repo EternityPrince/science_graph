@@ -14,6 +14,11 @@ class GraphRepository(ABC):
         pass
 
     @abstractmethod
+    def find_paper_by_title(self, title: str) -> Optional[Paper]:
+        """Finds a paper or note by its exact or case-insensitive title."""
+        pass
+
+    @abstractmethod
     def save_author(self, author: Author) -> None:
         """Saves an author node to the database."""
         pass
@@ -49,6 +54,11 @@ class GraphRepository(ABC):
     @abstractmethod
     def get_stats(self) -> Dict[str, int]:
         """Returns statistical numbers of nodes and edges."""
+        pass
+
+    @abstractmethod
+    def cleanup_orphaned_concepts(self) -> int:
+        """Deletes Concept nodes with degree 0 and returns the number of deleted nodes."""
         pass
 
 

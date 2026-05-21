@@ -99,6 +99,30 @@ async def root():
     return FileResponse(str(index_file))
 
 
+@app.get("/vis-network.min.js", include_in_schema=False)
+async def get_vis_network():
+    vis_file = _WEB_DIR / "vis-network.min.js"
+    if vis_file.exists():
+        return FileResponse(str(vis_file))
+    raise HTTPException(status_code=404, detail="vis-network.min.js not found.")
+
+
+@app.get("/favicon.png", include_in_schema=False)
+async def get_favicon():
+    fav_file = _WEB_DIR / "favicon.png"
+    if fav_file.exists():
+        return FileResponse(str(fav_file))
+    raise HTTPException(status_code=404, detail="favicon.png not found.")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def get_favicon_ico():
+    fav_file = _WEB_DIR / "favicon.png"
+    if fav_file.exists():
+        return FileResponse(str(fav_file))
+    raise HTTPException(status_code=404, detail="favicon.ico not found.")
+
+
 # ── /api/stats ────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
@@ -166,6 +190,8 @@ async def get_graph():
             "size": size,
             "group": group,
             "shape": "dot",
+            "created_at": props.get("created_at"),
+            "source_type": source_type,
         })
 
     vis_edges = []
@@ -226,6 +252,9 @@ async def get_paper(paper_id: str):
         "concepts": concepts,
         "citations": citations[:10],
         "cited_by": cited_by[:10],
+        "file_path": paper.file_path,
+        "summary": paper.properties.get("summary"),
+        "created_at": paper.created_at,
     })
 
 
@@ -383,6 +412,117 @@ async def query_rag(body: dict):
         yield {"data": json.dumps({"type": "done"})}
 
     return EventSourceResponse(event_stream())
+
+
+# ── /api/open-file ─────────────────────────────────────────────────────────────
+
+@app.post("/api/open-file")
+async def open_file(body: dict):
+    file_path = body.get("file_path")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file_path field is required")
+    
+    import subprocess
+    import sys
+    
+    expanded = os.path.expanduser(file_path)
+    if not os.path.exists(expanded):
+        expanded = str(Path(file_path).resolve())
+        if not os.path.exists(expanded):
+            raise HTTPException(status_code=404, detail=f"File not found on host: {file_path}")
+            
+    try:
+        if sys.platform == "win32":
+            os.startfile(expanded)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", expanded])
+        else:
+            subprocess.run(["xdg-open", expanded])
+        return {"status": "ok", "message": f"Opened {file_path}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── /api/notes ────────────────────────────────────────────────────────────────
+
+@app.get("/api/notes")
+async def get_notes():
+    gr, _ = _get_repos()
+    conn = sqlite3.connect(gr.db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT id, properties FROM nodes WHERE label='Paper'").fetchall()
+    conn.close()
+    
+    notes = []
+    for r in rows:
+        props = json.loads(r["properties"] or "{}")
+        if props.get("source_type") == "note":
+            notes.append({
+                "id": r["id"],
+                "title": props.get("title", r["id"]),
+                "created_at": props.get("created_at"),
+                "authors": props.get("authors", []),
+                "summary": props.get("summary"),
+                "abstract": props.get("abstract")
+            })
+            
+    notes.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return JSONResponse(notes)
+
+
+@app.post("/api/notes")
+async def create_note(body: dict):
+    title = body.get("title")
+    content = body.get("content")
+    authors = body.get("authors") or []
+    tags = body.get("tags") or []
+    
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="title and content are required")
+        
+    import datetime
+    import yaml
+    
+    notes_dir = Path(config.data_dir) / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Format file name
+    import re
+    def _safe_filename(text: str) -> str:
+        text = text.lower().strip()
+        text = re.sub(r'[^a-z0-9\s-]', '', text)
+        return re.sub(r'[\s-]+', '_', text)
+        
+    filename = f"{_safe_filename(title)}.md"
+    note_path = notes_dir / filename
+    
+    yaml_front = {
+        "title": title,
+        "created_at": datetime.datetime.now().isoformat(),
+    }
+    if authors:
+        yaml_front["authors"] = authors
+    if tags:
+        yaml_front["tags"] = tags
+        
+    frontmatter_str = yaml.dump(yaml_front, allow_unicode=True).strip()
+    full_md = f"---\n{frontmatter_str}\n---\n\n{content}"
+    
+    note_path.write_text(full_md, encoding="utf-8")
+    
+    # Index note
+    try:
+        gr, vr = _get_repos()
+        emb = _get_embedding_engine()
+        llm = _get_llm_engine()
+        indexer = Indexer(gr, vr, emb, llm)
+        
+        loop = asyncio.get_event_loop()
+        paper_id = await loop.run_in_executor(None, indexer.index_markdown, str(note_path))
+        
+        return JSONResponse({"status": "ok", "id": paper_id, "file_path": str(note_path)})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── /api/upload ───────────────────────────────────────────────────────────────
