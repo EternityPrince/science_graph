@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 import spacy
+import spacy.cli
 from src.models import slugify
 from src.llm_schemas import LLMExtractionResponse, LLMConcept
 
@@ -42,21 +43,75 @@ DEFAULT_ALIASES: Dict[str, str] = {
 }
 
 _nlp: Optional[spacy.language.Language] = None
+_spacy_attempted: bool = False
 
 
 def get_spacy_nlp() -> Optional[spacy.language.Language]:
     """Lazy loaded spaCy model tokenizer & parser."""
-    global _nlp
-    if _nlp is None:
-        from src.config import config
-        model_name = config.spacy_model_name
-        try:
-            _nlp = spacy.load(model_name)
-        except OSError:
-            logger.warning(
-                f"spaCy model '{model_name}' is not installed. "
+    global _nlp, _spacy_attempted
+    if _nlp is not None:
+        return _nlp
+    if _spacy_attempted:
+        return None
+
+    _spacy_attempted = True
+    import os
+    import sys
+    from src.config import config
+    model_name = config.spacy_model_name
+    try:
+        _nlp = spacy.load(model_name)
+    except OSError as e:
+        is_path = os.path.sep in model_name or os.path.exists(model_name)
+        if is_path:
+            from src import console as con
+            con.warning(
+                f"spaCy model path '{model_name}' could not be loaded: {e}. "
                 "Lemmatization will fall back to original text."
             )
+            logger.warning(
+                f"spaCy model path '{model_name}' could not be loaded: {e}. "
+                "Lemmatization will fall back to original text."
+            )
+        else:
+            try:
+                from src import console as con
+                con.model_msg(f"spaCy model '{model_name}' is not installed. Attempting to download...")
+                
+                # Set environment variables to support uv and system Python environments
+                # when running outside of a virtual environment.
+                in_virtual_env = (sys.prefix != sys.base_prefix) or ("VIRTUAL_ENV" in os.environ)
+                env_backup = {}
+                if not in_virtual_env:
+                    for var in ["UV_SYSTEM_PYTHON", "PIP_BREAK_SYSTEM_PACKAGES"]:
+                        if var in os.environ:
+                            env_backup[var] = os.environ[var]
+                    os.environ["UV_SYSTEM_PYTHON"] = "true"
+                    os.environ["PIP_BREAK_SYSTEM_PACKAGES"] = "true"
+                
+                try:
+                    spacy.cli.download(model_name)
+                finally:
+                    # Restore original environment
+                    if not in_virtual_env:
+                        for var in ["UV_SYSTEM_PYTHON", "PIP_BREAK_SYSTEM_PACKAGES"]:
+                            if var in env_backup:
+                                os.environ[var] = env_backup[var]
+                            else:
+                                os.environ.pop(var, None)
+                                
+                _nlp = spacy.load(model_name)
+                con.success(f"spaCy model '{model_name}' downloaded and loaded successfully.")
+            except Exception as ex:
+                from src import console as con
+                con.warning(
+                    f"spaCy model '{model_name}' is not installed and auto-download failed ({ex}). "
+                    "Lemmatization will fall back to original text."
+                )
+                logger.warning(
+                    f"spaCy model '{model_name}' is not installed and auto-download failed ({ex}). "
+                    "Lemmatization will fall back to original text."
+                )
     return _nlp
 
 
@@ -149,6 +204,22 @@ class NormalizationPipeline:
         """
         return self._title_case(name.strip())
 
+    def normalize_description(self, description: str) -> str:
+        """
+        Sanitizes the description by stripping any thinking/reasoning tags and text before/within them.
+        """
+        if not description:
+            return ""
+        import re
+        desc = description.strip()
+        # Find closing think/thought tags
+        match = re.search(r'(</think>|</thought>)', desc, re.IGNORECASE)
+        if match:
+            desc = desc[match.end():].strip()
+        # Strip any remaining tags
+        desc = re.sub(r'</?(think|thought)>', '', desc, flags=re.IGNORECASE).strip()
+        return desc
+
     def normalize_extraction_response(self, response: LLMExtractionResponse) -> LLMExtractionResponse:
         """
         Intercepts an LLMExtractionResponse Pydantic model and returns a new
@@ -177,7 +248,7 @@ class NormalizationPipeline:
                 normalized_concepts.append(
                     LLMConcept(
                         name=norm_name,
-                        description=concept.description
+                        description=self.normalize_description(concept.description)
                     )
                 )
 

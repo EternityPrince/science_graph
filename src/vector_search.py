@@ -7,18 +7,23 @@ from src.models import Chunk
 class EmbeddingEngine:
     def __init__(self, model_name: str = None):
         self.model_name = model_name or config.embedding_model_name
-        from src import console as con
-        short = self.model_name.split("/")[-1]
-        con.model_msg(f"Loading embeddings [bold]{short}[/bold] …")
-        with con.suppress_stderr(), con.suppress_stdout():
-            import torch
-            from sentence_transformers import SentenceTransformer
-            device = "mps" if torch.backends.mps.is_available() else "cpu"
-            self.model = SentenceTransformer(self.model_name, device=device)
-        con.success(f"Embeddings ready: [bold]{short}[/bold] on {device.upper()}")
+        self.model = None
+
+    def _ensure_model_loaded(self):
+        if self.model is None:
+            from src import console as con
+            short = self.model_name.split("/")[-1]
+            con.model_msg(f"Loading embeddings [bold]{short}[/bold] …")
+            with con.suppress_stderr(), con.suppress_stdout():
+                import torch
+                from sentence_transformers import SentenceTransformer
+                device = "mps" if torch.backends.mps.is_available() else "cpu"
+                self.model = SentenceTransformer(self.model_name, device=device)
+            con.success(f"Embeddings ready: [bold]{short}[/bold] on {device.upper()}")
 
     def get_embedding(self, text: str) -> List[float]:
         """Generates embedding for a single text string."""
+        self._ensure_model_loaded()
         emb = self.model.encode(text, convert_to_numpy=True, show_progress_bar=False)
         return emb.tolist()
 
@@ -26,6 +31,7 @@ class EmbeddingEngine:
         """Generates embeddings for a list of text strings."""
         if not texts:
             return []
+        self._ensure_model_loaded()
         embs = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
         return embs.tolist()
 

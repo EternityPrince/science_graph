@@ -1,7 +1,7 @@
 import { fetchStats, openLocalFile, uploadFile, fetchPaperDetails } from './api.js';
 import { toast, log } from './ui.js';
 import { escapeHtml, escapeSingleQuotes } from './utils.js';
-import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters } from './graph.js';
+import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters, getAllNodes } from './graph.js';
 import { loadNotes, saveNewNote, onNoteSaved, parseWikiLinks } from './notes.js';
 import { sendMessage, registerViewSwitcher as registerChatViewSwitcher, askAbout } from './chat.js';
 
@@ -43,6 +43,31 @@ export async function loadStats() {
     const conceptsEl = document.getElementById('stat-concepts');
     if (papersEl) papersEl.textContent = d.papers ?? '—';
     if (conceptsEl) conceptsEl.textContent = d.concepts ?? '—';
+
+    // Bento Stats
+    const bentoPapersEl = document.getElementById('bento-stat-papers');
+    const bentoConceptsEl = document.getElementById('bento-stat-concepts');
+    const bentoNotesEl = document.getElementById('bento-stat-notes');
+    const bentoStorageEl = document.getElementById('bento-stat-storage');
+
+    if (bentoPapersEl) bentoPapersEl.textContent = d.papers ?? '—';
+    if (bentoConceptsEl) bentoConceptsEl.textContent = d.concepts ?? '—';
+
+    try {
+      const notes = await fetchNotes();
+      if (bentoNotesEl) bentoNotesEl.textContent = notes.length;
+    } catch (e) {
+      if (bentoNotesEl) bentoNotesEl.textContent = '—';
+    }
+
+    if (bentoStorageEl) {
+      if (d.storage && d.storage.total_size !== undefined) {
+        const sizeMb = d.storage.total_size / (1024 * 1024);
+        bentoStorageEl.textContent = sizeMb < 0.1 ? '<0.1 MB' : `${sizeMb.toFixed(1)} MB`;
+      } else {
+        bentoStorageEl.textContent = '—';
+      }
+    }
   } catch (e) {
     toast('Ошибка загрузки статистики: ' + e.message, 'err');
   }
@@ -189,6 +214,7 @@ const btnRefresh = document.getElementById('btn-refresh');
 if (btnRefresh) {
   btnRefresh.addEventListener('click', async () => {
     await Promise.all([loadGraph(), loadStats(), loadNotes()]);
+    await updateDashboardLists();
   });
 }
 
@@ -225,6 +251,7 @@ registerGraphViewSwitcher(switchView);
 registerChatViewSwitcher(switchView);
 onNoteSaved(async () => {
   await Promise.all([loadNotes(), loadGraph(), loadStats()]);
+  await updateDashboardLists();
 });
 
 // ── Node Details panel polymorphic rendering ──────────────────────────────────
@@ -464,8 +491,118 @@ window.openLocalFile = async (filePath) => {
   }
 };
 
+// ── Bento Dashboard Populator ────────────────────────────────────────────────
+export async function updateDashboardLists() {
+  const recentDocsList = document.getElementById('bento-recent-docs-list');
+  const recentNotesList = document.getElementById('bento-recent-notes-list');
+  const conceptsList = document.getElementById('bento-concepts-list');
+
+  const nodesDataSet = getAllNodes();
+  if (!nodesDataSet) return;
+
+  const all = nodesDataSet.get();
+
+  // 1. Recent Publications (group === 'paper' or group === 'book')
+  if (recentDocsList) {
+    const docs = all.filter(n => ['paper', 'book'].includes(n.group));
+    docs.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    const topDocs = docs.slice(0, 5);
+
+    if (topDocs.length === 0) {
+      recentDocsList.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:10px;text-align:center;">Нет публикаций</div>`;
+    } else {
+      const typeIcon = { paper: '📄', book: '📚' };
+      recentDocsList.innerHTML = topDocs.map(d => {
+        const title = d.full_title || d.label || d.id;
+        const dateStr = d.created_at ? d.created_at.substring(0, 10) : '—';
+        return `
+          <div class="bento-list-item" onclick="focusAndDetails('${escapeHtml(d.id)}')">
+            <div class="bento-list-item-icon">${typeIcon[d.group] || '📄'}</div>
+            <div class="bento-list-item-content">
+              <div class="bento-list-item-title">${escapeHtml(title)}</div>
+              <div class="bento-list-item-meta">${dateStr}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // 2. Recent Notes (group === 'note')
+  if (recentNotesList) {
+    const notes = all.filter(n => n.group === 'note');
+    notes.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    const topNotes = notes.slice(0, 5);
+
+    if (topNotes.length === 0) {
+      recentNotesList.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:10px;text-align:center;">Нет заметок</div>`;
+    } else {
+      recentNotesList.innerHTML = topNotes.map(d => {
+        const title = d.full_title || d.label || d.id;
+        const dateStr = d.created_at ? d.created_at.substring(0, 10) : '—';
+        return `
+          <div class="bento-list-item" onclick="focusAndDetails('${escapeHtml(d.id)}')">
+            <div class="bento-list-item-icon">📝</div>
+            <div class="bento-list-item-content">
+              <div class="bento-list-item-title">${escapeHtml(title)}</div>
+              <div class="bento-list-item-meta">${dateStr}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // 3. Popular Concepts/Tags (group === 'concept' or group === 'tag')
+  if (conceptsList) {
+    const concepts = all.filter(n => ['concept', 'tag'].includes(n.group));
+    concepts.sort((a, b) => a.label.localeCompare(b.label));
+    const topConcepts = concepts.slice(0, 15);
+
+    if (topConcepts.length === 0) {
+      conceptsList.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:10px;">Нет концептов</div>`;
+    } else {
+      conceptsList.innerHTML = topConcepts.map(c => {
+        const styleStr = c.group === 'tag' ? 'border-color: var(--col-tag); color: var(--col-tag);' : 'border-color: var(--col-concept); color: var(--col-concept);';
+        return `
+          <span class="tag" style="${styleStr} cursor:pointer; margin: 4px;" onclick="focusAndDetails('${escapeHtml(c.id)}')">${escapeHtml(c.label)}</span>
+        `;
+      }).join('');
+    }
+  }
+}
+
+// ── Quick Ask RAG Integration ───────────────────────────────────────────────
+const quickAskInput = document.getElementById('quick-ask-input');
+const btnQuickAsk = document.getElementById('btn-quick-ask');
+
+if (quickAskInput && btnQuickAsk) {
+  const triggerQuickAsk = () => {
+    const q = quickAskInput.value.trim();
+    if (!q) return;
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+      chatInput.value = q;
+      chatInput.style.height = 'auto';
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    }
+    quickAskInput.value = '';
+    switchView('chat');
+    sendMessage();
+  };
+
+  btnQuickAsk.addEventListener('click', triggerQuickAsk);
+  quickAskInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      triggerQuickAsk();
+    }
+  });
+}
+
 // ── Application Bootstrapping ────────────────────────────────────────────────
 (async () => {
-  switchView('graph');
+  switchView('dashboard');
   await Promise.all([loadStats(), loadGraph(), loadNotes()]);
+  await updateDashboardLists();
 })();

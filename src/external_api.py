@@ -53,14 +53,21 @@ def fetch_paper_metadata(
 
     logger.info(f"[*] Querying Semantic Scholar: {url}")
     
+    import os
+    s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY") or os.environ.get("S2_API_KEY")
+    headers = {"User-Agent": "PDF-Graph-Analyzer/1.0 (local; research)"}
+    if s2_api_key:
+        headers["x-api-key"] = s2_api_key
+
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "PDF-Graph-Analyzer/1.0 (local; research)"}
+        headers=headers
     )
     
     max_retries = 3
     backoff = 2
     for attempt in range(max_retries):
+        sleep_time = backoff ** attempt
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 if response.status == 200:
@@ -86,6 +93,16 @@ def fetch_paper_metadata(
                 return None
             elif he.code in (429, 500, 502, 503, 504):
                 logger.warning(f"[!] Semantic Scholar returned HTTP error {he.code} (attempt {attempt + 1}/{max_retries})")
+                if he.code == 429:
+                    retry_after = he.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            sleep_time = int(retry_after)
+                        except ValueError:
+                            sleep_time = backoff ** (attempt + 2)
+                    else:
+                        # Sleep longer for 429
+                        sleep_time = backoff ** (attempt + 2)
             else:
                 logger.warning(f"[!] Semantic Scholar HTTP error {he.code}: {he.reason}")
                 return None
@@ -93,7 +110,7 @@ def fetch_paper_metadata(
             logger.warning(f"[!] Semantic Scholar query failed: {e} (attempt {attempt + 1}/{max_retries})")
         
         if attempt < max_retries - 1:
-            time.sleep(backoff ** attempt)
+            time.sleep(sleep_time)
             
     return None
 

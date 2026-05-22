@@ -395,6 +395,8 @@ class MlxLLMEngine(BaseLLMEngine):
     def __init__(self, model_path: str = None):
         self.model_path = model_path or config.llm_model_path
         self._tokenizer_data = None
+        self.model = None
+        self.tokenizer = None
 
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(
@@ -402,16 +404,23 @@ class MlxLLMEngine(BaseLLMEngine):
                 f"  Run: python3 main.py config  to see configured paths."
             )
 
-        model_name = Path(self.model_path).name
-        con.model_msg(f"Loading MLX LLM [bold]{model_name}[/bold] …")
+    def _ensure_model_loaded(self):
+        if self.model is None:
+            model_name = Path(self.model_path).name
+            con.model_msg(f"Loading MLX LLM [bold]{model_name}[/bold] …")
 
-        from mlx_lm import load
-        with con.suppress_stderr(), con.suppress_stdout():
-            self.model, self.tokenizer = load(self.model_path)
+            from mlx_lm import load
+            with con.suppress_stderr(), con.suppress_stdout():
+                self.model, self.tokenizer = load(self.model_path)
 
-        con.success(f"MLX LLM ready: [bold]{model_name}[/bold]")
+            con.success(f"MLX LLM ready: [bold]{model_name}[/bold]")
+
+    def count_tokens(self, text: str) -> int:
+        self._ensure_model_loaded()
+        return super().count_tokens(text)
 
     def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
+        self._ensure_model_loaded()
         resolved_max_tokens = max_tokens
         if resolved_max_tokens is None:
             if task == "extraction":
@@ -468,6 +477,7 @@ class MlxLLMEngine(BaseLLMEngine):
         temp: float = 0.0,
         max_tokens: Optional[int] = None,
     ) -> str:
+        self._ensure_model_loaded()
         resolved_max_tokens = max_tokens
         if resolved_max_tokens is None:
             resolved_max_tokens = config.llm_max_tokens

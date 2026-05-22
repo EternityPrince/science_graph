@@ -124,6 +124,8 @@ def index(
     trace: bool = typer.Option(False, "--trace", "-t", help="Show detailed execution trace with timing and token count"),
 ):
     """Index PDF papers, Markdown notes (.md), EPUB books, or URLs into the knowledge graph."""
+    if trace:
+        con.SHOW_TIME = True
     graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
     if use_llm and not llm_engine:
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
@@ -1451,5 +1453,115 @@ def reset():
     con.success("Database and environment successfully reset to a pristine state.")
 
 
+@app.command("doctor")
+def doctor(
+    fix: bool = typer.Option(
+        False,
+        "--fix",
+        help="Actually apply changes to sanitize and clean LLM artifacts and formatters",
+    ),
+):
+    """
+    Scan database through the repository layer, detecting and fixing LLM output artifacts,
+    unapplied formatting, and incorrect identifiers due to formatting anomalies.
+    """
+    graph_repo, vector_repo, _, _ = get_services(load_llm=False, load_embeddings=False)
+    
+    from src.services.doctor_service import DoctorService
+    
+    con.info("🩺 Starting Science Graph Database Doctor Diagnostics...")
+    if fix:
+        con.warning("🔧 Running in [bold yellow]FIX[/bold yellow] mode. Anomalies will be corrected in place.")
+    else:
+        con.info("🔍 Running in [bold cyan]CHECK-ONLY[/bold cyan] mode. No writes will be made. Run with [bold]--fix[/bold] to repair.")
+        
+    con.blank()
+    
+    doctor_service = DoctorService(graph_repo, vector_repo)
+    report = doctor_service.run_diagnostics(fix=fix)
+    
+    # 1. Print Stats Table
+    table = Table(
+        title="📊 Diagnostics Scan Statistics",
+        box=box.ROUNDED,
+        border_style="cyan",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("Entity Type", style="bold white", min_width=24)
+    table.add_column("Checked", justify="right", style="bold white")
+    table.add_column("Fixed/Corrected", justify="right", style="bold green")
+    table.add_column("Migrated", justify="right", style="bold yellow")
+    table.add_column("Merged", justify="right", style="bold magenta")
+    
+    stats = report["stats"]
+    table.add_row("Papers", str(stats["papers_checked"]), str(stats["papers_fixed"]), "—", "—")
+    table.add_row("Authors", str(stats["authors_checked"]), str(stats["authors_fixed"]), str(stats["authors_migrated"]), str(stats["authors_merged"]))
+    table.add_row("Concepts / Tags", str(stats["concepts_checked"]), str(stats["concepts_fixed"]), str(stats["concepts_migrated"]), str(stats["concepts_merged"]))
+    table.add_row("Chunks", str(stats["chunks_checked"]), str(stats["chunks_fixed"]), "—", "—")
+    
+    con.console.print(table)
+    con.blank()
+    
+    # 2. Print Detailed Anomalies
+    anomalies = report["anomalies"]
+    total_issues = (
+        len(anomalies["papers"]) +
+        len(anomalies["authors"]) +
+        len(anomalies["concepts"]) +
+        len(anomalies["chunks"])
+    )
+    
+    if total_issues == 0:
+        con.success("🎉 No anomalies found! Database texts are completely sanitized and formatted.")
+        return
+        
+    # Detail Papers
+    if anomalies["papers"]:
+        con.console.print("[bold cyan]📄 Paper Anomalies:[/bold cyan]")
+        for paper in anomalies["papers"]:
+            con.console.print(f"  • [bold]{paper['id']}[/bold]")
+            if paper["old_title"] != paper["new_title"]:
+                con.console.print(f"    - Title: [red]\"{paper['old_title']}\"[/red] -> [green]\"{paper['new_title']}\"[/green]")
+            if paper["old_abstract"] != paper["new_abstract"]:
+                con.console.print("    - Abstract updated")
+            if paper["old_authors"] != paper["new_authors"]:
+                con.console.print(f"    - Authors: [red]{paper['old_authors']}[/red] -> [green]{paper['new_authors']}[/green]")
+        con.blank()
+        
+    # Detail Authors
+    if anomalies["authors"]:
+        con.console.print("[bold magenta]👤 Author Anomalies:[/bold magenta]")
+        for author in anomalies["authors"]:
+            con.console.print(f"  • ID: [bold]{author['id']}[/bold]")
+            con.console.print(f"    - Name: [red]\"{author['old_name']}\"[/red] -> [green]\"{author['new_name']}\"[/green]")
+            con.console.print(f"    - Action: [bold yellow]{author['action']}[/bold yellow]")
+        con.blank()
+        
+    # Detail Concepts
+    if anomalies["concepts"]:
+        con.console.print("[bold yellow]💡 Concept/Tag Anomalies:[/bold yellow]")
+        for concept in anomalies["concepts"]:
+            con.console.print(f"  • ID: [bold]{concept['id']}[/bold]")
+            if concept["old_name"] != concept["new_name"]:
+                con.console.print(f"    - Name: [red]\"{concept['old_name']}\"[/red] -> [green]\"{concept['new_name']}\"[/green]")
+            if concept["old_description"] != concept["new_description"]:
+                con.console.print(f"    - Description: [red]\"{concept['old_description']}\"[/red] -> [green]\"{concept['new_description']}\"[/green]")
+            con.console.print(f"    - Action: [bold yellow]{concept['action']}[/bold yellow]")
+        con.blank()
+        
+    # Detail Chunks
+    if anomalies["chunks"]:
+        con.console.print("[bold blue]🧩 Text Chunk Anomalies:[/bold blue]")
+        con.console.print(f"  • Found [bold]{len(anomalies['chunks'])}[/bold] chunk text content anomalies containing LLM artifacts or spacing issues.")
+        con.blank()
+        
+    if fix:
+        con.success(f"✔️ Successfully corrected [bold]{total_issues}[/bold] anomalies across all tables!")
+    else:
+        con.warning(f"⚠️ Found [bold]{total_issues}[/bold] anomalies. Run with [bold]--fix[/bold] to repair them.")
+
+
 if __name__ == "__main__":
     app()
+

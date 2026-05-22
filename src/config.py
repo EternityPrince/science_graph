@@ -199,7 +199,8 @@ pdf_compression:
 
     @property
     def llm_extraction_input_limit(self) -> int:
-        return self.data["llm"].get("extraction_input_limit", 5000)
+        val = self.data["llm"].get("extraction_input_limit", 5000)
+        return max(val, self.llm_max_tokens)
 
     @property
     def llm_extraction_output_limit(self) -> int:
@@ -207,7 +208,8 @@ pdf_compression:
 
     @property
     def llm_clustering_input_limit(self) -> int:
-        return self.data["llm"].get("clustering_input_limit", 6000)
+        val = self.data["llm"].get("clustering_input_limit", 6000)
+        return max(val, self.llm_max_tokens)
 
     @property
     def llm_clustering_output_limit(self) -> int:
@@ -215,7 +217,8 @@ pdf_compression:
 
     @property
     def llm_synthesis_input_limit(self) -> int:
-        return self.data["llm"].get("synthesis_input_limit", 5000)
+        val = self.data["llm"].get("synthesis_input_limit", 5000)
+        return max(val, self.llm_max_tokens)
 
     @property
     def llm_synthesis_output_limit(self) -> int:

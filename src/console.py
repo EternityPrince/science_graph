@@ -47,45 +47,71 @@ _THEME = Theme(
 console = Console(theme=_THEME, highlight=False)
 err_console = Console(theme=_THEME, highlight=False, stderr=True)
 
+import time
+from datetime import datetime
+
+# Global flag that can be set externally or auto-detected from command-line arguments
+SHOW_TIME: bool = "-t" in sys.argv or "--trace" in sys.argv
+
+# Timing state
+_start_time: float = time.time()
+_last_time: float = time.time()
+
+
+def _get_time_prefix() -> str:
+    """Returns a formatted timestamp and elapsed time prefix if SHOW_TIME is active."""
+    if not SHOW_TIME:
+        return ""
+    global _last_time
+    now = time.time()
+    current_time_str = datetime.now().strftime("%H:%M:%S")
+    delta = now - _last_time
+    _last_time = now
+    return f"[muted][{current_time_str} (+{delta:.2f}s)][/] "
+
+
 # ── Formatters ────────────────────────────────────────────────────────────────
 
 def info(msg: str) -> None:
     """Cyan — progress step."""
-    console.print(f"  [info]→[/]  {msg}")
+    console.print(f"{_get_time_prefix()}  [info]→[/]  {msg}")
 
 
 def success(msg: str) -> None:
     """Green — completed successfully."""
-    console.print(f"  [success]✓[/]  {msg}")
+    console.print(f"{_get_time_prefix()}  [success]✓[/]  {msg}")
 
 
 def warning(msg: str) -> None:
     """Yellow — non-fatal issue."""
-    console.print(f"  [warning]⚠[/]  {msg}")
+    console.print(f"{_get_time_prefix()}  [warning]⚠[/]  {msg}")
 
 
 def error(msg: str) -> None:
     """Red — error, shown on stderr."""
-    err_console.print(f"  [error]✗[/]  {msg}")
+    err_console.print(f"{_get_time_prefix()}  [error]✗[/]  {msg}")
 
 
 def model_msg(msg: str) -> None:
     """Magenta — model / AI activity."""
-    console.print(f"  [model]⚡[/]  {msg}")
+    console.print(f"{_get_time_prefix()}  [model]⚡[/]  {msg}")
 
 
 def search_msg(msg: str) -> None:
     """Blue — search / retrieval."""
-    console.print(f"  [search]🔍[/]  {msg}")
+    console.print(f"{_get_time_prefix()}  [search]🔍[/]  {msg}")
 
 
 def dim(msg: str) -> None:
     """Grey — secondary / verbose."""
-    console.print(f"  [muted]{msg}[/]")
+    console.print(f"{_get_time_prefix()}  [muted]{msg}[/]")
 
 
 def section(title: str) -> None:
     """Horizontal rule with title."""
+    prefix = _get_time_prefix()
+    if prefix:
+        console.print(prefix, end="")
     console.rule(f"[accent] {title} [/accent]")
 
 

@@ -118,41 +118,6 @@ def get_note_service(
 
 app = FastAPI(title="Science Graph", version="0.1.0")
 
-
-@app.on_event("startup")
-async def startup_event():
-    # Pre-trigger loading of embedding engine, LLM engine and reranker in background
-    def preload():
-        try:
-            print("[*] Preloading EmbeddingEngine...")
-            emb = get_embedding_engine()
-        except Exception as e:
-            print(f"[!] Preloading EmbeddingEngine failed: {e}")
-            emb = None
-
-        try:
-            print("[*] Preloading LLMEngine...")
-            llm = get_llm_engine()
-        except Exception as e:
-            print(f"[!] Preloading LLMEngine failed: {e}")
-            llm = None
-
-        try:
-            print("[*] Preloading Reranker...")
-            if emb and llm:
-                graph_repo = get_graph_repo()
-                vector_repo = get_vector_repo()
-                rag = RAGService(graph_repo, vector_repo, emb, llm)
-                rag._get_reranker()
-                # Store globally to cache for subsequent API calls
-                global _rag_service_inst
-                _rag_service_inst = rag
-                print("[+] RAG preloading complete.")
-        except Exception as e:
-            print(f"[!] Preloading Reranker failed: {e}")
-
-    asyncio.create_task(asyncio.to_thread(preload))
-
 # Serve static files (frontend/ directory next to this file)
 _WEB_DIR = Path(__file__).parent / "frontend"
 
@@ -226,28 +191,28 @@ async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
         if label == "Paper":
             title = props.get("title", node_id)
             display = title if len(title) < 28 else title[:25] + "…"
-            color_map = {"note": "#f03e3e", "book": "#7950f2", "paper": "#4c6ef5"}
-            color = color_map.get(source_type, "#4c6ef5")
+            color_map = {"note": "#a5b4fc", "book": "#818cf8", "paper": "#6366f1"}
+            color = color_map.get(source_type, "#6366f1")
             size = 25
             group = source_type
         elif label == "Author":
             display = props.get("name", node_id)
-            color = "#fab005"
+            color = "#cbd5e1"
             size = 18
             group = "author"
         elif label == "Concept":
             display = props.get("name", node_id)
             if props.get("is_tag"):
-                color = "#e64980"
+                color = "#ec4899"
                 size = 15
                 group = "tag"
             else:
-                color = "#12b886"
+                color = "#10b981"
                 size = 16
                 group = "concept"
         else:
             display = node_id
-            color = "#868e96"
+            color = "#475569"
             size = 14
             group = "other"
 
@@ -277,8 +242,8 @@ async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
             "to": target_id,
             "label": edge_type,
             "arrows": "to",
-            "font": {"size": 8, "align": "top"},
-            "color": {"color": "#adb5bd", "highlight": "#74c0fc"},
+            "font": {"size": 8, "align": "top", "color": "#94a3b8"},
+            "color": {"color": "rgba(255, 255, 255, 0.15)", "highlight": "#6366f1"},
         })
 
     return {"nodes": vis_nodes, "edges": vis_edges}

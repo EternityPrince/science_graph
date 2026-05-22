@@ -105,45 +105,90 @@ class TestPipelineRefactoring(unittest.TestCase):
     # ── 4. Normalization Pipeline Tests ───────────────────────────────────────
     def test_normalization_pipeline(self):
         """Verify lemmatization, alias lookup, casing, and tag/author normalization."""
-        pipeline = NormalizationPipeline(aliases={"ml": "Machine Learning", "cnn": "Convolutional Neural Network"})
+        import src.services.normalization_pipeline as norm_module
+        orig_nlp = norm_module._nlp
+        orig_attempted = norm_module._spacy_attempted
+        norm_module._nlp = None
+        norm_module._spacy_attempted = False
+        try:
+            pipeline = NormalizationPipeline(aliases={"ml": "Machine Learning", "cnn": "Convolutional Neural Network"})
+            
+            # Concept name normalization
+            # 1. Alias lookup & title casing
+            self.assertEqual(pipeline.normalize_concept_name("ml"), "Machine Learning")
+            
+            # 2. Lemmatization (using spaCy if installed, fallback otherwise)
+            # "Neural Networks" -> "Neural Network"
+            norm_name = pipeline.normalize_concept_name("Neural Networks")
+            self.assertEqual(norm_name, "Neural Network")
+
+            # 3. Hyphen spacing cleanup
+            self.assertEqual(pipeline.normalize_concept_name("self-attention mechanism"), "Self-Attention Mechanism")
+            self.assertEqual(pipeline.normalize_concept_name("convolutional neural-network"), "Convolutional Neural-Network")
+
+            # Tag normalization: should Title Case tags to match taxonomy/aliases
+            self.assertEqual(pipeline.normalize_tag("cnn"), "Convolutional Neural Network")
+            self.assertEqual(pipeline.normalize_tag("deep learning"), "Deep Learning")
+
+            # Author normalization: capitalize first letters, strip whitespace
+            self.assertEqual(pipeline.normalize_author_name("  john doe  "), "John Doe")
+            self.assertEqual(pipeline.normalize_author_name("alice smith-jones"), "Alice Smith-Jones")
+
+            # Description normalization (removing LLM thinking/thought tags)
+            raw_desc = "The user wants a definition. </think> Actual definition here."
+            self.assertEqual(pipeline.normalize_description(raw_desc), "Actual definition here.")
+            
+            raw_desc2 = "<think> some thinking </think>Another definition."
+            self.assertEqual(pipeline.normalize_description(raw_desc2), "Another definition.")
+            
+            raw_desc3 = "<thought> thinking </thought> Definition with thought."
+            self.assertEqual(pipeline.normalize_description(raw_desc3), "Definition with thought.")
+
+            # Extraction response validation
+            resp = LLMExtractionResponse(
+                authors=["john doe", "JOHN DOE", "Jane Doe"],
+                concepts=[
+                    LLMConcept(name="Neural Networks", description="Short desc"),
+                    LLMConcept(name="neural network", description="Longer description here")
+                ],
+                tags=["cnn", "CNN", "deep learning"]
+            )
+            norm_resp = pipeline.normalize_extraction_response(resp)
+            self.assertEqual(norm_resp.authors, ["John Doe", "Jane Doe"])
+            # Concepts deduplicated by slug, keeping first seen
+            self.assertEqual(len(norm_resp.concepts), 1)
+            self.assertEqual(norm_resp.concepts[0].name, "Neural Network")
+            # Tags deduplicated by slug
+            self.assertEqual(norm_resp.tags, ["Convolutional Neural Network", "Deep Learning"])
+        finally:
+            norm_module._nlp = orig_nlp
+            norm_module._spacy_attempted = orig_attempted
+
+    @patch("spacy.load")
+    @patch("spacy.cli.download")
+    def test_spacy_load_fallback_download(self, mock_download, mock_load):
+        from src.services.normalization_pipeline import get_spacy_nlp
+        import src.services.normalization_pipeline as norm_module
         
-        # Concept name normalization
-        # 1. Alias lookup & title casing
-        self.assertEqual(pipeline.normalize_concept_name("ml"), "Machine Learning")
+        # Save original value and reset
+        orig_nlp = norm_module._nlp
+        orig_attempted = norm_module._spacy_attempted
+        norm_module._nlp = None
+        norm_module._spacy_attempted = False
         
-        # 2. Lemmatization (using spaCy if installed, fallback otherwise)
-        # "Neural Networks" -> "Neural Network"
-        norm_name = pipeline.normalize_concept_name("Neural Networks")
-        self.assertEqual(norm_name, "Neural Network")
-
-        # 3. Hyphen spacing cleanup
-        self.assertEqual(pipeline.normalize_concept_name("self-attention mechanism"), "Self-Attention Mechanism")
-        self.assertEqual(pipeline.normalize_concept_name("convolutional neural-network"), "Convolutional Neural-Network")
-
-        # Tag normalization: should Title Case tags to match taxonomy/aliases
-        self.assertEqual(pipeline.normalize_tag("cnn"), "Convolutional Neural Network")
-        self.assertEqual(pipeline.normalize_tag("deep learning"), "Deep Learning")
-
-        # Author normalization: capitalize first letters, strip whitespace
-        self.assertEqual(pipeline.normalize_author_name("  john doe  "), "John Doe")
-        self.assertEqual(pipeline.normalize_author_name("alice smith-jones"), "Alice Smith-Jones")
-
-        # Extraction response validation
-        resp = LLMExtractionResponse(
-            authors=["john doe", "JOHN DOE", "Jane Doe"],
-            concepts=[
-                LLMConcept(name="Neural Networks", description="Short desc"),
-                LLMConcept(name="neural network", description="Longer description here")
-            ],
-            tags=["cnn", "CNN", "deep learning"]
-        )
-        norm_resp = pipeline.normalize_extraction_response(resp)
-        self.assertEqual(norm_resp.authors, ["John Doe", "Jane Doe"])
-        # Concepts deduplicated by slug, keeping first seen
-        self.assertEqual(len(norm_resp.concepts), 1)
-        self.assertEqual(norm_resp.concepts[0].name, "Neural Network")
-        # Tags deduplicated by slug
-        self.assertEqual(norm_resp.tags, ["Convolutional Neural Network", "Deep Learning"])
+        try:
+            # Setup mock_load to fail on first attempt, succeed on second attempt
+            mock_nlp = MagicMock()
+            mock_load.side_effect = [OSError("Model not found"), mock_nlp]
+            
+            nlp = get_spacy_nlp()
+            
+            self.assertEqual(nlp, mock_nlp)
+            mock_download.assert_called_once_with("en_core_web_sm")
+            self.assertEqual(mock_load.call_count, 2)
+        finally:
+            norm_module._nlp = orig_nlp
+            norm_module._spacy_attempted = orig_attempted
 
     # ── 5. Token Management & Semantic Splitting ──────────────────────────────
     def test_semantic_splitting(self):

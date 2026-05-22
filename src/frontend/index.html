@@ -35,10 +35,11 @@
 
   <!-- Navigation Bar -->
   <nav class="header-nav">
-    <button class="nav-btn active" data-view="graph">🗺️ Граф</button>
+    <button class="nav-btn active" data-view="dashboard">📊 Главная</button>
+    <button class="nav-btn" data-view="graph">🗺️ Граф</button>
     <button class="nav-btn" data-view="chat">💬 Чат</button>
     <button class="nav-btn" data-view="notes">📝 Заметки</button>
-    <button class="nav-btn" data-view="chronology">📅 Хронология</button>
+    <button class="nav-btn" data-view="chronology">⏳ Временная шкала</button>
     <button class="nav-btn" data-view="upload">📤 Загрузка</button>
   </nav>
 
@@ -64,8 +65,92 @@
 <!-- ── Main layout ──────────────────────────────────────────────────────────── -->
 <div id="layout">
 
+  <!-- View: Dashboard -->
+  <div id="view-dashboard" class="main-view active">
+    <div class="dashboard-header">
+      <h1>Science Graph</h1>
+      <p>Персональная база научных знаний и связей на основе локального искусственного интеллекта</p>
+    </div>
+
+    <div class="bento-grid">
+      <!-- Card 1: Stats -->
+      <div class="bento-card bento-stats">
+        <h3>📊 Статистика базы</h3>
+        <div class="stats-bento-grid">
+          <div class="stat-bento-item">
+            <span class="stat-bento-num" id="bento-stat-papers">—</span>
+            <span class="stat-bento-label">Статей</span>
+          </div>
+          <div class="stat-bento-item">
+            <span class="stat-bento-num" id="bento-stat-concepts">—</span>
+            <span class="stat-bento-label">Концептов</span>
+          </div>
+          <div class="stat-bento-item">
+            <span class="stat-bento-num" id="bento-stat-notes">—</span>
+            <span class="stat-bento-label">Заметок</span>
+          </div>
+          <div class="stat-bento-item">
+            <span class="stat-bento-num" id="bento-stat-storage">—</span>
+            <span class="stat-bento-label">Размер</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Quick RAG Chat -->
+      <div class="bento-card bento-ask">
+        <h3>🤖 Быстрый вопрос к ИИ</h3>
+        <div class="quick-ask-wrap">
+          <p style="font-size: 13px; color: var(--text2); margin-bottom: 8px;">Спросите локального ассистента о ваших проиндексированных материалах:</p>
+          <div class="quick-ask-input-wrap">
+            <input type="text" id="quick-ask-input" placeholder="Например: Какая архитектура используется в Transformer?" autocomplete="off" />
+            <button class="btn btn-primary" id="btn-quick-ask">Спросить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Activity Heatmap -->
+      <div class="bento-card bento-heatmap">
+        <h3>📅 Календарь активности</h3>
+        <div class="heatmap-grid" id="dashboard-heatmap-grid"></div>
+        <div class="heatmap-legend">
+          <span>Меньше</span>
+          <div class="legend-cell level-0"></div>
+          <div class="legend-cell level-1"></div>
+          <div class="legend-cell level-2"></div>
+          <div class="legend-cell level-3"></div>
+          <div class="legend-cell level-4"></div>
+          <span>Больше</span>
+        </div>
+      </div>
+
+      <!-- Card 4: Recent documents -->
+      <div class="bento-card bento-recent-docs">
+        <h3>📄 Последние публикации</h3>
+        <div class="bento-list" id="bento-recent-docs-list">
+          <div style="font-size:12px;color:var(--text3);padding:10px;text-align:center;">Загрузка публикаций...</div>
+        </div>
+      </div>
+
+      <!-- Card 5: Recent notes -->
+      <div class="bento-card bento-recent-notes">
+        <h3>📝 Недавние заметки</h3>
+        <div class="bento-list" id="bento-recent-notes-list">
+          <div style="font-size:12px;color:var(--text3);padding:10px;text-align:center;">Загрузка заметок...</div>
+        </div>
+      </div>
+
+      <!-- Card 6: Top Concepts -->
+      <div class="bento-card bento-top-concepts">
+        <h3>🧬 Популярные концепты и теги</h3>
+        <div class="top-concepts-flex" id="bento-concepts-list">
+          <div style="font-size:12px;color:var(--text3);padding:10px;">Загрузка концептов...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- View: Graph -->
-  <div id="view-graph" class="main-view active">
+  <div id="view-graph" class="main-view">
     <div id="graph-wrap">
       <div id="graph-loading">
         <div class="spinner"></div>
@@ -97,6 +182,83 @@
         </div>
         <div class="filter-chip active" data-group="tag" id="chip-tag">
           <span class="chip-dot" style="background:var(--col-tag)"></span> Теги
+        </div>
+      </div>
+
+      <!-- Floating Graph Search Box -->
+      <div class="graph-search-container">
+        <div class="graph-search-input-wrap">
+          <span class="graph-search-icon">🔍</span>
+          <input type="text" id="graph-search-input" placeholder="Найти узел на графе..." autocomplete="off" />
+        </div>
+        <div id="graph-search-results" class="graph-search-results"></div>
+      </div>
+
+      <!-- Settings panel toggle button -->
+      <button class="settings-toggle-btn" id="btn-toggle-settings" title="Настройки графа">⚙️</button>
+
+      <!-- Glassmorphic settings panel -->
+      <div id="graph-settings" class="graph-settings-panel">
+        <div class="settings-header">
+          <span>⚙️ Настройки графа</span>
+          <button class="btn-close-settings" id="btn-close-settings">×</button>
+        </div>
+        <div class="settings-body">
+          <!-- Physics Solver -->
+          <div class="settings-group">
+            <label for="physics-solver-select">Метод раскладки</label>
+            <select id="physics-solver-select" class="settings-select">
+              <option value="barnesHut" selected>Barnes-Hut (классический)</option>
+              <option value="forceAtlas2Based">ForceAtlas2 (равномерный)</option>
+            </select>
+          </div>
+
+          <!-- Spacing Slider -->
+          <div class="settings-group">
+            <div class="slider-label-row">
+              <label for="node-spacing-range">Расстояние (сила отталкивания)</label>
+              <span class="slider-value" id="node-spacing-val">-15000</span>
+            </div>
+            <input type="range" id="node-spacing-range" min="-30000" max="-5000" step="1000" value="-15000" />
+          </div>
+
+          <!-- Gravity Slider -->
+          <div class="settings-group">
+            <div class="slider-label-row">
+              <label for="gravity-range">Центральная гравитация</label>
+              <span class="slider-value" id="gravity-val">0.04</span>
+            </div>
+            <input type="range" id="gravity-range" min="0.001" max="0.30" step="0.005" value="0.04" />
+          </div>
+
+          <!-- Edge Length Slider -->
+          <div class="settings-group">
+            <div class="slider-label-row">
+              <label for="edge-length-range">Длина связей</label>
+              <span class="slider-value" id="edge-length-val">260</span>
+            </div>
+            <input type="range" id="edge-length-range" min="100" max="400" step="10" value="260" />
+          </div>
+
+          <!-- Toggle options -->
+          <div class="settings-checkbox-group">
+            <label class="settings-checkbox-label">
+              <input type="checkbox" id="toggle-physics" />
+              <span>Зафиксировать узлы (Freeze)</span>
+            </label>
+          </div>
+
+          <div class="settings-checkbox-group">
+            <label class="settings-checkbox-label">
+              <input type="checkbox" id="toggle-edge-labels" checked />
+              <span>Показывать имена связей</span>
+            </label>
+          </div>
+
+          <!-- Reset Button -->
+          <button class="btn btn-ghost btn-sm" id="btn-reset-layout" style="width: 100%; margin-top: 12px; font-size: 12px;">
+            Сбросить раскладку
+          </button>
         </div>
       </div>
 

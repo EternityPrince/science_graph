@@ -120,7 +120,9 @@ python3 main.py chat
 | `stats` | Show knowledge base statistics |
 | `config` | Show all configuration and model paths |
 | `visualize` | Export an interactive HTML graph with dynamic year/date filtering |
+| `extract-file` | Extract authors, concepts, and tags from a text document and output as JSON |
 | `cleanup` | Remove orphaned Concept nodes with degree 0 |
+| `reset` | Completely reset the database, vector index, and local archives |
 
 
 ### `index` — Indexing documents
@@ -251,21 +253,68 @@ Shows 4 tables:
 Configuration lives at `~/.config/pdf-graph-analyzer/config.yaml`.
 
 ```yaml
-# Database & storage
-db_path: ~/.local/share/pdf-graph-analyzer/graph.db
-archive_dir: ~/.local/share/pdf-graph-analyzer/archive
+# Path to the SQLite database file
+db_path: "~/.local/share/pdf-graph-analyzer/graph.db"
 
-# Local LLM (MLX format — must be on disk)
+# Directory where local archives of websites/PDFs are stored
+archive_dir: "~/.local/share/pdf-graph-analyzer/archive"
+
+# HuggingFace token for downloading gated models/embeddings (optional)
+hf_token: ""
+
+# Large Language Model (LLM) configuration
 llm:
-  model_path: /path/to/your/model      # e.g. gemma-3-text-12b-it-4bit
+  # Provider: 'mlx' (for local Apple Silicon) or 'openai' (for OpenAI / OpenRouter / compatible APIs)
+  provider: "mlx"
+
+  # API key for OpenAI/OpenRouter (only used if provider is 'openai')
+  api_key: ""
+
+  # Base URL for API (only used if provider is 'openai')
+  base_url: ""
+
+  # Local path to MLX model directory or HuggingFace repo ID, or OpenAI model name
+  model_path: "~/models/llm/gemma-3-text-12b-it-4bit"
+
+  # Global default maximum output tokens for LLM response
   max_tokens: 1000
+
+  # Default temperature (0.0 = deterministic, 1.0 = creative)
   temp: 0.1
 
-# Embeddings (sentence-transformers — auto-downloaded on first use)
+  # Task-specific input token limits (used to dynamically truncate inputs to fit context)
+  extraction_input_limit: 5000
+  clustering_input_limit: 6000
+  synthesis_input_limit: 5000
+
+  # Task-specific output token limits (passed to model during generation)
+  extraction_output_limit: 2048
+  clustering_output_limit: 1500
+  synthesis_output_limit: 1500
+
+# Embedding model configuration (used for vector search and indexing)
 embedding:
-  model_name: sentence-transformers/all-MiniLM-L6-v2
+  # HuggingFace model name for sentence embeddings
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
   chunk_size: 1000
   chunk_overlap: 200
+
+# spaCy model configuration (used for lemmatization)
+spacy:
+  # spaCy model name (e.g. "en_core_web_sm") or path
+  model_name: "en_core_web_sm"
+
+# NER model configuration (used for name extraction)
+ner:
+  # NER model name or HuggingFace repo ID or local path
+  model_name: "dslim/bert-base-NER"
+
+# PDF compression settings (used to downsample high-DPI scanned PDFs)
+pdf_compression:
+  enabled: true
+  dpi_threshold: 151
+  dpi_target: 150
+  quality: 75
 ```
 
 ### Recommended MLX models
@@ -303,17 +352,20 @@ uv run pytest -v         # verbose output
 uv run pytest tests/test_repository.py   # specific module
 ```
 
-All 40 tests pass. Test coverage includes:
-- SQLite graph and vector repositories
+All 125 tests pass. Test coverage includes:
+- SQLite graph and vector repositories (creation, deletion, updates)
 - Markdown parser (front-matter parsing, Obsidian-style `[[wikilinks]]` node resolution, fallback filesystem creation dates)
 - URL parser (arXiv ID, DOI, fallback meta tags extraction, local archive copies)
-- Hybrid search (BM25 + dense + reranking)
+- Hybrid search (BM25 + dense + reranking logic)
 - TUI chat session logic and CLI commands
 - TUI `storage` interactions (instant unambiguous digit selection & wait-for-second-digit selection)
 - External API (Semantic Scholar query with exponential retries and arXiv queries)
 - Metadata-only and Full re-indexing pipelines (`reindex meta` and `reindex full`)
 - Concept description resolution (predefined dictionary & LLM fallbacks)
-- Pre-generated summaries at ingestion time
+- Entity extraction service and LLM schema validation
+- LLM limit constraints and input truncation logic
+- Normalization pipeline and concept lemmatization via spaCy
+- PDF compression and resolution downsampling
 - Database cleanup (removal of degree-0 orphaned concepts)
 
 ---
@@ -328,34 +380,59 @@ science-graph/
 │   ├── cli.py                 # Typer CLI commands
 │   ├── console.py             # Rich-based styled output
 │   ├── config.py              # Configuration loading
-│   ├── indexer.py             # PDF/MD/EPUB indexing pipeline
-│   ├── rag.py                 # Hybrid RAG pipeline
-│   ├── llm_engine.py          # Local MLX LLM wrapper
-│   ├── vector_search.py       # Embeddings + BM25
+│   ├── indexer.py             # Ingestion orchestrator
+│   ├── rag.py                 # RAG orchestration helpers
+│   ├── llm_engine.py          # Local MLX LLM & OpenAI API wrapper
+│   ├── llm_schemas.py         # Structured outputs Pydantic models for LLM
+│   ├── ner_engine.py          # NER helper for author names (dslim/bert-base-NER)
+│   ├── schemas.py             # API request/response schemas
+│   ├── vector_search.py       # Embeddings + BM25 & reranking
 │   ├── review_agent.py        # Auto-review agentic pipeline
 │   ├── web_app.py             # FastAPI Web UI backend
-│   ├── web/
-│   │   └── index.html         # SPA Web UI (vis-network + SSE chat)
+│   ├── frontend/              # SPA Web UI assets
+│   │   ├── css/               # Tailwind or Custom CSS files
+│   │   ├── js/                # Javascript for SPA routing & interaction
+│   │   ├── index.html         # Main SPA view (vis-network + SSE chat)
+│   │   └── favicon.png
 │   ├── parsers/
+│   │   ├── base.py            # Abstract parser interface
+│   │   ├── factory.py         # Parser factory
 │   │   ├── md_parser.py       # Obsidian Markdown parser
 │   │   ├── epub_parser.py     # EPUB parser (ebooklib)
 │   │   └── url_parser.py      # Academic URL/arXiv/DOI parser
 │   ├── parser.py              # PDF parser (PyMuPDF)
-│   ├── models.py              # Core data models
+│   ├── models.py              # Core data models & slugification
 │   ├── repository/
 │   │   ├── base.py            # Abstract repository interfaces
 │   │   └── sqlite_impl.py     # SQLite + USearch implementation
+│   ├── services/              # Decoupled business logic
+│   │   ├── extraction_service.py # Entity/relation extraction
+│   │   ├── metadata_enricher.py  # External metadata lookup
+│   │   ├── normalization_pipeline.py # spaCy-based lemmatization & alias resolution
+│   │   ├── note_service.py       # Note ingestion & wikilinks
+│   │   └── rag_service.py        # Dense/sparse/graph hybrid retriever
 │   ├── external_api.py        # Semantic Scholar API client
 │   └── tui.py                 # Rich TUI chat
-└── tests/
+└── tests/                     # 125 automated pytest tests
     ├── test_cleanup.py
     ├── test_cli.py
     ├── test_external_api.py
+    ├── test_extraction_service.py
     ├── test_hybrid_search.py
+    ├── test_indexer_pipeline.py
     ├── test_indexer_wikilinks.py
+    ├── test_llm_limits.py
+    ├── test_llm_validation.py
     ├── test_md_epub_indexer.py
     ├── test_md_parser.py
+    ├── test_metadata_enricher.py
+    ├── test_pdf_compression.py
+    ├── test_pipeline_refactoring.py
+    ├── test_refinements.py
     ├── test_repository.py
+    ├── test_repository_delete.py
+    ├── test_services.py
+    ├── test_taxonomy.py
     ├── test_tui.py
     └── test_url_parser.py
 ```
