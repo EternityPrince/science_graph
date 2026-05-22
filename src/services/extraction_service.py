@@ -140,6 +140,66 @@ class ExtractionService:
 
         return f"A key concept representing '{name}' within the AI/ML literature."
 
+    def is_chunk_relevant(self, chunk_text: str, doc_title: str) -> bool:
+        """
+        Verifies if a specific transcript chunk is relevant/actual to the database.
+        Checks for advertising, sponsor integrations, self-promotion, or generic intro/outro chat.
+        """
+        # 1. Rule-based fast check
+        # Common sponsor names and self-promotion phrases (English and Russian)
+        patterns = [
+            r"\b(sponsor|squarespace|nordvpn|patreon|surfshark|brilliant\.org|expressvpn|audible|skillshare)\b",
+            r"\b(raid shadow legends|athletic greens|hellofresh|ridge wallet|wix\.com|grammarly|honey browser)\b",
+            r"\b(subscribe|bell icon|my channel|like and share|giveaway|promo code|discount link)\b",
+            r"\b(click the link|use my code|curiositystream|nebula)\b",
+            r"\b(спонсор|подпишитесь|поставьте лайк|жмите колокольчик|промокод|ссылка в описании|скидка)\b",
+            r"\b(реклама|интеграция|наш партнер|подписка)\b"
+        ]
+        
+        chunk_lower = chunk_text.lower()
+        matched_rule = False
+        for pattern in patterns:
+            if re.search(pattern, chunk_lower):
+                matched_rule = True
+                break
+        
+        # If no keywords matched, we assume it's relevant (minimizing LLM overhead)
+        if not matched_rule:
+            return True
+            
+        # 2. If it matched a rule, let's ask the LLM to verify (if available) to prevent false positives
+        if not self.llm_engine:
+            # Fallback when LLM is unavailable: filter out chunks matching rule
+            con.warning(f"Chunk matches sponsor/promo rule but LLM is not available for double-check. Skipping chunk: '{chunk_text[:60]}...'")
+            return False
+            
+        try:
+            from src.llm_schemas import LLMVerificationResponse
+            import json
+            
+            prompt = (
+                f"You are a validation assistant for a scientific and technical knowledge database.\n"
+                f"Your task is to analyze the following video transcript chunk (from video: '{doc_title}')\n"
+                f"and decide if it contains relevant educational, informational, or scientific concepts/details,\n"
+                f"or if it is primarily an advertisement, sponsor plug, self-promotion (asking to subscribe, like, support on Patreon),\n"
+                f"or irrelevant filler/intro/outro greetings.\n\n"
+                f"Transcript chunk:\n\"{chunk_text}\"\n\n"
+                f"Return relevant=true if it contains actual content, or relevant=false if it is promotional or filler."
+            )
+            response_raw = self.llm_engine.generate_json(prompt, schema_class=LLMVerificationResponse)
+            response_json = json.loads(response_raw)
+            relevant = response_json.get("relevant", True)
+            reason = response_json.get("reason", "")
+            if not relevant:
+                con.warning(f"Skipping chunk (verified irrelevant by LLM: {reason}): '{chunk_text[:60]}...'")
+                return False
+        except Exception as e:
+            # In case LLM fails, act defensively: accept the chunk to avoid losing data
+            con.warning(f"Error during LLM verification of chunk: {e}. Accepting chunk defensively.")
+            return True
+            
+        return True
+
     def generate_summary(
         self,
         paper: Paper,
@@ -161,6 +221,60 @@ class ExtractionService:
         """
         if not self.llm_engine:
             return None
+
+        # Check if this is a video
+        source_type = paper.properties.get("source_type", "paper")
+        if source_type == "video":
+            con.dim(f"Generating structured summary for video [bold]{paper.title[:60]}[/bold] via LLM …")
+            try:
+                from src.llm_schemas import LLMVideoSummaryResponse
+                import json
+                
+                sample_text = full_text[:6000] if full_text else ""
+                prompt = (
+                    f"Analyze the following video transcription text.\n"
+                    f"Generate a detailed structured summary containing:\n"
+                    f"1. A high-level overview/summary of the video (2-3 paragraphs).\n"
+                    f"2. A list of key themes or topics discussed, with brief explanations.\n"
+                    f"3. A detailed outline/notes structure of the video (chronological or logical breakdown).\n\n"
+                    f"Video Title: {paper.title or paper.id}\n\n"
+                    f"Transcript Content:\n{sample_text}\n"
+                )
+                if trace_info is not None:
+                    tokens_dict = trace_info.setdefault("tokens", {})
+                    tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
+                
+                summary_raw = self.llm_engine.generate_json(prompt, schema_class=LLMVideoSummaryResponse)
+                summary_json = json.loads(summary_raw)
+                
+                overview = summary_json.get("overview", "")
+                themes = summary_json.get("themes", [])
+                outline = summary_json.get("outline", [])
+                
+                paper.properties["video_overview"] = overview
+                paper.properties["video_themes"] = themes
+                paper.properties["video_outline"] = outline
+                
+                # Also compile a fallback markdown summary in case a generic UI requests it
+                markdown_summary = f"## 🎥 Обзор ролика\n\n{overview}\n\n"
+                if themes:
+                    markdown_summary += "## 🧠 Основные темы\n\n"
+                    for theme in themes:
+                        markdown_summary += f"- {theme}\n"
+                    markdown_summary += "\n"
+                if outline:
+                    markdown_summary += "## 📝 Подробный конспект\n\n"
+                    for outline_item in outline:
+                        markdown_summary += f"- {outline_item}\n"
+                
+                paper.properties["summary"] = markdown_summary
+                
+                if graph_repo is not None:
+                    graph_repo.save_paper(paper)
+                con.success(f"Structured video summary generated for {(paper.title or paper.id)[:50]}")
+                return markdown_summary
+            except Exception as e:
+                con.warning(f"Failed to generate structured video summary: {e}. Falling back to standard summary.")
 
         con.dim(f"Generating summary for [bold]{paper.title[:60]}[/bold] via LLM …")
         try:

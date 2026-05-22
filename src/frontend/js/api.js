@@ -107,3 +107,19 @@ export async function postQuery(question, limit = 5) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r;
 }
+
+/**
+ * Ingests a URL (webpage or YouTube).
+ */
+export async function indexUrl(url) {
+  const r = await fetch(`${API_BASE}/api/index-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  if (!r.ok) {
+    const d = await r.json();
+    throw new Error(d.detail || 'Не удалось проиндексировать URL');
+  }
+  return r.json();
+}

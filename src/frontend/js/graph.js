@@ -6,7 +6,7 @@ let network = null;
 let allNodes = null;
 let allEdges = null;
 
-export const activeFilters = new Set(['paper', 'note', 'book', 'author', 'concept', 'tag']);
+export const activeFilters = new Set(['paper', 'note', 'book', 'video', 'webpage', 'author', 'concept', 'tag']);
 export let activeHeatmapDate = null;
 
 let onNodeClickCallback = null;
@@ -186,7 +186,7 @@ export function applyFilters() {
   const updates = all.map(n => {
     let isVisible = activeFilters.has(n.group);
 
-    if (isVisible && n.created_at && ['paper', 'note', 'book'].includes(n.group)) {
+    if (isVisible && n.created_at && ['paper', 'note', 'book', 'video', 'webpage'].includes(n.group)) {
       const docDate = n.created_at.substring(0, 10); // YYYY-MM-DD
       if (activeHeatmapDate) {
         if (docDate !== activeHeatmapDate) {
@@ -388,7 +388,7 @@ export function renderTimeline() {
 
   const docs = allNodes.get({
     filter: function(item) {
-      return ['paper', 'note', 'book'].includes(item.group);
+      return ['paper', 'note', 'book', 'video', 'webpage'].includes(item.group);
     }
   });
 
@@ -414,7 +414,7 @@ export function renderTimeline() {
     return;
   }
 
-  const typeIcon = { paper: '📄', note: '📝', book: '📚' };
+  const typeIcon = { paper: '📄', note: '📝', book: '📚', video: '🎥', webpage: '🌐' };
 
   list.innerHTML = filteredDocs.map(d => {
     const dateStr = d.created_at ? d.created_at.substring(0, 16).replace('T', ' ') : '—';
@@ -692,7 +692,7 @@ function setupGraphControls() {
       if (matching.length === 0) {
         searchResults.innerHTML = `<div style="padding: 8px 12px; font-size: 12px; color: var(--text3);">Ничего не найдено</div>`;
       } else {
-        const typeIcon = { paper: '📄', note: '📝', book: '📚', author: '👤', concept: '🧠', tag: '🏷️' };
+        const typeIcon = { paper: '📄', note: '📝', book: '📚', video: '🎥', webpage: '🌐', author: '👤', concept: '🧠', tag: '🏷️' };
         searchResults.innerHTML = matching.slice(0, 10).map(item => `
           <div class="graph-search-result-item" data-id="${escapeHtml(item.id)}">
             <span>${typeIcon[item.group] || '📌'}</span>

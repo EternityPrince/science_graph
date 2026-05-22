@@ -1,2 +1,0 @@
-text = re.sub(r".*?", "", text, flags=re.DOTALL)  # Remove closed think blocks
-text = re.sub(r".*", "", text, flags=re.DOTALL)  # Remove unclosed think blocks

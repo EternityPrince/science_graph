@@ -3,6 +3,7 @@ from src.parsers.pdf_parser import PDFParser
 from src.parsers.md_parser import MarkdownParser
 from src.parsers.url_parser import UrlParser
 from src.parsers.epub_parser import EPUBParser
+from src.parsers.youtube_parser import YoutubeVideoParser
 
 class ParserFactory:
     @staticmethod
@@ -12,6 +13,8 @@ class ParserFactory:
         """
         source_lower = source.lower().strip()
         if source_lower.startswith("http://") or source_lower.startswith("https://"):
+            if "youtube.com" in source_lower or "youtu.be" in source_lower:
+                return YoutubeVideoParser()
             return UrlParser()
         elif source_lower.endswith(".pdf"):
             return PDFParser()

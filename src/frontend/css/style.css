@@ -26,6 +26,8 @@
       --col-paper:   #6366f1;
       --col-note:    #a5b4fc;
       --col-book:    #818cf8;
+      --col-video:   #f43f5e;
+      --col-webpage: #06b6d4;
       --col-author:  #cbd5e1;
       --col-concept: #10b981;
       --col-tag:     #ec4899;
@@ -557,6 +559,8 @@
     .badge-paper  { background: rgba(92,124,250,0.2);  color: var(--col-paper); }
     .badge-note   { background: rgba(240,62,62,0.2);   color: var(--col-note); }
     .badge-book   { background: rgba(121,80,242,0.2);  color: var(--col-book); }
+    .badge-video  { background: rgba(244,63,94,0.2);   color: var(--col-video); }
+    .badge-webpage{ background: rgba(6,182,212,0.2);   color: var(--col-webpage); }
     .badge-author { background: rgba(250,176,5,0.2);   color: var(--col-author); }
     .badge-concept{ background: rgba(18,184,134,0.2);  color: var(--col-concept); }
     .badge-tag    { background: rgba(230,73,128,0.2);   color: var(--col-tag); }
@@ -762,24 +766,27 @@
       grid-template-columns: repeat(12, 1fr);
       gap: 24px;
       width: 100%;
-      max-width: 1300px;
+      max-width: 100%;
     }
 
     .bento-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(20, 21, 28, 0.7) 0%, rgba(10, 11, 16, 0.5) 100%);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: var(--radius);
       padding: 20px;
       display: flex;
       flex-direction: column;
-      transition: border-color var(--transition), box-shadow var(--transition);
+      transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
       position: relative;
       overflow: hidden;
     }
 
     .bento-card:hover {
-      border-color: var(--border2);
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+      border-color: rgba(99, 102, 241, 0.4);
+      box-shadow: 0 8px 32px rgba(99, 102, 241, 0.08);
+      transform: translateY(-2px);
     }
 
     .bento-card h3 {
@@ -803,13 +810,13 @@
       grid-column: span 12;
     }
     .bento-recent-docs {
-      grid-column: span 6;
+      grid-column: span 4;
     }
     .bento-recent-notes {
-      grid-column: span 6;
+      grid-column: span 4;
     }
     .bento-top-concepts {
-      grid-column: span 12;
+      grid-column: span 4;
     }
 
     /* Stats inside bento-stats */
@@ -1217,3 +1224,67 @@
       cursor: pointer;
     }
 
+    /* ── Sidebar tabs styling ────────────────────────────────────────────────── */
+    .sidebar-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+      flex-shrink: 0;
+    }
+    .sidebar-tab-btn {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text2);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 10px 4px;
+      cursor: pointer;
+      text-align: center;
+      transition: all var(--transition);
+    }
+    .sidebar-tab-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .sidebar-tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: rgba(99, 102, 241, 0.04);
+    }
+    .sidebar-tab-content {
+      padding: 16px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .sidebar-tab-content.active {
+      display: flex;
+    }
+    
+    /* Video outline list & themes list */
+    .video-outline-item, .video-theme-item {
+      padding: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    
+    .video-transcript-box {
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+    }

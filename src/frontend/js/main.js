@@ -1,4 +1,4 @@
-import { fetchStats, openLocalFile, uploadFile, fetchPaperDetails } from './api.js';
+import { fetchStats, openLocalFile, uploadFile, fetchPaperDetails, fetchNotes, indexUrl } from './api.js';
 import { toast, log } from './ui.js';
 import { escapeHtml, escapeSingleQuotes } from './utils.js';
 import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters, getAllNodes } from './graph.js';
@@ -182,6 +182,7 @@ async function handleUpload(file) {
       await loadGraph();
       await loadStats();
       await loadNotes();
+      await updateDashboardLists();
     }, 800);
 
   } catch (e) {
@@ -190,6 +191,55 @@ async function handleUpload(file) {
   }
 
   if (fileInput) fileInput.value = '';
+}
+
+// ── URL Ingestion ─────────────────────────────────────────────────────────────
+const urlIngestInput = document.getElementById('url-ingest-input');
+const btnUrlIngest = document.getElementById('btn-url-ingest');
+const urlIngestLog = document.getElementById('url-ingest-log');
+
+async function handleUrlIngest() {
+  if (!urlIngestInput) return;
+  const url = urlIngestInput.value.trim();
+  if (!url) return;
+
+  if (urlIngestLog) {
+    urlIngestLog.innerHTML = `<span class="log-info">⏳ Индексируем ссылку...</span>`;
+  }
+  toast(`Индексируем URL: ${url}`, 'info');
+
+  try {
+    const res = await indexUrl(url);
+
+    if (urlIngestLog) {
+      urlIngestLog.innerHTML = `<span class="log-ok">✅ Успешно проиндексировано: ${escapeHtml(res.title || url)}</span>`;
+    }
+    toast(`✅ Ссылка успешно добавлена в базу`, 'ok');
+
+    urlIngestInput.value = '';
+
+    setTimeout(async () => {
+      await loadGraph();
+      await loadStats();
+      await loadNotes();
+      await updateDashboardLists();
+    }, 800);
+  } catch (e) {
+    if (urlIngestLog) {
+      urlIngestLog.innerHTML = `<span class="log-err">❌ Ошибка: ${escapeHtml(e.message)}</span>`;
+    }
+    toast(`Ошибка индексирования URL: ${e.message}`, 'err');
+  }
+}
+
+if (btnUrlIngest && urlIngestInput) {
+  btnUrlIngest.addEventListener('click', handleUrlIngest);
+  urlIngestInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleUrlIngest();
+    }
+  });
 }
 
 // ── Filter Chips ─────────────────────────────────────────────────────────────
@@ -395,9 +445,128 @@ function renderDetails(panel, d) {
     return;
   }
 
+  // ── Render Video node with Tabs ──
+  if (d.source_type === 'video') {
+    const props = d.properties || {};
+    const uploader = props.uploader || (d.authors && d.authors[0]) || 'Неизвестный автор';
+    const duration = props.duration ? `${Math.floor(props.duration / 60)} мин ${props.duration % 60} сек` : '';
+    const publishDate = props.publish_date ? props.publish_date.substring(0, 10) : '';
+
+    html = `
+      <div class="details-card">
+        <h3>
+          <span class="details-badge badge-video">Видео</span>
+          ${escapeHtml(d.title)}
+        </h3>
+        <div class="details-row" style="margin-top: 10px;">
+          ${uploader ? `<div class="details-field"><div class="details-label">Автор</div><div class="details-value">${escapeHtml(uploader)}</div></div>` : ''}
+          ${publishDate ? `<div class="details-field"><div class="details-label">Дата</div><div class="details-value">${publishDate}</div></div>` : ''}
+          ${duration ? `<div class="details-field"><div class="details-label">Длительность</div><div class="details-value">${duration}</div></div>` : ''}
+          ${props.url ? `<div class="details-field"><div class="details-label">Ссылка</div><div class="details-value"><a href="${escapeHtml(props.url)}" target="_blank">Открыть YouTube ↗</a></div></div>` : ''}
+        </div>
+      </div>`;
+
+    if (props.video_overview || props.video_themes || props.video_outline || props.transcript) {
+      const overviewHtml = props.video_overview ? `<p style="font-size: 13px; color: var(--text2); line-height: 1.6;">${escapeHtml(props.video_overview).replace(/\n/g, '<br>')}</p>` : '<p style="color:var(--text3)">Нет обзора</p>';
+      
+      let themesHtml = '';
+      if (props.video_themes && Array.isArray(props.video_themes) && props.video_themes.length) {
+        themesHtml = props.video_themes.map(t => `<div class="video-theme-item">${parseWikiLinks(escapeHtml(t))}</div>`).join('');
+      } else {
+        themesHtml = '<div style="color:var(--text3); font-size:12px;">Нет тем</div>';
+      }
+
+      let outlineHtml = '';
+      if (props.video_outline && Array.isArray(props.video_outline) && props.video_outline.length) {
+        outlineHtml = props.video_outline.map(o => `<div class="video-outline-item">${parseWikiLinks(escapeHtml(o))}</div>`).join('');
+      } else {
+        outlineHtml = '<div style="color:var(--text3); font-size:12px;">Нет конспекта</div>';
+      }
+
+      const transcriptText = props.transcript || 'Транскрипт отсутствует';
+      
+      html += `
+        <div class="details-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+          <div class="sidebar-tabs">
+            <button class="sidebar-tab-btn active" data-tab="overview">Обзор</button>
+            <button class="sidebar-tab-btn" data-tab="themes">Темы</button>
+            <button class="sidebar-tab-btn" data-tab="outline">Конспект</button>
+            <button class="sidebar-tab-btn" data-tab="transcript">Транскрипт</button>
+          </div>
+          
+          <div class="sidebar-tab-content active" data-tab="overview" style="padding: 16px;">
+            ${overviewHtml}
+          </div>
+          <div class="sidebar-tab-content" data-tab="themes" style="padding: 16px; gap: 8px; display: none;">
+            ${themesHtml}
+          </div>
+          <div class="sidebar-tab-content" data-tab="outline" style="padding: 16px; gap: 8px; display: none;">
+            ${outlineHtml}
+          </div>
+          <div class="sidebar-tab-content" data-tab="transcript" style="padding: 16px; display: none;">
+            <div class="video-transcript-box">${escapeHtml(transcriptText)}</div>
+          </div>
+        </div>
+      `;
+    } else if (d.summary) {
+      const parsedMarkdown = marked.parse(d.summary);
+      const sanitizedMarkdown = DOMPurify.sanitize(parsedMarkdown);
+      const processedSummary = parseWikiLinks(sanitizedMarkdown);
+      html += `<div class="details-card">
+        <h3>🎥 Обзор видео</h3>
+        <div style="font-size: 13px; color: var(--text2); line-height: 1.6; margin-top: 10px; max-height: 250px; overflow-y: auto; background: var(--surface3); padding: 10px 12px; border-radius: var(--radius-sm);">
+          ${processedSummary}
+        </div>
+      </div>`;
+    }
+    
+    if (d.concepts && d.concepts.length) {
+      html += `<div class="details-card">
+        <h3>🧠 Концепты</h3>
+        <div class="tag-list" style="margin-top: 10px;">${d.concepts.map(c =>
+          `<span class="tag" onclick="focusAndDetails('${escapeHtml(c.id)}')">${escapeHtml(c.name)}</span>`
+        ).join('')}</div>
+      </div>`;
+    }
+  
+    if (d.tags && d.tags.length) {
+      html += `<div class="details-card">
+        <h3>🏷️ Теги</h3>
+        <div class="tag-list" style="margin-top: 10px;">${d.tags.map(t =>
+          `<span class="tag" style="border-color: var(--col-tag); color: var(--col-tag);" onclick="focusAndDetails('${escapeHtml(t.id)}')">${escapeHtml(t.name)}</span>`
+        ).join('')}</div>
+      </div>`;
+    }
+
+    html += `<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="askAbout('${escapeSingleQuotes(d.title)}')">
+      💬 Спросить об этой работе
+    </button>`;
+
+    panel.innerHTML = html;
+
+    const tabButtons = panel.querySelectorAll('.sidebar-tab-btn');
+    const tabContents = panel.querySelectorAll('.sidebar-tab-content');
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tabName = btn.dataset.tab;
+        tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+        tabContents.forEach(c => {
+          if (c.dataset.tab === tabName) {
+            c.classList.add('active');
+            c.style.display = 'flex';
+          } else {
+            c.classList.remove('active');
+            c.style.display = 'none';
+          }
+        });
+      });
+    });
+    return;
+  }
+
   // ── Render Paper (default document) node ──
-  const typeLabel = { paper: 'Статья', note: 'Заметка', book: 'Книга' }[d.source_type] || 'Документ';
-  const badgeClass = { paper: 'badge-paper', note: 'badge-note', book: 'badge-book' }[d.source_type] || 'badge-paper';
+  const typeLabel = { paper: 'Статья', note: 'Заметка', book: 'Книга', webpage: 'Веб-страница', video: 'Видео' }[d.source_type] || 'Документ';
+  const badgeClass = { paper: 'badge-paper', note: 'badge-note', book: 'badge-book', webpage: 'badge-webpage', video: 'badge-video' }[d.source_type] || 'badge-paper';
 
   html = `
     <div class="details-card">
@@ -502,16 +671,16 @@ export async function updateDashboardLists() {
 
   const all = nodesDataSet.get();
 
-  // 1. Recent Publications (group === 'paper' or group === 'book')
+  // 1. Recent Publications (group === 'paper' or group === 'book' or group === 'video' or group === 'webpage')
   if (recentDocsList) {
-    const docs = all.filter(n => ['paper', 'book'].includes(n.group));
+    const docs = all.filter(n => ['paper', 'book', 'video', 'webpage'].includes(n.group));
     docs.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     const topDocs = docs.slice(0, 5);
 
     if (topDocs.length === 0) {
       recentDocsList.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:10px;text-align:center;">Нет публикаций</div>`;
     } else {
-      const typeIcon = { paper: '📄', book: '📚' };
+      const typeIcon = { paper: '📄', book: '📚', video: '🎥', webpage: '🌐' };
       recentDocsList.innerHTML = topDocs.map(d => {
         const title = d.full_title || d.label || d.id;
         const dateStr = d.created_at ? d.created_at.substring(0, 10) : '—';

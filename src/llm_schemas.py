@@ -176,3 +176,13 @@ def validate_clustering_response(raw_data: dict) -> Tuple[LLMClusteringResponse,
         
     model = LLMClusteringResponse.model_validate(cleaned_dict)
     return model, warnings
+
+class LLMVerificationResponse(BaseModel):
+    relevant: bool = Field(description="True if the chunk text contains relevant educational, informational, or scientific concepts/knowledge for the database. False if it is advertisement, self-promotion, sponsor content/reads, intro/outro chat, or irrelevant filler.")
+    reason: str = Field(description="Brief explanation of why the chunk is relevant or irrelevant.")
+
+class LLMVideoSummaryResponse(BaseModel):
+    overview: str = Field(description="A concise summary/overview of the video (2-3 paragraphs).")
+    themes: List[str] = Field(description="List of key themes or topics discussed in the video, with brief explanations.")
+    outline: List[str] = Field(description="Detailed lecture outline or chronological/structured breakdown of the video's content.")
+

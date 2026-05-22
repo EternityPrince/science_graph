@@ -45,6 +45,8 @@ from src.schemas import (
     UploadResponse,
     NoteCreateResponse,
     OpenFileResponse,
+    UrlIndexRequest,
+    UrlIndexResponse,
 )
 
 # ── Dependency Injection Providers (with caching for performance) ──
@@ -191,7 +193,13 @@ async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
         if label == "Paper":
             title = props.get("title", node_id)
             display = title if len(title) < 28 else title[:25] + "…"
-            color_map = {"note": "#a5b4fc", "book": "#818cf8", "paper": "#6366f1"}
+            color_map = {
+                "note": "#a5b4fc",
+                "book": "#818cf8",
+                "paper": "#6366f1",
+                "video": "#f43f5e",
+                "webpage": "#06b6d4"
+            }
             color = color_map.get(source_type, "#6366f1")
             size = 25
             group = source_type
@@ -357,6 +365,7 @@ async def get_paper(
             "file_path": paper.file_path,
             "summary": paper.properties.get("summary"),
             "created_at": paper.created_at,
+            "properties": paper.properties,
         }
 
     elif label == "Author":
@@ -554,3 +563,32 @@ async def upload_file(
             os.unlink(tmp_path)
         except Exception:
             pass
+
+
+# ── /api/index-url ──
+
+@app.post("/api/index-url", response_model=UrlIndexResponse)
+async def index_url_route(
+    body: UrlIndexRequest,
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo),
+    vector_repo: SQLiteVectorRepository = Depends(get_vector_repo),
+    embedding_engine: EmbeddingEngine = Depends(get_embedding_engine),
+    llm_engine: Optional[LLMEngine] = Depends(get_llm_engine)
+):
+    """Indexes a webpage or YouTube video URL into the knowledge graph."""
+    if llm_engine is None:
+        raise HTTPException(status_code=503, detail="LLM engine is not available for indexing.")
+    try:
+        from src.indexer import Indexer
+        indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
+        
+        # Use asyncio.to_thread since indexing can block on network/model execution
+        paper_id = await asyncio.to_thread(indexer.index_url, body.url)
+        
+        # Fetch the paper details to return the title
+        paper = await asyncio.to_thread(graph_repo.get_paper, paper_id)
+        title = paper.title if paper else body.url
+        
+        return {"status": "ok", "id": paper_id, "title": title}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

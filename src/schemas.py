@@ -119,6 +119,7 @@ class PaperDetailResponse(BaseModel):
     file_path: Optional[str] = None
     summary: Optional[str] = None
     created_at: Optional[str] = None
+    properties: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class PaperBrief(BaseModel):
     id: str
@@ -153,4 +154,15 @@ class NoteCreateResponse(BaseModel):
 class OpenFileResponse(BaseModel):
     status: str
     message: str
+
+
+class UrlIndexRequest(BaseModel):
+    url: str
+
+
+class UrlIndexResponse(BaseModel):
+    status: str
+    id: str
+    title: str
+
 

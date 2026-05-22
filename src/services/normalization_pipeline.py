@@ -60,7 +60,8 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
     from src.config import config
     model_name = config.spacy_model_name
     try:
-        _nlp = spacy.load(model_name)
+        # Disable parser and NER components to make loading and lemmatization much faster
+        _nlp = spacy.load(model_name, disable=["parser", "ner"])
     except OSError as e:
         is_path = os.path.sep in model_name or os.path.exists(model_name)
         if is_path:
@@ -79,29 +80,41 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
                 con.model_msg(f"spaCy model '{model_name}' is not installed. Attempting to download...")
                 
                 # Check if running in a virtual environment
-                in_virtual_env = (sys.prefix != sys.base_prefix) or ("VIRTUAL_ENV" in os.environ)
+                # sys.prefix != sys.base_prefix is the true indicator for the current Python interpreter
+                is_venv = sys.prefix != sys.base_prefix
                 env_backup = {}
-                if not in_virtual_env:
-                    for var in ["UV_SYSTEM_PYTHON", "PIP_BREAK_SYSTEM_PACKAGES"]:
-                        if var in os.environ:
-                            env_backup[var] = os.environ[var]
+                
+                # Backup current values of all relevant environment variables
+                for var in ["VIRTUAL_ENV", "UV_SYSTEM_PYTHON", "PIP_BREAK_SYSTEM_PACKAGES"]:
+                    if var in os.environ:
+                        env_backup[var] = os.environ[var]
+                
+                if is_venv:
+                    # Force VIRTUAL_ENV to match the current python interpreter's virtualenv prefix
+                    os.environ["VIRTUAL_ENV"] = sys.prefix
+                    # Ensure system python flags are NOT set (we want to install to the venv)
+                    os.environ.pop("UV_SYSTEM_PYTHON", None)
+                    os.environ.pop("PIP_BREAK_SYSTEM_PACKAGES", None)
+                else:
+                    # Not in virtualenv, we want to allow installing to the system python if using uv/pip
                     os.environ["UV_SYSTEM_PYTHON"] = "true"
                     os.environ["PIP_BREAK_SYSTEM_PACKAGES"] = "true"
+                    # Remove any leftover VIRTUAL_ENV env var that could confuse uv
+                    os.environ.pop("VIRTUAL_ENV", None)
                 
                 try:
-                    # Always use spacy.cli.download – it uses pip internally,
-                    # which respects the environment variables set above.
+                    # Always use spacy.cli.download – it uses pip or uv internally,
+                    # which respects the environment variables configured above.
                     spacy.cli.download(model_name)
                 finally:
-                    # Restore original environment
-                    if not in_virtual_env:
-                        for var in ["UV_SYSTEM_PYTHON", "PIP_BREAK_SYSTEM_PACKAGES"]:
-                            if var in env_backup:
-                                os.environ[var] = env_backup[var]
-                            else:
-                                os.environ.pop(var, None)
+                    # Restore original environment variables
+                    for var in ["VIRTUAL_ENV", "UV_SYSTEM_PYTHON", "PIP_BREAK_SYSTEM_PACKAGES"]:
+                        if var in env_backup:
+                            os.environ[var] = env_backup[var]
+                        else:
+                            os.environ.pop(var, None)
                                 
-                _nlp = spacy.load(model_name)
+                _nlp = spacy.load(model_name, disable=["parser", "ner"])
                 con.success(f"spaCy model '{model_name}' downloaded and loaded successfully.")
             except Exception as ex:
                 from src import console as con
@@ -213,12 +226,12 @@ class NormalizationPipeline:
             return ""
         import re
         desc = description.strip()
-        # Find first closing think/thought tag and discard everything before it
-        match = re.search(r'|</thought>', desc, re.IGNORECASE)
+        # Find first closing think/thought/reasoning tag and discard everything before it
+        match = re.search(r'</(think|thought|reasoning)>', desc, re.IGNORECASE)
         if match:
             desc = desc[match.end():].strip()
         # Strip any remaining tags
-        desc = re.sub(r'</?(think|thought)>', '', desc, flags=re.IGNORECASE).strip()
+        desc = re.sub(r'</?(think|thought|reasoning)>', '', desc, flags=re.IGNORECASE).strip()
         return desc
 
     def normalize_extraction_response(self, response: LLMExtractionResponse) -> LLMExtractionResponse:

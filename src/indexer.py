@@ -360,6 +360,15 @@ class Indexer:
             else:
                 chunks = _split_text_to_chunks_raw(paper.id, full_text)
 
+            # Filter relevant chunks for video documents
+            if chunks and paper.properties.get("source_type") == "video":
+                con.dim("Filtering video transcript chunks for database relevance...")
+                filtered_chunks = []
+                for chunk in chunks:
+                    if self._extractor.is_chunk_relevant(chunk.text_content, paper.title or paper.id):
+                        filtered_chunks.append(chunk)
+                chunks = filtered_chunks
+
             if chunks:
                 embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
                 for chunk, emb in zip(chunks, embeddings):
