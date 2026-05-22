@@ -24,9 +24,46 @@ class BaseLLMEngine:
             clean = re.sub(r"^```(?:json)?\n?", "", clean)
             clean = re.sub(r"\n?```$", "", clean)
         clean = clean.strip()
+
+        # Find first opening character '{' or '['
+        start_idx = -1
+        open_char = None
+        close_char = None
+        for i, char in enumerate(clean):
+            if char in ('{', '['):
+                start_idx = i
+                open_char = char
+                close_char = '}' if char == '{' else ']'
+                break
+
+        if start_idx != -1:
+            # Trace matching closing character
+            count = 0
+            in_string = False
+            escape = False
+            for i in range(start_idx, len(clean)):
+                char = clean[i]
+                if escape:
+                    escape = False
+                    continue
+                if char == '\\':
+                    escape = True
+                    continue
+                if char == '"':
+                    in_string = not in_string
+                    continue
+                if not in_string:
+                    if char == open_char:
+                        count += 1
+                    elif char == close_char:
+                        count -= 1
+                        if count == 0:
+                            return clean[start_idx:i+1]
+
+        # Fallback to greedy regex search if tracing fails or no opening char found
         match = re.search(r"\{.*\}", clean, re.DOTALL)
         if match:
-            clean = match.group(0)
+            return match.group(0)
         return clean
 
     def _truncate_to_context(self, text: str, max_input_tokens: int) -> str:

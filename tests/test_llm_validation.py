@@ -220,3 +220,37 @@ class TestLLMEngineIntegration(unittest.TestCase):
         self.assertIsNotNone(res)
         self.assertEqual(res, {"Introduction": ["chunk_1", "chunk_2"]})
         mock_con.success.assert_called_with("LLM clustering output validated successfully.")
+
+    def test_clean_json_response_with_trailing_conversational_text(self):
+        """Test that _clean_json_response correctly ignores conversational text and extra braces."""
+        raw_output = (
+            "{\n"
+            "  \"authors\": [],\n"
+            "  \"concepts\": [],\n"
+            "  \"tags\": []\n"
+            "}\n"
+            "Here is the analysis of the domain: Example Domain is a domain {reserved} for use in illustrative examples."
+        )
+        cleaned = self.engine._clean_json_response(raw_output)
+        self.assertEqual(cleaned, "{\n  \"authors\": [],\n  \"concepts\": [],\n  \"tags\": []\n}")
+
+    def test_clean_json_response_with_markdown_blocks(self):
+        """Test that markdown code blocks are cleaned and correctly traced."""
+        raw_output = (
+            "```json\n"
+            "{\n"
+            "  \"authors\": [],\n"
+            "  \"concepts\": [],\n"
+            "  \"tags\": []\n"
+            "}\n"
+            "```\n"
+            "This is some trailing text."
+        )
+        cleaned = self.engine._clean_json_response(raw_output)
+        self.assertEqual(cleaned, "{\n  \"authors\": [],\n  \"concepts\": [],\n  \"tags\": []\n}")
+
+    def test_clean_json_response_array(self):
+        """Test that json arrays are also correctly extracted and traced."""
+        raw_output = "[\"item1\", \"item2\"] with extra text [ignored]"
+        cleaned = self.engine._clean_json_response(raw_output)
+        self.assertEqual(cleaned, "[\"item1\", \"item2\"]")

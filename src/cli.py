@@ -54,10 +54,12 @@ def get_services(load_llm: bool = True, load_embeddings: bool = True):
 @app.command("index")
 def index(
     target: str = typer.Argument(..., help="Path to file, directory, or URL to index"),
-    use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM to extract concepts (slower)"),
+    use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Use LLM to extract concepts (slower)"),
 ):
     """Index PDF papers, Markdown notes (.md), EPUB books, or URLs into the knowledge graph."""
     graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    if use_llm and not llm_engine:
+        con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
     def _index_file(path: Path) -> bool:
@@ -125,6 +127,8 @@ def reindex_meta(
         raise typer.Exit(0)
 
     graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    if use_llm and not llm_engine:
+        con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
     # Find candidate paper IDs
@@ -180,6 +184,8 @@ def reindex_full(
         raise typer.Exit(0)
 
     graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    if use_llm and not llm_engine:
+        con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
     if paper_id:
