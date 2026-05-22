@@ -18,7 +18,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, Optional, List, Union
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, Depends
 from fastapi.responses import FileResponse, JSONResponse
@@ -38,6 +38,13 @@ from src.schemas import (
     OpenFileRequest,
     GraphResponse,
     SearchResponse,
+    StatsResponse,
+    PaperDetailResponse,
+    AuthorDetailResponse,
+    ConceptDetailResponse,
+    UploadResponse,
+    NoteCreateResponse,
+    OpenFileResponse,
 )
 
 # ── Dependency Injection Providers (with caching for performance) ──
@@ -157,7 +164,7 @@ async def get_favicon_ico():
 
 # ── /api/stats ──
 
-@app.get("/api/stats")
+@app.get("/api/stats", response_model=StatsResponse)
 async def get_stats(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)):
     stats = await asyncio.to_thread(graph_repo.get_stats)
     try:
@@ -165,7 +172,7 @@ async def get_stats(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
         stats["storage"] = storage_stats
     except Exception:
         pass
-    return JSONResponse(stats)
+    return stats
 
 
 # ── /api/graph ──
@@ -244,7 +251,7 @@ async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
 
 # ── /api/paper/{id} ──
 
-@app.get("/api/paper/{paper_id:path}")
+@app.get("/api/paper/{paper_id:path}", response_model=Union[PaperDetailResponse, AuthorDetailResponse, ConceptDetailResponse])
 async def get_paper(
     paper_id: str,
     graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
@@ -334,7 +341,7 @@ async def get_paper(
             if (p := cited_by_map.get(pid)) and p.title
         ][:10]
 
-        return JSONResponse({
+        return {
             "type": "paper",
             "id": paper.id,
             "title": paper.title,
@@ -350,7 +357,7 @@ async def get_paper(
             "file_path": paper.file_path,
             "summary": paper.properties.get("summary"),
             "created_at": paper.created_at,
-        })
+        }
 
     elif label == "Author":
         papers_list = await asyncio.to_thread(graph_repo.get_papers_by_author, paper_id)
@@ -362,13 +369,13 @@ async def get_paper(
                 "source_type": p.properties.get("source_type", "paper")
             })
 
-        return JSONResponse({
+        return {
             "type": "author",
             "id": paper_id,
             "name": props.get("name", paper_id),
             "papers": papers,
             "papers_count": len(papers)
-        })
+        }
 
     elif label == "Concept":
         is_tag = props.get("is_tag", False)
@@ -395,14 +402,14 @@ async def get_paper(
                     "name": t_props.get("name", t_id)
                 })
 
-        return JSONResponse({
+        return {
             "type": "tag" if is_tag else "concept",
             "id": paper_id,
             "name": props.get("name", paper_id),
             "description": props.get("description", f"No description available for '{props.get('name', paper_id)}'."),
             "papers": papers,
             "related": related_entities
-        })
+        }
 
 
 # ── /api/search ──
@@ -441,7 +448,7 @@ async def query_rag(
         raise HTTPException(status_code=503, detail="LLM engine is not available.")
 
     async def event_stream() -> AsyncGenerator[dict, None]:
-        async for event in rag_service.stream_rag_response(body.question, body.limit):
+        async for event in rag_service.generate_stream(body.question, body.limit):
             yield {"data": json.dumps(event)}
 
     return EventSourceResponse(event_stream())
@@ -449,7 +456,7 @@ async def query_rag(
 
 # ── /api/open-file ──
 
-@app.post("/api/open-file")
+@app.post("/api/open-file", response_model=OpenFileResponse)
 async def open_file(body: OpenFileRequest):
     file_path = body.file_path
     expanded = os.path.expanduser(file_path)
@@ -484,7 +491,7 @@ async def get_notes(note_service: NoteService = Depends(get_note_service)):
     return notes
 
 
-@app.post("/api/notes")
+@app.post("/api/notes", response_model=NoteCreateResponse)
 async def create_note(
     body: NoteCreate,
     note_service: NoteService = Depends(get_note_service)
@@ -497,14 +504,14 @@ async def create_note(
             body.authors,
             body.tags
         )
-        return JSONResponse({"status": "ok", "id": paper_id, "file_path": note_path})
+        return {"status": "ok", "id": paper_id, "file_path": note_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── /api/upload ──
 
-@app.post("/api/upload")
+@app.post("/api/upload", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
     graph_repo: SQLiteGraphRepository = Depends(get_graph_repo),
@@ -538,7 +545,7 @@ async def upload_file(
                 return indexer.index_epub(tmp_path)
 
         paper_id = await asyncio.to_thread(_index)
-        return JSONResponse({"status": "ok", "id": paper_id, "filename": file.filename})
+        return {"status": "ok", "id": paper_id, "filename": file.filename}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

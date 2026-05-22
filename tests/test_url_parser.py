@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from src.parsers.url_parser import parse_url
+from src.parsers.url_parser import UrlParser
 
 class TestURLParser(unittest.TestCase):
     @patch("src.parsers.url_parser.requests.get")
@@ -30,7 +30,7 @@ class TestURLParser(unittest.TestCase):
         """
         mock_get.return_value = MockResponse(html_content)
 
-        paper, md_content = parse_url("https://habr.com/ru/articles/1037532/")
+        paper, references, md_content = UrlParser().parse("https://habr.com/ru/articles/1037532/")
         
         self.assertEqual(paper.title, "Как я обучил GPT с нуля на русском языке")
         # Should extract "Vladimir Kasterin" and "HabrAuthor"
@@ -60,7 +60,7 @@ class TestURLParser(unittest.TestCase):
         """
         mock_get.return_value = MockResponse(html_content)
 
-        paper, _ = parse_url("https://example.com/blog/1")
+        paper, references, _ = UrlParser().parse("https://example.com/blog/1")
         self.assertIn("Alice_Dev", paper.authors)
         self.assertIn("Bob Link", paper.authors)
 

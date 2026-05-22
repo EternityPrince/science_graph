@@ -1,5 +1,14 @@
+import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+
+def slugify(text: str) -> str:
+    if not text:
+        return ""
+    # Remove HTML or other weird chars, then lowercase and replace spaces/hyphens with underscores
+    text = text.lower().strip()
+    text = re.sub(r'[^\w\s-]', '', text)
+    return re.sub(r'[\s-]+', '_', text).strip('_')
 
 @dataclass
 class Paper:

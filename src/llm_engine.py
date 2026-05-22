@@ -41,7 +41,7 @@ class BaseLLMEngine:
             return text[:max_input_tokens * 4]
 
     def extract_concepts_and_metadata(self, text: str) -> Optional[dict]:
-        """Extracts authors, scientific concepts, and topic tags from text."""
+        """Extracts authors, scientific concepts, and topic tags from text with Pydantic-based validation."""
         max_input = config.llm_extraction_input_limit
         safe_text = self._truncate_to_context(text, max_input)
         prompt = (
@@ -64,14 +64,37 @@ class BaseLLMEngine:
         try:
             response = self.generate_response(prompt, max_tokens=config.llm_extraction_output_limit, temp=0.0, task="extraction")
             clean_resp = self._clean_json_response(response)
-            return json.loads(clean_resp)
+            
+            try:
+                parsed = json.loads(clean_resp)
+            except Exception as json_err:
+                con.warning(f"LLM returned invalid JSON format: {json_err}")
+                return None
+                
+            from src.llm_schemas import validate_extraction_response
+            validated, warnings = validate_extraction_response(parsed)
+            
+            if warnings:
+                con.warning("LLM extraction output validated with warnings:")
+                for w in warnings:
+                    con.warning(f"  - {w}")
+            else:
+                con.success("LLM extraction output validated successfully.")
+                
+            orig_concepts = len(parsed.get("concepts", []))
+            val_concepts = len(validated.concepts)
+            score = val_concepts / orig_concepts if orig_concepts > 0 else 1.0
+            con.info(f"LLM Concept Extraction Quality Score: {val_concepts}/{orig_concepts} ({score:.0%})")
+            
+            return validated.model_dump()
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"LLM concept extraction failed: {e}")
+            con.warning(f"LLM concept extraction validation failed: {e}")
             return None
 
     def cluster_chunks_by_topic(self, chunks_summary: str, topic: str) -> Optional[dict]:
-        """Groups text chunks into thematic sections for the review report."""
+        """Groups text chunks into thematic sections for the review report with Pydantic-based validation."""
         max_input = config.llm_clustering_input_limit
         safe_chunks = self._truncate_to_context(chunks_summary, max_input)
         prompt = (
@@ -88,10 +111,28 @@ class BaseLLMEngine:
         try:
             response = self.generate_response(prompt, max_tokens=config.llm_clustering_output_limit, temp=0.0, task="clustering")
             clean = self._clean_json_response(response)
-            return json.loads(clean)
+            
+            try:
+                parsed = json.loads(clean)
+            except Exception as json_err:
+                con.warning(f"LLM returned invalid JSON format for clustering: {json_err}")
+                return None
+                
+            from src.llm_schemas import validate_clustering_response
+            validated, warnings = validate_clustering_response(parsed)
+            
+            if warnings:
+                con.warning("LLM clustering output validated with warnings:")
+                for w in warnings:
+                    con.warning(f"  - {w}")
+            else:
+                con.success("LLM clustering output validated successfully.")
+                
+            return validated.model_dump()
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"LLM clustering failed: {e}")
+            con.warning(f"LLM clustering validation failed: {e}")
             return None
 
     def synthesize_section(

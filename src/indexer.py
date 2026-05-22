@@ -1,56 +1,30 @@
+"""
+Indexer — Thin Orchestrator for the Ingestion Pipeline.
+
+Workflow for every document type:
+    Parse → Enrich Metadata → Extract Concepts → Chunk & Embed → Save Graph → Archive
+
+Parser-specific logic lives in src/parsers/*.
+Knowledge extraction lives in ExtractionService.
+Metadata enrichment lives in MetadataEnricher.
+All graph writes go through GraphRepository / VectorRepository interfaces.
+No direct sqlite3 access.
+"""
+
 import os
-import shutil
 import re
+import shutil
 from pathlib import Path
-from typing import List, Dict, Any
-from src.models import Paper, Author, Concept, Chunk
-from src.parser import PDFParser
+from typing import Any, Dict, List, Optional, Tuple, Callable
+
+from src.models import Paper, Author, Concept, Chunk, slugify
 from src.vector_search import EmbeddingEngine, split_text_to_chunks
 from src.repository.base import GraphRepository, VectorRepository
+from src.services.extraction_service import ExtractionService, ExtractionResult
+from src.services.metadata_enricher import MetadataEnricher
+from src.parsers.factory import ParserFactory
 from src.config import config
 from src import console as con
-
-
-def compress_and_save_pdf(input_path: str, output_path: str, dpi_threshold: int, dpi_target: int, quality: int) -> None:
-    """
-    Recompresses images in a PDF using PyMuPDF and saves the result to output_path.
-    Guarantees no errors due to threshold <= target.
-    """
-    import fitz
-    import tempfile
-    
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    doc = fitz.open(input_path)
-    actual_threshold = max(dpi_threshold, dpi_target + 1)
-    
-    try:
-        doc.rewrite_images(
-            dpi_threshold=actual_threshold,
-            dpi_target=dpi_target,
-            quality=quality,
-            lossy=True,
-            lossless=True
-        )
-    except Exception as e:
-        con.warning(f"Failed to rewrite images in PDF: {e}")
-        
-    if Path(input_path).resolve() == Path(output_path).resolve():
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp_name = tmp.name
-        try:
-            doc.save(tmp_name, garbage=4, deflate=True)
-            doc.close()
-            shutil.move(tmp_name, output_path)
-        except Exception as e:
-            if os.path.exists(tmp_name):
-                try:
-                    os.remove(tmp_name)
-                except Exception:
-                    pass
-            raise e
-    else:
-        doc.save(output_path, garbage=4, deflate=True)
-        doc.close()
 
 
 def _split_text_to_chunks_raw(
@@ -60,7 +34,6 @@ def _split_text_to_chunks_raw(
     chunk_size = chunk_size or config.chunk_size
     chunk_overlap = chunk_overlap or config.chunk_overlap
 
-    # Split into rough «pages» by double newlines first, then window
     paragraphs = re.split(r'\n{2,}', text)
     chunks: List[Chunk] = []
     chunk_idx = 0
@@ -73,7 +46,6 @@ def _split_text_to_chunks_raw(
             page_num += 1
             continue
         buffer += " " + para_clean
-        # Flush when buffer is large enough
         while len(buffer) >= chunk_size:
             window = buffer[:chunk_size]
             if len(window) > 50:
@@ -86,7 +58,6 @@ def _split_text_to_chunks_raw(
                 chunk_idx += 1
             buffer = buffer[chunk_size - chunk_overlap:]
 
-    # Flush remainder
     remainder = buffer.strip()
     if len(remainder) > 50:
         chunks.append(Chunk(
@@ -98,665 +69,286 @@ def _split_text_to_chunks_raw(
 
     return chunks
 
-# List of key AI concepts to extract from papers
-AI_CONCEPTS = {
-    "transformer": "Transformer Architecture",
-    "self-attention": "Self-Attention",
-    "attention mechanism": "Attention Mechanism",
-    "reinforcement learning": "Reinforcement Learning",
-    "diffusion model": "Diffusion Models",
-    "large language model": "Large Language Models",
-    "llm": "Large Language Models",
-    "fine-tuning": "Fine-Tuning",
-    "lora": "LoRA (Low-Rank Adaptation)",
-    "rag": "Retrieval-Augmented Generation",
-    "retrieval-augmented": "Retrieval-Augmented Generation",
-    "mixture of experts": "Mixture of Experts (MoE)",
-    "moe": "Mixture of Experts (MoE)",
-    "contrastive learning": "Contrastive Learning",
-    "prompt engineering": "Prompt Engineering",
-    "supervised fine-tuning": "Supervised Fine-Tuning",
-    "sft": "Supervised Fine-Tuning",
-    "rlhf": "Reinforcement Learning from Human Feedback (RLHF)",
-    "dpo": "Direct Preference Optimization (DPO)",
-    "quantization": "Model Quantization",
-    "mlx": "MLX Framework",
-    "llama": "LLaMA Models",
-    "gemma": "Gemma Models"
-}
-
-# List of high-level topic tags to extract/classify papers
-AI_TOPICS = {
-    "statistics": "Statistics",
-    "probability": "Probability Theory",
-    "gradient descent": "Gradient Descent",
-    "optimization": "Optimization Methods",
-    "deep learning": "Deep Learning",
-    "machine learning": "Machine Learning",
-    "nlp": "Natural Language Processing",
-    "natural language processing": "Natural Language Processing",
-    "computer vision": "Computer Vision",
-    "reinforcement learning": "Reinforcement Learning",
-    "generative model": "Generative Models",
-    "linear regression": "Linear Regression",
-    "neural network": "Neural Networks",
-    "convex optimization": "Convex Optimization",
-    "bayesian": "Bayesian Methods",
-    "diffusion": "Diffusion Models",
-    "transformer": "Transformers",
-    "llm": "Large Language Models",
-    "large language model": "Large Language Models",
-}
-
-COMMON_CONCEPT_DESCRIPTIONS = {
-    "Transformer Architecture": "A deep learning model architecture based on self-attention mechanisms, widely used in NLP and computer vision.",
-    "Self-Attention": "An attention mechanism relating different positions of a single sequence to compute a representation of the sequence.",
-    "Attention Mechanism": "A technique that mimics cognitive attention, allowing neural networks to focus on specific parts of the input data.",
-    "Reinforcement Learning": "A machine learning paradigm where an agent learns to make decisions by performing actions and receiving rewards.",
-    "Diffusion Models": "A class of generative models that generate data by iteratively removing noise from a random starting point.",
-    "Large Language Models": "Deep learning models trained on vast amounts of text data, capable of understanding and generating human-like text.",
-    "Fine-Tuning": "The process of taking a pre-trained model and further training it on a smaller, domain-specific dataset.",
-    "LoRA (Low-Rank Adaptation)": "A parameter-efficient fine-tuning technique that adapts large models by updating only low-rank matrices.",
-    "Retrieval-Augmented Generation": "A framework that retrieves relevant documents from an external source to improve LLM generation accuracy.",
-    "Mixture of Experts (MoE)": "An ensemble learning technique that uses a gating network to dynamically select specific expert sub-networks for each input.",
-    "Contrastive Learning": "A machine learning approach where a model learns representations by comparing similar and dissimilar samples.",
-    "Prompt Engineering": "The practice of designing and refining input prompts to guide language models toward producing desired outputs.",
-    "Supervised Fine-Tuning": "A form of fine-tuning where the model is trained on labeled task-specific instruction data.",
-    "Reinforcement Learning from Human Feedback (RLHF)": "A technique to align language models with human preferences using reinforcement learning and human feedback.",
-    "Direct Preference Optimization (DPO)": "An algorithm that optimizes language models directly on preference data without training a separate reward model.",
-    "Model Quantization": "The process of reducing the precision of a model's weights to make it smaller and faster with minimal accuracy loss.",
-    "MLX Framework": "An array framework designed for machine learning research on Apple Silicon, developed by Apple.",
-    "LLaMA Models": "A family of open-weights large language models developed by Meta AI.",
-    "Gemma Models": "A family of lightweight open-weights models developed by Google DeepMind.",
-    "Statistics": "The science of collecting, analyzing, presenting, and interpreting data.",
-    "Probability Theory": "The branch of mathematics concerned with analyzing random phenomena and quantifying uncertainty.",
-    "Gradient Descent": "An optimization algorithm used to minimize a loss function by iteratively moving in the direction of steepest descent.",
-    "Optimization Methods": "Mathematical techniques used to find the best alternative or parameter set under given constraints.",
-    "Deep Learning": "A subset of machine learning based on artificial neural networks with multiple layers.",
-    "Machine Learning": "A field of artificial intelligence focused on building systems that learn from data to improve performance.",
-    "Natural Language Processing": "A field of AI focused on the interaction between computers and human language.",
-    "Computer Vision": "A field of AI enabling computers to derive meaningful information from digital images and videos.",
-    "Generative Models": "Models that learn the underlying distribution of a dataset to generate new, similar data samples.",
-    "Linear Regression": "A linear approach for modeling the relationship between a scalar response and one or more explanatory variables.",
-    "Neural Networks": "Computing systems inspired by biological neural networks to recognize patterns and solve complex problems.",
-    "Convex Optimization": "A subfield of mathematical optimization that studies the problem of minimizing convex functions over convex sets.",
-    "Bayesian Methods": "Statistical methods that apply Bayes' theorem to update the probability of a hypothesis as more evidence becomes available.",
-    "Transformers": "Deep learning models based on self-attention, defining the state-of-the-art in modern NLP.",
-}
 
 class Indexer:
-    def __init__(self, graph_repo: GraphRepository, vector_repo: VectorRepository, embedding_engine: EmbeddingEngine, llm_engine: Any = None):
+    def __init__(
+        self,
+        graph_repo: GraphRepository,
+        vector_repo: VectorRepository,
+        embedding_engine: EmbeddingEngine,
+        llm_engine: Any = None,
+    ):
         self.graph_repo = graph_repo
         self.vector_repo = vector_repo
         self.emb_engine = embedding_engine
         self.llm_engine = llm_engine
 
-    def _slugify(self, text: str) -> str:
-        """Converts text to a safe alphanumeric lowercase slug."""
-        text = text.lower().strip()
-        text = re.sub(r'[^a-z0-9\s-]', '', text)
-        return re.sub(r'[\s-]+', '_', text)
-
-    def _get_concept_description(self, name: str) -> str:
-        # Check dictionary (case-insensitive)
-        for k, v in COMMON_CONCEPT_DESCRIPTIONS.items():
-            if k.lower() == name.lower():
-                return v
-        
-        # If not found and LLM is available, generate description
-        if self.llm_engine:
-            try:
-                prompt = f"Provide a brief, one-sentence definition/description of the AI/ML concept or term: '{name}'. Do not write anything else. Keep it under 20 words."
-                desc = self.llm_engine.generate_response(prompt).strip()
-                desc = re.sub(r'^["\']|["\']$', '', desc).strip()
-                if desc:
-                    return desc
-            except Exception:
-                pass
-                
-        return f"A key concept representing '{name}' within the AI/ML literature."
-
-    def _generate_and_save_summary(self, paper: Paper, full_text: str):
-        """Generates LLM summary for a paper if LLM is available, and saves it."""
-        if not self.llm_engine:
-            return
-        
-        con.dim(f"Generating summary for [bold]{paper.title[:60]}[/bold] via LLM …")
-        try:
-            title = paper.title or paper.id
-            abstract = paper.abstract or ""
-            sample_text = full_text[:4000] if full_text else ""
-            
-            prompt = (
-                f"Summarize the following document. Focus on key contributions, methodologies, and findings.\n\n"
-                f"Title: {title}\n"
-                f"Abstract: {abstract}\n\n"
-                f"Content snippet:\n{sample_text}\n\n"
-                f"Provide a concise, professional markdown summary."
-            )
-            summary = self.llm_engine.generate_response(prompt)
-            if summary:
-                paper.properties["summary"] = summary
-                self.graph_repo.save_paper(paper)
-                con.success(f"Summary generated and saved for {title[:50]}")
-        except Exception as e:
-            con.warning(f"Failed to generate summary: {e}")
+        self._extractor = ExtractionService(llm_engine=llm_engine)
+        self._enricher = MetadataEnricher()
 
     def index_pdf(self, file_path: str) -> str:
-        """
-        Runs the complete ingestion pipeline for a single PDF.
-        Returns the paper ID.
-        """
+        """Runs the complete ingestion pipeline for a single PDF. Returns the paper ID."""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
-        # 1. Parse PDF and extract metadata & references
         con.info(f"Parsing [bold]{os.path.basename(file_path)}[/bold]")
-        paper, raw_references, full_text = PDFParser.extract_text_and_metadata(file_path)
-        
-        # 1b. Fetch external metadata from Semantic Scholar API
-        from src.external_api import fetch_paper_metadata
-        con.dim("Fetching metadata from Semantic Scholar …")
-        api_meta = fetch_paper_metadata(doi=paper.doi, title=paper.title)
-        
-        api_references = []
-        api_citations = []
-        
-        if api_meta:
-            if api_meta.get("title"):
-                paper.title = api_meta["title"]
-            if api_meta.get("authors"):
-                paper.authors = api_meta["authors"]
-            if api_meta.get("year"):
-                paper.year = api_meta["year"]
-            if api_meta.get("abstract"):
-                paper.abstract = api_meta["abstract"]
-            if api_meta.get("doi"):
-                paper.doi = api_meta["doi"]
-            api_references = api_meta.get("references", [])
-            api_citations = api_meta.get("citations", [])
-            con.success(f"Metadata enriched from Semantic Scholar: [bold]{paper.title[:60]}[/bold]")
-            
-        # 1c. LLM-based concept/entity extraction
-        llm_authors = []
-        llm_concepts = []
-        llm_tags = []
-        if self.llm_engine:
-            con.dim("Extracting concepts via LLM …")
-            # Combine abstract/introduction
-            sample_text = (paper.title or "") + "\n\n" + (paper.abstract or "") + "\n\n" + full_text[:4000]
-            llm_data = self.llm_engine.extract_concepts_and_metadata(sample_text)
-            if llm_data:
-                llm_authors = llm_data.get("authors", [])
-                llm_concepts = llm_data.get("concepts", [])
-                llm_tags = llm_data.get("tags", [])
-                con.dim(f"LLM found {len(llm_authors)} authors, {len(llm_concepts)} concepts, {len(llm_tags)} tags")
-        
-        # Determine tags
-        tags_to_save = []
-        if llm_tags:
-            tags_to_save = llm_tags
-        else:
-            text_to_scan = (paper.title + " " + (paper.abstract or "") + " " + full_text[:10000]).lower()
-            for keyword, tag_name in AI_TOPICS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    if tag_name not in tags_to_save:
-                        tags_to_save.append(tag_name)
-        paper.properties["tags"] = tags_to_save
+        parser = ParserFactory.get_parser(file_path)
+        paper, raw_references, full_text = parser.parse(file_path)
 
-        # Determine archival path
+        # Determine archive path before enrichment (paper.id is stable)
         archive_dir = Path(config.archive_dir)
         archive_path = archive_dir / f"{paper.id}.pdf"
         archive_path.parent.mkdir(parents=True, exist_ok=True)
         paper.file_path = str(archive_path)
-        
-        # 2. Save Paper Node
-        self.graph_repo.save_paper(paper)
-        
-        # 3. Create Author nodes & AUTHORED edges
-        # Combine: PDF-parsed authors + LLM-parsed authors + NER from first page
-        all_authors_raw = list(paper.authors) + list(llm_authors)
-        
-        # NER on first page as additional fallback when we have very few authors
-        if len(all_authors_raw) < 2:
-            try:
-                from src.ner_engine import extract_persons_from_text
-                import fitz
-                doc = fitz.open(file_path)
-                first_page_text = doc[0].get_text() if len(doc) > 0 else ""
-                doc.close()
-                ner_names = extract_persons_from_text(first_page_text[:2000])
-                all_authors_raw += [n for n in ner_names if 1 < len(n.split()) <= 5]
-            except Exception:
-                pass
-        
-        # Deduplicate (case-insensitive)
-        seen_authors = set()
-        all_authors = []
-        for a in all_authors_raw:
-            key = a.lower().strip()
-            if key and key not in seen_authors:
-                seen_authors.add(key)
-                all_authors.append(a)
-        
-        for author_name in all_authors:
-            author_id = self._slugify(author_name)
-            author = Author(id=author_id, name=author_name)
-            self.graph_repo.save_author(author)
-            self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
-            
-        # 4. Extract concepts and create MENTIONS_CONCEPT edges
-        if llm_concepts:
-            for item in llm_concepts:
-                c_name = item.get("name")
-                c_desc = item.get("description", "") or self._get_concept_description(c_name)
-                if c_name:
-                    concept_id = self._slugify(c_name)
-                    concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-        else:
-            # Fallback to keyword-based concept extraction
-            text_to_scan = (paper.title + " " + (paper.abstract or "") + " " + full_text[:10000]).lower()
-            for keyword, concept_name in AI_CONCEPTS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    concept_id = self._slugify(concept_name)
-                    c_desc = self._get_concept_description(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
 
-        # 4b. Save tag nodes and create HAS_TAG edges
-        for tag in tags_to_save:
-            tag_id = self._slugify(tag)
-            tag_desc = self._get_concept_description(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
-            self.graph_repo.save_concept(concept)
-            self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
+        # NER fallback for author detection (PDF only, run early to populate paper.authors)
+        if len(paper.authors) < 2:
+            paper.authors = self._ner_fallback_authors(paper.authors, file_path)
 
-        # 5. Extract citations and create CITES edges
-        if api_references or api_citations:
-            for ref in api_references:
-                ref_title = ref.get("title")
-                ref_doi = ref.get("doi")
-                ref_id = self._slugify(ref_doi) if ref_doi else self._slugify(ref_title[:120])
-                if ref_id:
-                    exists = self.graph_repo.get_paper(ref_id)
-                    if not exists:
-                        placeholder_paper = Paper(
-                            id=ref_id,
-                            title=ref_title,
-                            authors=[],
-                            year=None,
-                            doi=ref_doi
-                        )
-                        self.graph_repo.save_paper(placeholder_paper)
-                    self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
-                    
-            for cit in api_citations:
-                cit_title = cit.get("title")
-                cit_doi = cit.get("doi")
-                cit_id = self._slugify(cit_doi) if cit_doi else self._slugify(cit_title[:120])
-                if cit_id:
-                    exists = self.graph_repo.get_paper(cit_id)
-                    if not exists:
-                        placeholder_paper = Paper(
-                            id=cit_id,
-                            title=cit_title,
-                            authors=[],
-                            year=None,
-                            doi=cit_doi
-                        )
-                        self.graph_repo.save_paper(placeholder_paper)
-                    self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
-        else:
-            # Fallback to parsed raw references
-            for ref_str in raw_references:
-                ref_clean = ref_str.strip()
-                if len(ref_clean) > 10:
-                    ref_id = self._slugify(ref_clean[:120])
-                    self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"raw_text": ref_clean})
+        def _archive():
+            self._archive_pdf(file_path, archive_path)
 
-        # 6. Chunk text and generate embeddings
-        con.dim(f"Chunking and embedding: {paper.title[:60]}")
-        chunks = split_text_to_chunks(paper.id, file_path)
-        
-        if chunks:
-            chunk_texts = [c.text_content for c in chunks]
-            embeddings = self.emb_engine.get_embeddings(chunk_texts)
-            for chunk, emb in zip(chunks, embeddings):
-                chunk.embedding = emb
-            
-            # Save chunks to vector store
-            self.vector_repo.save_chunks(chunks)
-
-        # 7. Move PDF to Archive
-        if config.pdf_compression_enabled:
-            con.dim(f"Compressing and saving PDF to archive: {archive_path} ...")
-            try:
-                dpi_threshold = config.pdf_compression_dpi_threshold
-                dpi_target = config.pdf_compression_dpi_target
-                quality = config.pdf_compression_quality
-                
-                orig_size = os.path.getsize(file_path)
-                
-                compress_and_save_pdf(
-                    input_path=file_path,
-                    output_path=str(archive_path),
-                    dpi_threshold=dpi_threshold,
-                    dpi_target=dpi_target,
-                    quality=quality
-                )
-                
-                if archive_path.exists():
-                    new_size = archive_path.stat().st_size
-                    ratio = (1 - new_size / orig_size) * 100 if orig_size > 0 else 0
-                    con.success(
-                        f"PDF compressed: {orig_size / 1024 / 1024:.1f} MB -> {new_size / 1024 / 1024:.1f} MB "
-                        f"({ratio:.1f}% saved)"
-                    )
-                
-                if Path(file_path).resolve() != archive_path.resolve():
-                    os.remove(file_path)
-            except Exception as e:
-                con.warning(f"PDF compression failed: {e}. Falling back to standard copy.")
-                if Path(file_path).resolve() != archive_path.resolve():
-                    shutil.copy2(file_path, archive_path)
-                    os.remove(file_path)
-        else:
-            if Path(file_path).resolve() != archive_path.resolve():
-                shutil.copy2(file_path, archive_path)
-                os.remove(file_path)
-                print(f"[+] PDF moved to archive: {archive_path}")
-
-        # Generate summary
-        self._generate_and_save_summary(paper, full_text)
-
-        con.success(f"Indexed [bold]{paper.title[:70]}[/bold] (ID: {paper.id[:12]}…)")
-        return paper.id
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Markdown (Obsidian notes)
-    # ──────────────────────────────────────────────────────────────────────────
+        return self._run_pipeline(
+            paper=paper,
+            full_text=full_text,
+            refs_or_links=raw_references,
+            is_markdown=False,
+            needs_enrichment=True,
+            archive_fn=_archive,
+            source_path=file_path,
+        )
 
     def index_markdown(self, file_path: str) -> str:
-        """
-        Indexes a Markdown note (.md) into the knowledge graph.
-        Returns the note ID.
-        """
-        from src.parsers.md_parser import parse_markdown
-
+        """Indexes a Markdown note (.md) into the knowledge graph. Returns the note ID."""
         con.info(f"Parsing note [bold]{os.path.basename(file_path)}[/bold]")
-        paper, wiki_links, body = parse_markdown(file_path)
+        parser = ParserFactory.get_parser(file_path)
+        paper, wiki_links, body = parser.parse(file_path)
 
-        # Tags from properties → concept nodes
-        tags = paper.properties.get("tags", [])
-        
-        # Fallback keyword-based tag extraction if none in frontmatter
-        if not tags:
-            tags_to_save = []
-            text_to_scan = (paper.title + " " + body[:10000]).lower()
-            for keyword, tag_name in AI_TOPICS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    if tag_name not in tags_to_save:
-                        tags_to_save.append(tag_name)
-            paper.properties["tags"] = tags_to_save
-            tags = tags_to_save
+        return self._run_pipeline(
+            paper=paper,
+            full_text=body,
+            refs_or_links=wiki_links,
+            is_markdown=True,
+            needs_enrichment=False,
+            archive_fn=None,
+            source_path=file_path,
+        )
 
-        # Save note node
-        self.graph_repo.save_paper(paper)
+    def index_epub(self, file_path: str) -> str:
+        """Indexes an EPUB book into the knowledge graph. Returns the book ID."""
+        con.info(f"Parsing EPUB [bold]{os.path.basename(file_path)}[/bold]")
+        parser = ParserFactory.get_parser(file_path)
+        paper, _, full_text = parser.parse(file_path)
 
-        # Author nodes (if front-matter has authors)
-        for author_name in paper.authors:
-            author_id = self._slugify(author_name)
-            author = Author(id=author_id, name=author_name)
-            self.graph_repo.save_author(author)
-            self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
-
-        for tag in tags:
-            concept_id = self._slugify(tag)
-            tag_desc = self._get_concept_description(tag)
-            concept = Concept(id=concept_id, name=tag, properties={"is_tag": True, "description": tag_desc})
-            self.graph_repo.save_concept(concept)
-            self.graph_repo.add_edge(paper.id, concept_id, "HAS_TAG")
-
-        # Wiki-links [[Target]] → paper/note nodes or fallback concept nodes + RELATED_TO edges
-        for link_target in wiki_links:
-            matched_paper = self.graph_repo.find_paper_by_title(link_target)
-            if matched_paper:
-                self.graph_repo.add_edge(paper.id, matched_paper.id, "RELATED_TO")
-            else:
-                concept_id = self._slugify(link_target)
-                c_desc = self._get_concept_description(link_target)
-                concept = Concept(id=concept_id, name=link_target, properties={"description": c_desc})
-                self.graph_repo.save_concept(concept)
-                self.graph_repo.add_edge(paper.id, concept_id, "RELATED_TO")
-
-        # Chunk + embed body text
-        con.dim(f"Chunking note: {paper.title[:60]}")
-        chunks = _split_text_to_chunks_raw(paper.id, body)
-        if chunks:
-            embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
-            for chunk, emb in zip(chunks, embeddings):
-                chunk.embedding = emb
-            self.vector_repo.save_chunks(chunks)
-
-        # Generate summary
-        self._generate_and_save_summary(paper, body)
-
-        con.success(f"Note indexed: [bold]{paper.title[:70]}[/bold]")
-        return paper.id
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Webpages (URLs)
-    # ──────────────────────────────────────────────────────────────────────────
+        return self._run_pipeline(
+            paper=paper,
+            full_text=full_text,
+            refs_or_links=[],
+            is_markdown=False,
+            needs_enrichment=False,
+            archive_fn=None,
+            source_path=file_path,
+        )
 
     def index_url(self, url: str) -> str:
-        """
-        Indexes a webpage URL into the knowledge graph.
-        Returns the page ID.
-        """
-        from src.parsers.url_parser import parse_url
-
+        """Indexes a webpage URL into the knowledge graph. Returns the page ID."""
         con.info(f"Parsing URL [bold]{url}[/bold]")
-        paper, body = parse_url(url)
+        parser = ParserFactory.get_parser(url)
+        paper, web_links, body = parser.parse(url)
 
-        # LLM-based concept & tag extraction if enabled
-        llm_concepts = []
-        llm_tags = []
-        if self.llm_engine:
-            con.dim("Extracting concepts via LLM …")
-            sample_text = (paper.title or "") + "\n\n" + (paper.abstract or "") + "\n\n" + body[:4000]
-            llm_data = self.llm_engine.extract_concepts_and_metadata(sample_text)
-            if llm_data:
-                for a in llm_data.get("authors", []):
-                    if a not in paper.authors:
-                        paper.authors.append(a)
-                llm_concepts = llm_data.get("concepts", [])
-                llm_tags = llm_data.get("tags", [])
-                con.dim(f"LLM found {len(paper.authors)} total authors, {len(llm_concepts)} concepts, {len(llm_tags)} tags")
-
-        # Fallback to keyword tags
-        tags_to_save = []
-        if llm_tags:
-            tags_to_save = llm_tags
-        else:
-            text_to_scan = (paper.title + " " + (paper.abstract or "") + " " + body[:10000]).lower()
-            for keyword, tag_name in AI_TOPICS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    if tag_name not in tags_to_save:
-                        tags_to_save.append(tag_name)
-        paper.properties["tags"] = tags_to_save
-
-        # Determine archival path for webpage
-        from src.config import config
-        from pathlib import Path
+        # Save local archive of the webpage
         archive_dir = Path(config.archive_dir)
         archive_path = archive_dir / f"{paper.id}.md"
         archive_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with open(archive_path, "w", encoding="utf-8") as f:
-                f.write(body)
+            archive_path.write_text(body, encoding="utf-8")
             paper.file_path = str(archive_path)
             con.dim(f"Saved local archive of website to {archive_path}")
         except Exception as e:
             con.warning(f"Could not save local archive of website: {e}")
 
-        # Save webpage node
+        # URL parser already enriches via Semantic Scholar, so no second enrichment
+        return self._run_pipeline(
+            paper=paper,
+            full_text=body,
+            refs_or_links=web_links,
+            is_markdown=True,
+            needs_enrichment=False,
+            archive_fn=None,
+            source_path=None,
+        )
+
+    def _run_pipeline(
+        self,
+        paper: Paper,
+        full_text: str,
+        refs_or_links: List[str],
+        is_markdown: bool,
+        needs_enrichment: bool,
+        archive_fn: Optional[Callable[[], None]],
+        source_path: Optional[str] = None,
+    ) -> str:
+        """
+        Unified ingestion pipeline.
+        """
+        # ── Step 1: Enrich metadata ──
+        api_references: List[Dict] = []
+        api_citations: List[Dict] = []
+        if needs_enrichment:
+            api_meta = self._enricher.enrich(paper)
+            if api_meta:
+                paper, api_references, api_citations = self._enricher.apply(paper, api_meta)
+
+        # ── Step 2: Extract concepts + tags ──
+        extraction: ExtractionResult = self._extractor.extract(
+            title=paper.title or "",
+            abstract=paper.abstract or "",
+            full_text=full_text,
+            use_llm=True,
+        )
+        # Merge any LLM-discovered authors into paper.authors
+        if extraction.authors:
+            existing = {a.lower() for a in paper.authors}
+            for a in extraction.authors:
+                if a.lower() not in existing:
+                    paper.authors.append(a)
+                    existing.add(a.lower())
+
+        # Apply extracted tags to paper properties, merging with existing tags
+        existing_tags = paper.properties.get("tags") or []
+        if extraction.tags:
+            seen_tags = {t.lower().strip() for t in existing_tags}
+            merged_tags = list(existing_tags)
+            for t in extraction.tags:
+                t_clean = t.strip()
+                if t_clean.lower() not in seen_tags:
+                    merged_tags.append(t_clean)
+                    seen_tags.add(t_clean.lower())
+            paper.properties["tags"] = merged_tags
+
+        # ── Step 3: Save Paper node ──
+        # INSERT OR REPLACE → upgrades placeholder if one already existed
         self.graph_repo.save_paper(paper)
 
-        # Create Author nodes and AUTHORED edges
+        # ── Step 4: Save Author nodes + AUTHORED edges ──
         for author_name in paper.authors:
-            author_id = self._slugify(author_name)
+            author_id = slugify(author_name)
             author = Author(id=author_id, name=author_name)
             self.graph_repo.save_author(author)
             self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
 
-        # Save concepts
-        if llm_concepts:
-            for item in llm_concepts:
-                c_name = item.get("name")
-                c_desc = item.get("description", "") or self._get_concept_description(c_name)
-                if c_name:
-                    concept_id = self._slugify(c_name)
-                    concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-        else:
-            # Keyword-based concept extraction
-            text_to_scan = (paper.title + " " + body[:10000]).lower()
-            for keyword, concept_name in AI_CONCEPTS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    concept_id = self._slugify(concept_name)
-                    c_desc = self._get_concept_description(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-
-        # Save tags and create HAS_TAG edges
-        for tag in tags_to_save:
-            tag_id = self._slugify(tag)
-            tag_desc = self._get_concept_description(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
+        # ── Step 5: Concept nodes + MENTIONS_CONCEPT edges ──
+        for item in extraction.concepts:
+            c_name = item.get("name", "").strip()
+            if not c_name:
+                continue
+            c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name)
+            concept_id = slugify(c_name)
+            concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
             self.graph_repo.save_concept(concept)
+            self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+
+        # ── Step 6: Tag nodes + HAS_TAG edges ──
+        for tag in paper.properties.get("tags") or []:
+            tag_id = slugify(tag)
+            if not tag_id:
+                continue
+            tag_desc = self._extractor.get_concept_description(tag)
+            tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
+            self.graph_repo.save_concept(tag_node)
             self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
 
-        # Chunk + embed body text
-        con.dim(f"Chunking webpage: {paper.title[:60]}")
-        chunks = _split_text_to_chunks_raw(paper.id, body)
+        # ── Step 7: Wiki-links (is_markdown=True) or References (is_markdown=False) ──
+        if is_markdown:
+            for link_target in refs_or_links:
+                if link_target.startswith(("http://", "https://")):
+                    clean_target = link_target.replace("https://", "").replace("http://", "").strip("/")
+                    target_id = slugify(clean_target)
+                else:
+                    target_id = slugify(link_target)
+                if not target_id:
+                    continue
+                if not self.graph_repo.get_paper(target_id):
+                    placeholder = Paper(
+                        id=target_id,
+                        title=link_target,
+                        authors=[],
+                        year=None,
+                        doi=None,
+                        properties={"is_placeholder": True}
+                    )
+                    self.graph_repo.save_paper(placeholder)
+                self.graph_repo.add_edge(paper.id, target_id, "RELATED_TO")
+        else:
+            all_refs = api_references if (api_references or api_citations) else []
+            all_cits = api_citations if (api_references or api_citations) else []
+
+            for ref in all_refs:
+                ref_title = ref.get("title")
+                ref_doi = ref.get("doi")
+                ref_id = slugify(ref_doi) if ref_doi else (
+                    slugify(ref_title[:120]) if ref_title else None
+                )
+                if ref_id:
+                    if not self.graph_repo.get_paper(ref_id):
+                        placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
+                        placeholder.properties["is_placeholder"] = True
+                        self.graph_repo.save_paper(placeholder)
+                    self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
+
+            for cit in all_cits:
+                cit_title = cit.get("title")
+                cit_doi = cit.get("doi")
+                cit_id = slugify(cit_doi) if cit_doi else (
+                    slugify(cit_title[:120]) if cit_title else None
+                )
+                if cit_id:
+                    if not self.graph_repo.get_paper(cit_id):
+                        placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
+                        placeholder.properties["is_placeholder"] = True
+                        self.graph_repo.save_paper(placeholder)
+                    self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
+
+            # Fallback: raw text references (PDF parsing fallback, no Semantic Scholar)
+            if not api_references and not api_citations:
+                for ref_str in refs_or_links:
+                    ref_clean = ref_str.strip()
+                    if len(ref_clean) > 10:
+                        ref_id = slugify(ref_clean[:120])
+                        if not self.graph_repo.get_paper(ref_id):
+                            placeholder = Paper(id=ref_id, title=ref_clean[:120], authors=[], year=None, doi=None)
+                            placeholder.properties["is_placeholder"] = True
+                            self.graph_repo.save_paper(placeholder)
+                        self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"raw_text": ref_clean})
+
+        # ── Step 8: Chunk + embed ──
+        con.dim(f"Chunking and embedding: {(paper.title or paper.id)[:60]}")
+        is_pdf = archive_fn is not None and (source_path or paper.file_path) and (source_path or paper.file_path).endswith(".pdf")
+        if is_pdf:
+            # For PDFs, split_text_to_chunks reads the actual file
+            chunks = split_text_to_chunks(paper.id, source_path or paper.file_path)
+        else:
+            chunks = _split_text_to_chunks_raw(paper.id, full_text)
+
         if chunks:
             embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
             for chunk, emb in zip(chunks, embeddings):
                 chunk.embedding = emb
             self.vector_repo.save_chunks(chunks)
 
-        # Generate summary
-        self._generate_and_save_summary(paper, body)
+        # ── Step 9: Archive ──
+        if archive_fn is not None:
+            archive_fn()
 
-        con.success(f"Webpage indexed: [bold]{paper.title[:70]}[/bold]")
-        return paper.id
+        # ── Step 10: Summary ──
+        self._extractor.generate_summary(paper, full_text, graph_repo=self.graph_repo)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # EPUB books
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def index_epub(self, file_path: str) -> str:
-        """
-        Indexes an EPUB book into the knowledge graph.
-        Returns the book ID.
-        """
-        from src.parsers.epub_parser import parse_epub
-
-        con.info(f"Parsing EPUB [bold]{os.path.basename(file_path)}[/bold]")
-        paper, _, full_text = parse_epub(file_path)
-
-        # LLM-based concept & tag extraction if enabled
-        llm_concepts = []
-        llm_tags = []
-        if self.llm_engine:
-            con.dim("Extracting concepts via LLM …")
-            sample_text = (paper.title or "") + "\n\n" + (paper.abstract or "") + "\n\n" + full_text[:4000]
-            llm_data = self.llm_engine.extract_concepts_and_metadata(sample_text)
-            if llm_data:
-                for a in llm_data.get("authors", []):
-                    if a not in paper.authors:
-                        paper.authors.append(a)
-                llm_concepts = llm_data.get("concepts", [])
-                llm_tags = llm_data.get("tags", [])
-                con.dim(f"LLM found {len(paper.authors)} total authors, {len(llm_concepts)} concepts, {len(llm_tags)} tags")
-
-        # Fallback to keyword tags
-        tags_to_save = []
-        if llm_tags:
-            tags_to_save = llm_tags
-        else:
-            text_to_scan = (paper.title + " " + (paper.abstract or "") + " " + full_text[:10000]).lower()
-            for keyword, tag_name in AI_TOPICS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    if tag_name not in tags_to_save:
-                        tags_to_save.append(tag_name)
-        paper.properties["tags"] = tags_to_save
-
-        # Save book node
-        self.graph_repo.save_paper(paper)
-
-        # Author nodes
-        for author_name in paper.authors:
-            author_id = self._slugify(author_name)
-            author = Author(id=author_id, name=author_name)
-            self.graph_repo.save_author(author)
-            self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
-
-        # Save concepts
-        if llm_concepts:
-            for item in llm_concepts:
-                c_name = item.get("name")
-                c_desc = item.get("description", "") or self._get_concept_description(c_name)
-                if c_name:
-                    concept_id = self._slugify(c_name)
-                    concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-        else:
-            # Keyword-based concept extraction (same fallback as PDF)
-            text_to_scan = (paper.title + " " + (paper.abstract or "") + " " + full_text[:10000]).lower()
-            for keyword, concept_name in AI_CONCEPTS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    concept_id = self._slugify(concept_name)
-                    c_desc = self._get_concept_description(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-
-        # Save tags and create HAS_TAG edges
-        for tag in tags_to_save:
-            tag_id = self._slugify(tag)
-            tag_desc = self._get_concept_description(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
-            self.graph_repo.save_concept(concept)
-            self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
-
-        # Chunk + embed
-        con.dim(f"Chunking book: {paper.title[:60]}")
-        chunks = _split_text_to_chunks_raw(paper.id, full_text)
-        if chunks:
-            embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
-            for chunk, emb in zip(chunks, embeddings):
-                chunk.embedding = emb
-            self.vector_repo.save_chunks(chunks)
-
-        # Generate summary
-        self._generate_and_save_summary(paper, full_text)
-
-        con.success(f"Book indexed: [bold]{paper.title[:70]}[/bold] ({len(chunks)} chunks)")
+        con.success(f"Indexed [bold]{(paper.title or paper.id)[:70]}[/bold] (ID: {paper.id[:12]}…)")
         return paper.id
 
     def reindex_metadata(self, paper_id: str, use_llm: bool = False) -> bool:
         """
         Re-indexes metadata for a specific paper without regenerating embeddings.
-        Fetches updated metadata from Semantic Scholar using DOI, Title, or arXiv ID,
-        runs NER/LLM to extract authors, concepts, and tags,
-        and updates the nodes & edges in the graph database.
         """
         paper = self.graph_repo.get_paper(paper_id)
         if not paper:
@@ -765,26 +357,23 @@ class Indexer:
 
         con.info(f"Re-indexing metadata for [bold]{paper.title[:60]}[/bold] (ID: {paper_id})")
 
-        # Determine if we can get data from Semantic Scholar
-        doi = paper.doi or paper.properties.get("doi")
-        arxiv_id = paper.properties.get("arxiv_id")
-        title = paper.title
-        
-        is_webpage = paper.properties.get("source_type") == "webpage" or (paper.file_path and paper.file_path.startswith("http"))
+        # ── Fetch updated metadata ──
+        is_webpage = (
+            paper.properties.get("source_type") == "webpage"
+            or (paper.file_path and paper.file_path.startswith("http"))
+        )
         url = paper.properties.get("url") or paper.file_path if is_webpage else None
-        
-        # 1. Fetch updated metadata from external source
+
         if url:
             try:
-                from src.parsers.url_parser import parse_url
-                # Re-parse webpage to extract metadata
-                web_paper, _ = parse_url(url)
+                parser = ParserFactory.get_parser(url)
+                web_paper, _, _ = parser.parse(url)
                 if web_paper.authors:
-                    paper.authors = list(set(paper.authors + web_paper.authors))
+                    paper.authors = list({*paper.authors, *web_paper.authors})
                 if web_paper.doi:
-                    doi = web_paper.doi
+                    paper.doi = web_paper.doi
                 if web_paper.properties.get("arxiv_id"):
-                    arxiv_id = web_paper.properties.get("arxiv_id")
+                    paper.properties["arxiv_id"] = web_paper.properties["arxiv_id"]
                 if web_paper.title and len(web_paper.title) > len(paper.title or ""):
                     paper.title = web_paper.title
                 if web_paper.abstract:
@@ -794,174 +383,104 @@ class Indexer:
             except Exception as e:
                 con.warning(f"Failed to re-parse URL {url}: {e}")
 
-        # Fetch from Semantic Scholar
-        from src.external_api import fetch_paper_metadata
-        con.dim("Querying Semantic Scholar for updated metadata …")
-        api_meta = fetch_paper_metadata(doi=doi, title=title, arxiv_id=arxiv_id)
-        
-        api_references = []
-        api_citations = []
-        
+        api_meta = self._enricher.enrich(paper)
+        api_references: List[Dict] = []
+        api_citations: List[Dict] = []
         if api_meta:
-            if api_meta.get("title"):
-                paper.title = api_meta["title"]
-            if api_meta.get("authors"):
-                paper.authors = api_meta["authors"]
-            if api_meta.get("year"):
-                paper.year = api_meta["year"]
-            if api_meta.get("abstract"):
-                paper.abstract = api_meta["abstract"]
-            if api_meta.get("doi"):
-                paper.doi = api_meta["doi"]
-            api_references = api_meta.get("references", [])
-            api_citations = api_meta.get("citations", [])
-            con.success(f"Metadata enriched from Semantic Scholar: {paper.title[:60]}")
-            
-        # 2. Extract concepts and tags
-        llm_authors = []
-        llm_concepts = []
-        llm_tags = []
-        
-        # Read text from file if available to use for extraction
-        full_text = ""
-        if paper.file_path and os.path.exists(paper.file_path) and not paper.file_path.startswith("http"):
-            try:
-                if paper.file_path.lower().endswith(".pdf"):
-                    from src.parser import PDFParser
-                    # Only read text
-                    _, _, full_text = PDFParser.extract_text_and_metadata(paper.file_path)
-                elif paper.file_path.lower().endswith(".md"):
-                    with open(paper.file_path, "r", encoding="utf-8") as f:
-                        full_text = f.read()
-                elif paper.file_path.lower().endswith(".epub"):
-                    from src.parsers.epub_parser import parse_epub
-                    _, _, full_text = parse_epub(paper.file_path)
-            except Exception as e:
-                con.warning(f"Could not read local file {paper.file_path} for concept extraction: {e}")
-                
-        text_for_extraction = full_text or (paper.title or "") + "\n\n" + (paper.abstract or "")
-        
-        if use_llm and self.llm_engine:
-            con.dim("Extracting concepts/tags via LLM …")
-            llm_data = self.llm_engine.extract_concepts_and_metadata(text_for_extraction)
-            if llm_data:
-                llm_authors = llm_data.get("authors", [])
-                llm_concepts = llm_data.get("concepts", [])
-                llm_tags = llm_data.get("tags", [])
-                con.dim(f"LLM found {len(llm_authors)} authors, {len(llm_concepts)} concepts, {len(llm_tags)} tags")
+            paper, api_references, api_citations = self._enricher.apply(paper, api_meta)
 
-        # Combine authors
-        all_authors_raw = list(paper.authors) + list(llm_authors)
-        
-        # NER fallback for PDF papers
-        if len(all_authors_raw) < 2 and paper.file_path and os.path.exists(paper.file_path) and paper.file_path.lower().endswith(".pdf"):
-            try:
-                from src.ner_engine import extract_persons_from_text
-                import fitz
-                doc = fitz.open(paper.file_path)
-                first_page_text = doc[0].get_text() if len(doc) > 0 else ""
-                doc.close()
-                ner_names = extract_persons_from_text(first_page_text[:2000])
-                all_authors_raw += [n for n in ner_names if 1 < len(n.split()) <= 5]
-            except Exception:
-                pass
-                
-        seen_authors = set()
-        all_authors = []
-        for a in all_authors_raw:
-            key = a.lower().strip()
-            if key and key not in seen_authors:
-                seen_authors.add(key)
-                all_authors.append(a)
-                
-        paper.authors = all_authors
-        
-        # Determine tags
-        tags_to_save = []
-        if llm_tags:
-            tags_to_save = llm_tags
-        else:
-            text_to_scan = text_for_extraction.lower()
-            for keyword, tag_name in AI_TOPICS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    if tag_name not in tags_to_save:
-                        tags_to_save.append(tag_name)
-        paper.properties["tags"] = tags_to_save
-        
-        # Save updated Paper Node
+        # ── Re-extract concepts/tags ──
+        full_text = self._read_local_text(paper)
+        text_for_extraction = full_text or f"{paper.title or ''}\n\n{paper.abstract or ''}"
+
+        extraction = self._extractor.extract(
+            title=paper.title or "",
+            abstract=paper.abstract or "",
+            full_text=text_for_extraction,
+            use_llm=use_llm,
+        )
+        if extraction.authors:
+            existing = {a.lower() for a in paper.authors}
+            for a in extraction.authors:
+                if a.lower() not in existing:
+                    paper.authors.append(a)
+                    existing.add(a.lower())
+
+        if extraction.tags:
+            paper.properties["tags"] = extraction.tags
+
+        # ── NER fallback for PDF with few authors ──
+        if (
+            len(paper.authors) < 2
+            and paper.file_path
+            and os.path.exists(paper.file_path)
+            and paper.file_path.lower().endswith(".pdf")
+        ):
+            paper.authors = self._ner_fallback_authors(paper.authors, paper.file_path)
+
+        # ── Persist updated paper ──
         self.graph_repo.save_paper(paper)
-        
-        # Clean old AUTHORED edges first
-        with self.graph_repo._get_connection() as conn:
-            conn.execute("DELETE FROM edges WHERE target_id = ? AND type = 'AUTHORED'", (paper.id,))
-            conn.commit()
 
-        for author_name in all_authors:
-            author_id = self._slugify(author_name)
+        # ── Refresh AUTHORED edges ──
+        self.graph_repo.delete_edges_by_target(paper.id, ["AUTHORED"])
+        for author_name in paper.authors:
+            author_id = slugify(author_name)
             author = Author(id=author_id, name=author_name)
             self.graph_repo.save_author(author)
             self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
-            
-        # Clean old MENTIONS_CONCEPT and HAS_TAG edges
-        with self.graph_repo._get_connection() as conn:
-            conn.execute("DELETE FROM edges WHERE source_id = ? AND type IN ('MENTIONS_CONCEPT', 'HAS_TAG')", (paper.id,))
-            conn.commit()
-            
-        if llm_concepts:
-            for item in llm_concepts:
-                c_name = item.get("name")
-                c_desc = item.get("description", "") or self._get_concept_description(c_name)
-                if c_name:
-                    concept_id = self._slugify(c_name)
-                    concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-        else:
-            text_to_scan = text_for_extraction.lower()
-            for keyword, concept_name in AI_CONCEPTS.items():
-                if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_scan):
-                    concept_id = self._slugify(concept_name)
-                    c_desc = self._get_concept_description(concept_name)
-                    concept = Concept(id=concept_id, name=concept_name, properties={"description": c_desc})
-                    self.graph_repo.save_concept(concept)
-                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-                    
-        # Save tags
-        for tag in tags_to_save:
-            tag_id = self._slugify(tag)
-            tag_desc = self._get_concept_description(tag)
-            concept = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
+
+        # ── Refresh MENTIONS_CONCEPT / HAS_TAG edges ──
+        self.graph_repo.delete_edges_by_source(paper.id, ["MENTIONS_CONCEPT", "HAS_TAG"])
+
+        for item in extraction.concepts:
+            c_name = item.get("name", "").strip()
+            if not c_name:
+                continue
+            c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name)
+            concept_id = slugify(c_name)
+            concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
             self.graph_repo.save_concept(concept)
+            self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+
+        for tag in extraction.tags:
+            tag_id = slugify(tag)
+            tag_desc = self._extractor.get_concept_description(tag)
+            tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
+            self.graph_repo.save_concept(tag_node)
             self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
-            
-        # Update citations
+
+        # ── Update citation edges ──
         if api_references or api_citations:
             for ref in api_references:
                 ref_title = ref.get("title")
                 ref_doi = ref.get("doi")
-                ref_id = self._slugify(ref_doi) if ref_doi else self._slugify(ref_title[:120])
+                ref_id = slugify(ref_doi) if ref_doi else (
+                    slugify(ref_title[:120]) if ref_title else None
+                )
                 if ref_id:
-                    exists = self.graph_repo.get_paper(ref_id)
-                    if not exists:
-                        placeholder_paper = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
-                        self.graph_repo.save_paper(placeholder_paper)
+                    if not self.graph_repo.get_paper(ref_id):
+                        placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
+                        placeholder.properties["is_placeholder"] = True
+                        self.graph_repo.save_paper(placeholder)
                     self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
-                    
+
             for cit in api_citations:
                 cit_title = cit.get("title")
                 cit_doi = cit.get("doi")
-                cit_id = self._slugify(cit_doi) if cit_doi else self._slugify(cit_title[:120])
+                cit_id = slugify(cit_doi) if cit_doi else (
+                    slugify(cit_title[:120]) if cit_title else None
+                )
                 if cit_id:
-                    exists = self.graph_repo.get_paper(cit_id)
-                    if not exists:
-                        placeholder_paper = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
-                        self.graph_repo.save_paper(placeholder_paper)
+                    if not self.graph_repo.get_paper(cit_id):
+                        placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
+                        placeholder.properties["is_placeholder"] = True
+                        self.graph_repo.save_paper(placeholder)
                     self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
 
         if use_llm and self.llm_engine:
-            self._generate_and_save_summary(paper, text_for_extraction)
+            self._extractor.generate_summary(paper, text_for_extraction, graph_repo=self.graph_repo)
 
-        con.success(f"Successfully re-indexed metadata for {paper.title[:60]}")
+        con.success(f"Successfully re-indexed metadata for {(paper.title or paper.id)[:60]}")
         return True
 
     def reindex_full(self, paper_id: str) -> bool:
@@ -978,19 +497,14 @@ class Indexer:
             con.error(f"No file path or URL stored for paper: {paper_id}")
             return False
 
-        con.info(f"Performing full re-indexing for [bold]{paper.title[:60]}[/bold] (ID: {paper_id})")
+        con.info(f"Performing full re-indexing for [bold]{(paper.title or paper_id)[:60]}[/bold] (ID: {paper_id})")
 
-        # Delete the paper node from the database.
-        # This will cascade delete related entries in edges and chunks (due to foreign keys).
         try:
-            with self.graph_repo._get_connection() as conn:
-                conn.execute("DELETE FROM nodes WHERE id = ?", (paper_id,))
-                conn.commit()
+            self.graph_repo.delete_node(paper_id)
         except Exception as e:
             con.error(f"Failed to delete existing paper records: {e}")
             return False
 
-        # Re-index the paper based on its path/URL
         try:
             if file_path.startswith("http://") or file_path.startswith("https://"):
                 self.index_url(file_path)
@@ -1010,3 +524,78 @@ class Indexer:
         con.success(f"Successfully performed full re-index for {paper_id}")
         return True
 
+    def _ner_fallback_authors(self, existing_authors: List[str], file_path: str) -> List[str]:
+        """Runs NER on the first PDF page to extract author names when few are known."""
+        try:
+            from src.ner_engine import extract_persons_from_text
+            import fitz
+            doc = fitz.open(file_path)
+            first_page_text = doc[0].get_text() if len(doc) > 0 else ""
+            doc.close()
+            ner_names = extract_persons_from_text(first_page_text[:2000])
+            candidates = [n for n in ner_names if 1 < len(n.split()) <= 5]
+        except Exception:
+            return existing_authors
+
+        seen = {a.lower().strip() for a in existing_authors}
+        merged = list(existing_authors)
+        for name in candidates:
+            key = name.lower().strip()
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(name)
+        return merged
+
+    def _archive_pdf(self, source_path: str, archive_path: Path) -> None:
+        """Compresses (or copies) a PDF to the archive directory."""
+        from src.parsers.pdf_parser import PDFParser
+        if config.pdf_compression_enabled:
+            con.dim(f"Compressing and saving PDF to archive: {archive_path} ...")
+            try:
+                orig_size = os.path.getsize(source_path)
+                PDFParser.compress_and_save_pdf(
+                    input_path=source_path,
+                    output_path=str(archive_path),
+                    dpi_threshold=config.pdf_compression_dpi_threshold,
+                    dpi_target=config.pdf_compression_dpi_target,
+                    quality=config.pdf_compression_quality,
+                )
+                if archive_path.exists():
+                     new_size = archive_path.stat().st_size
+                     ratio = (1 - new_size / orig_size) * 100 if orig_size > 0 else 0
+                     con.success(
+                         f"PDF compressed: {orig_size / 1024 / 1024:.1f} MB → "
+                         f"{new_size / 1024 / 1024:.1f} MB ({ratio:.1f}% saved)"
+                     )
+                if Path(source_path).resolve() != archive_path.resolve():
+                    os.remove(source_path)
+            except Exception as e:
+                con.warning(f"PDF compression failed: {e}. Falling back to standard copy.")
+                if Path(source_path).resolve() != archive_path.resolve():
+                    shutil.copy2(source_path, archive_path)
+                    os.remove(source_path)
+        else:
+            if Path(source_path).resolve() != archive_path.resolve():
+                shutil.copy2(source_path, archive_path)
+                os.remove(source_path)
+                con.info(f"PDF moved to archive: {archive_path}")
+
+    def _read_local_text(self, paper: Paper) -> str:
+        """Reads the full document text from the local file if available."""
+        fp = paper.file_path
+        if not fp or not os.path.exists(fp) or fp.startswith("http"):
+            return ""
+        try:
+            if fp.lower().endswith(".pdf"):
+                parser = ParserFactory.get_parser(fp)
+                _, _, text = parser.parse(fp)
+                return text
+            elif fp.lower().endswith(".epub"):
+                parser = ParserFactory.get_parser(fp)
+                _, _, text = parser.parse(fp)
+                return text
+            else:
+                return Path(fp).read_text(encoding="utf-8")
+        except Exception as e:
+            con.warning(f"Could not read local file {fp} for text extraction: {e}")
+            return ""

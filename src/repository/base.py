@@ -106,6 +106,52 @@ class GraphRepository(ABC):
         """Retrieves all nodes that represent notes (source_type = 'note')."""
         pass
 
+    @abstractmethod
+    def delete_edges_by_target(self, target_id: str, edge_types: List[str]) -> None:
+        """Deletes all edges pointing TO target_id with one of the given edge types."""
+        pass
+
+    @abstractmethod
+    def delete_edges_by_source(self, source_id: str, edge_types: List[str]) -> None:
+        """Deletes all edges originating FROM source_id with one of the given edge types."""
+        pass
+
+    @abstractmethod
+    def delete_node(self, node_id: str) -> None:
+        """Deletes a node (and, via foreign key cascade, its related edges and chunks)."""
+        pass
+
+    @abstractmethod
+    def get_paper_ids(self) -> List[str]:
+        """Retrieves all paper IDs in the graph."""
+        pass
+
+    @abstractmethod
+    def get_non_placeholder_paper_ids(self) -> List[str]:
+        """Retrieves all paper IDs that are not placeholders."""
+        pass
+
+    @abstractmethod
+    def get_paper_source_types(self) -> Dict[str, str]:
+        """Retrieves a dictionary mapping paper/note ID to its source type (from properties)."""
+        pass
+
+    @abstractmethod
+    def get_browse_rows(self, table: str, page: int, limit: int, search_query: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Paginated search/retrieval of nodes or relations for CLI/UI browsing."""
+        pass
+
+    @abstractmethod
+    def get_browse_count(self, table: str, search_query: Optional[str] = None) -> int:
+        """Get the count of nodes or relations for CLI/UI browsing."""
+        pass
+
+    @abstractmethod
+    def update_node_properties(self, node_id: str, properties: Dict[str, Any]) -> None:
+        """Updates specific properties of a node in the graph."""
+        pass
+
+
 
 class VectorRepository(ABC):
     @abstractmethod

@@ -233,10 +233,37 @@ pdf_compression:
     def pdf_compression_quality(self) -> int:
         return self.data.get("pdf_compression", {}).get("quality", 75)
 
+    @property
+    def taxonomy(self) -> dict:
+        """
+        Lazy-loads and caches config/taxonomy.yaml from the project root.
+        Returns a dict with keys: concepts, topics, descriptions.
+        Falls back to empty dicts if the file is missing or malformed.
+        """
+        if hasattr(self, "_taxonomy"):
+            return self._taxonomy  # type: ignore[attr-defined]
+
+        # Project root is two levels above this file (src/config.py → src → project root)
+        project_root = Path(__file__).parent.parent
+        taxonomy_path = project_root / "config" / "taxonomy.yaml"
+
+        try:
+            with open(taxonomy_path, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+            self._taxonomy = {  # type: ignore[attr-defined]
+                "concepts": raw.get("concepts", {}),
+                "topics": raw.get("topics", {}),
+                "descriptions": raw.get("descriptions", {}),
+            }
+        except Exception:
+            self._taxonomy = {"concepts": {}, "topics": {}, "descriptions": {}}  # type: ignore[attr-defined]
+
+        return self._taxonomy
+
     def get_storage_stats(self) -> dict:
         import os
         import json
-        import sqlite3
+        from src.repository.sqlite_impl import SQLiteGraphRepository
         
         storage_dir = Path(self.data_dir)
         archive_dir = Path(self.archive_dir)
@@ -248,24 +275,13 @@ pdf_compression:
         archive_sizes_by_source = {}
         archive_counts_by_source = {}
         
-        # Get mapping of paper ID to source_type from sqlite
+        # Get mapping of paper ID to source_type from SQLiteGraphRepository
         paper_source_types = {}
         db_path = self.db_path
         if os.path.exists(db_path):
             try:
-                conn = sqlite3.connect(db_path)
-                conn.row_factory = sqlite3.Row
-                # Select only label = 'Paper'
-                rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
-                for r in rows:
-                    try:
-                        props = json.loads(r["properties"] or "{}")
-                        stype = props.get("source_type")
-                        if stype:
-                            paper_source_types[r["id"]] = stype
-                    except Exception:
-                        pass
-                conn.close()
+                repo = SQLiteGraphRepository(db_path)
+                paper_source_types = repo.get_paper_source_types()
             except Exception:
                 pass
                 

@@ -4,7 +4,7 @@ import textwrap
 import unittest
 import datetime
 from pathlib import Path
-from src.parsers.md_parser import parse_markdown
+from src.parsers.md_parser import MarkdownParser
 
 class TestMDParserDate(unittest.TestCase):
     def _write_md(self, content: str) -> str:
@@ -24,7 +24,7 @@ class TestMDParserDate(unittest.TestCase):
             Content here.
             """))
         try:
-            paper, _, _ = parse_markdown(path)
+            paper, _, _ = MarkdownParser().parse(path)
             self.assertEqual(paper.created_at, "2026-01-01T12:00:00")
         finally:
             os.unlink(path)
@@ -38,7 +38,7 @@ class TestMDParserDate(unittest.TestCase):
             Content here.
             """))
         try:
-            paper, _, _ = parse_markdown(path)
+            paper, _, _ = MarkdownParser().parse(path)
             self.assertEqual(paper.created_at, "2025-05-10")
         finally:
             os.unlink(path)
@@ -52,7 +52,7 @@ class TestMDParserDate(unittest.TestCase):
             Content here.
             """))
         try:
-            paper, _, _ = parse_markdown(path)
+            paper, _, _ = MarkdownParser().parse(path)
             self.assertEqual(paper.created_at, "2024-12-25T18:30:00")
         finally:
             os.unlink(path)
@@ -64,7 +64,7 @@ class TestMDParserDate(unittest.TestCase):
             Some content.
             """))
         try:
-            paper, _, _ = parse_markdown(path)
+            paper, _, _ = MarkdownParser().parse(path)
             self.assertIsNotNone(paper.created_at)
             # Should be a parseable timestamp (ISO format)
             dt = datetime.datetime.fromisoformat(paper.created_at)

@@ -456,6 +456,157 @@ class SQLiteGraphRepository(GraphRepository):
             papers.sort(key=lambda p: p.created_at or "", reverse=True)
             return papers
 
+    def delete_edges_by_target(self, target_id: str, edge_types: List[str]) -> None:
+        """Deletes edges pointing TO target_id with one of the given edge types."""
+        if not edge_types:
+            return
+        placeholders = ", ".join("?" * len(edge_types))
+        with self._get_connection() as conn:
+            conn.execute(
+                f"DELETE FROM edges WHERE target_id = ? AND type IN ({placeholders})",
+                [target_id] + list(edge_types),
+            )
+            conn.commit()
+
+    def delete_edges_by_source(self, source_id: str, edge_types: List[str]) -> None:
+        """Deletes edges originating FROM source_id with one of the given edge types."""
+        if not edge_types:
+            return
+        placeholders = ", ".join("?" * len(edge_types))
+        with self._get_connection() as conn:
+            conn.execute(
+                f"DELETE FROM edges WHERE source_id = ? AND type IN ({placeholders})",
+                [source_id] + list(edge_types),
+            )
+            conn.commit()
+
+    def delete_node(self, node_id: str) -> None:
+        """Deletes the node and cascades to edges/chunks via foreign keys."""
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+            conn.commit()
+
+    def get_paper_ids(self) -> List[str]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id FROM nodes WHERE label = 'Paper'").fetchall()
+            return [r["id"] for r in rows]
+
+    def get_non_placeholder_paper_ids(self) -> List[str]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
+            candidates = []
+            for r in rows:
+                props = json.loads(r["properties"])
+                if not props.get("placeholder") and not props.get("is_placeholder"):
+                    candidates.append(r["id"])
+            return candidates
+
+    def get_paper_source_types(self) -> Dict[str, str]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
+            res = {}
+            for r in rows:
+                try:
+                    props = json.loads(r["properties"] or "{}")
+                    stype = props.get("source_type")
+                    if stype:
+                        res[r["id"]] = stype
+                except Exception:
+                    pass
+            return res
+
+    def get_browse_rows(self, table: str, page: int, limit: int, search_query: Optional[str] = None) -> List[Dict[str, Any]]:
+        off = (page - 1) * limit
+        with self._get_connection() as conn:
+            if not search_query:
+                if table == "documents":
+                    rows = conn.execute(
+                        "SELECT id, properties FROM nodes WHERE label='Paper' LIMIT ? OFFSET ?",
+                        (limit, off)
+                    ).fetchall()
+                elif table == "authors":
+                    rows = conn.execute(
+                        """SELECT id, properties,
+                                  (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
+                           FROM nodes WHERE label='Author' ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
+                        (limit, off)
+                    ).fetchall()
+                else:  # concepts
+                    rows = conn.execute(
+                        """SELECT id, properties,
+                                  (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
+                           FROM nodes WHERE label='Concept' ORDER BY degree DESC LIMIT ? OFFSET ?""",
+                        (limit, off)
+                    ).fetchall()
+            else:
+                like_pat = f"%{search_query}%"
+                if table == "documents":
+                    rows = conn.execute(
+                        """SELECT id, properties FROM nodes
+                           WHERE label='Paper'
+                           AND (
+                               id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
+                               OR properties LIKE ?
+                           )
+                           LIMIT ? OFFSET ?""",
+                        (like_pat, like_pat, limit, off)
+                    ).fetchall()
+                elif table == "authors":
+                    rows = conn.execute(
+                        """SELECT id, properties,
+                                  (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
+                           FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)
+                           ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
+                        (like_pat, like_pat, limit, off)
+                    ).fetchall()
+                else:  # concepts
+                    rows = conn.execute(
+                        """SELECT id, properties,
+                                  (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
+                           FROM nodes WHERE label='Concept' AND (id LIKE ? OR properties LIKE ?)
+                           ORDER BY degree DESC LIMIT ? OFFSET ?""",
+                        (like_pat, like_pat, limit, off)
+                    ).fetchall()
+            
+            return [dict(r) for r in rows]
+
+    def get_browse_count(self, table: str, search_query: Optional[str] = None) -> int:
+        label = {"documents": "Paper", "authors": "Author", "concepts": "Concept"}[table]
+        with self._get_connection() as conn:
+            if not search_query:
+                return conn.execute("SELECT count(*) FROM nodes WHERE label=?", (label,)).fetchone()[0]
+            
+            like_pat = f"%{search_query}%"
+            if table == "documents":
+                return conn.execute(
+                    """
+                    SELECT count(*) FROM nodes
+                    WHERE label='Paper'
+                    AND (
+                        id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
+                        OR properties LIKE ?
+                    )
+                    """,
+                    (like_pat, like_pat)
+                ).fetchone()[0]
+            elif table == "authors":
+                return conn.execute(
+                    "SELECT count(*) FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)",
+                    (like_pat, like_pat)
+                ).fetchone()[0]
+            else: # concepts
+                return conn.execute(
+                    "SELECT count(*) FROM nodes WHERE label='Concept' AND (id LIKE ? OR properties LIKE ?)",
+                    (like_pat, like_pat)
+                ).fetchone()[0]
+
+    def update_node_properties(self, node_id: str, properties: Dict[str, Any]) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE nodes SET properties=? WHERE id=?",
+                (json.dumps(properties, ensure_ascii=False), node_id)
+            )
+            conn.commit()
 
 
 class SQLiteVectorRepository(VectorRepository):

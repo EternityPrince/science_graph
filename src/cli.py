@@ -5,7 +5,6 @@ All user-facing output uses src.console for consistent rich formatting.
 
 import json
 import os
-import sqlite3
 import webbrowser
 from pathlib import Path
 from typing import Optional
@@ -128,31 +127,24 @@ def reindex_meta(
     graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
-    conn = sqlite3.connect(graph_repo.db_path)
-    conn.row_factory = sqlite3.Row
-
     # Find candidate paper IDs
-    query = "SELECT id, properties FROM nodes WHERE label='Paper'"
-    rows = conn.execute(query).fetchall()
-    conn.close()
+    non_placeholders = graph_repo.get_non_placeholder_paper_ids()
 
     candidates = []
-    for r in rows:
-        props = json.loads(r["properties"])
-        # Skip placeholder papers
-        if props.get("placeholder"):
+    for pid in non_placeholders:
+        paper = graph_repo.get_paper(pid)
+        if not paper:
             continue
-            
+        props = paper.properties
         if missing_authors:
-            authors = props.get("authors", [])
-            if not authors:
-                candidates.append(r["id"])
+            if not paper.authors:
+                candidates.append(pid)
         elif missing_tags:
             tags = props.get("tags", [])
             if not tags:
-                candidates.append(r["id"])
+                candidates.append(pid)
         else:
-            candidates.append(r["id"])
+            candidates.append(pid)
 
     if limit:
         candidates = candidates[:limit]
@@ -190,29 +182,15 @@ def reindex_full(
     graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
-    conn = sqlite3.connect(graph_repo.db_path)
-    conn.row_factory = sqlite3.Row
-
     if paper_id:
         # Check if exists
-        exists = conn.execute("SELECT id FROM nodes WHERE id = ? AND label = 'Paper'", (paper_id,)).fetchone()
-        conn.close()
-        if not exists:
+        paper = graph_repo.get_paper(paper_id)
+        if not paper:
             con.error(f"Paper not found: {paper_id}")
             raise typer.Exit(1)
         candidates = [paper_id]
     else:
-        # Find candidate paper IDs
-        query = "SELECT id, properties FROM nodes WHERE label='Paper'"
-        rows = conn.execute(query).fetchall()
-        conn.close()
-        candidates = []
-        for r in rows:
-            props = json.loads(r["properties"])
-            # Skip placeholder papers
-            if props.get("placeholder"):
-                continue
-            candidates.append(r["id"])
+        candidates = graph_repo.get_non_placeholder_paper_ids()
 
     if limit:
         candidates = candidates[:limit]
@@ -397,8 +375,6 @@ def storage(
     TABLE_LABELS = {"documents": "📚 Documents", "authors": "👥 Authors", "concepts": "🧠 Concepts"}
 
     graph_repo, _, _, _ = get_services(load_llm=False, load_embeddings=False)
-    conn = sqlite3.connect(graph_repo.db_path)
-    conn.row_factory = sqlite3.Row
 
     page = 1
     active_table = "documents"   # currently focused table
@@ -408,101 +384,25 @@ def storage(
     llm_engine = None            # lazy LLM engine reference
 
     def _get_rows(tbl: str, pg: int):
-        off = (pg - 1) * limit
-        if not search_query:
-            if tbl == "documents":
-                return conn.execute(
-                    "SELECT id, properties FROM nodes WHERE label='Paper' LIMIT ? OFFSET ?",
-                    (limit, off)
-                ).fetchall()
-            elif tbl == "authors":
-                return conn.execute(
-                    """SELECT id, properties,
-                              (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
-                       FROM nodes WHERE label='Author' ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
-                    (limit, off)
-                ).fetchall()
-            else:  # concepts
-                return conn.execute(
-                    """SELECT id, properties,
-                              (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
-                       FROM nodes WHERE label='Concept' ORDER BY degree DESC LIMIT ? OFFSET ?""",
-                    (limit, off)
-                ).fetchall()
-        else:
-            like_pat = f"%{search_query}%"
-            if tbl == "documents":
-                return conn.execute(
-                    """SELECT id, properties FROM nodes
-                       WHERE label='Paper'
-                       AND (
-                           id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
-                           OR properties LIKE ?
-                       )
-                       LIMIT ? OFFSET ?""",
-                    (like_pat, like_pat, limit, off)
-                ).fetchall()
-            elif tbl == "authors":
-                return conn.execute(
-                    """SELECT id, properties,
-                              (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
-                       FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)
-                       ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
-                    (like_pat, like_pat, limit, off)
-                ).fetchall()
-            else:  # concepts
-                return conn.execute(
-                    """SELECT id, properties,
-                              (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
-                       FROM nodes WHERE label='Concept' AND (id LIKE ? OR properties LIKE ?)
-                       ORDER BY degree DESC LIMIT ? OFFSET ?""",
-                    (like_pat, like_pat, limit, off)
-                ).fetchall()
+        return graph_repo.get_browse_rows(tbl, pg, limit, search_query)
 
     def _count(tbl: str) -> int:
-        label = {"documents": "Paper", "authors": "Author", "concepts": "Concept"}[tbl]
-        if not search_query:
-            return conn.execute(f"SELECT count(*) FROM nodes WHERE label=?", (label,)).fetchone()[0]
-        
-        like_pat = f"%{search_query}%"
-        if tbl == "documents":
-            return conn.execute(
-                """
-                SELECT count(*) FROM nodes
-                WHERE label='Paper'
-                AND (
-                    id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
-                    OR properties LIKE ?
-                )
-                """,
-                (like_pat, like_pat)
-            ).fetchone()[0]
-        elif tbl == "authors":
-            return conn.execute(
-                "SELECT count(*) FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)",
-                (like_pat, like_pat)
-            ).fetchone()[0]
-        else: # concepts
-            return conn.execute(
-                "SELECT count(*) FROM nodes WHERE label='Concept' AND (id LIKE ? OR properties LIKE ?)",
-                (like_pat, like_pat)
-            ).fetchone()[0]
+        return graph_repo.get_browse_count(tbl, search_query)
 
     def _delete_node(node_id: str) -> str:
         try:
-            conn.execute("DELETE FROM edges WHERE source_id=? OR target_id=?", (node_id, node_id))
-            conn.execute("DELETE FROM nodes WHERE id=?", (node_id,))
-            conn.commit()
+            graph_repo.delete_node(node_id)
             return f"[bold red]✗  Deleted[/bold red] node [dim]{node_id[:40]}[/dim]"
         except Exception as exc:
             return f"[red]Error deleting: {exc}[/red]"
 
     def _edit_node(node_id: str, tbl: str) -> str:
         """Interactive field editor — prompts for new values for key fields."""
-        row = conn.execute("SELECT properties FROM nodes WHERE id=?", (node_id,)).fetchone()
-        if not row:
+        node = graph_repo.get_node_by_id(node_id)
+        if not node:
             return "[red]Record not found.[/red]"
-        props = json.loads(row["properties"])
+        label, props_str = node
+        props = json.loads(props_str)
         con.console.print("\n[bold yellow]— Edit Record —[/bold yellow] (Enter = keep current, Ctrl+C = cancel)\n")
         try:
             if tbl == "documents":
@@ -521,8 +421,7 @@ def storage(
                 new_name = input(f"  Name [{props.get('name', '')}]: ").strip()
                 if new_name:
                     props["name"] = new_name
-            conn.execute("UPDATE nodes SET properties=? WHERE id=?", (json.dumps(props, ensure_ascii=False), node_id))
-            conn.commit()
+            graph_repo.update_node_properties(node_id, props)
             return "[bold green]✓  Record updated[/bold green]"
         except KeyboardInterrupt:
             return "[yellow]Edit cancelled.[/yellow]"
@@ -715,16 +614,12 @@ def storage(
             if not summary:
                 con.console.print("\n[yellow]Generating LLM Summary... This might take a few seconds.[/yellow]")
                 try:
-                    # Retrieve chunks to construct content sample
-                    chunks = conn.execute(
-                        "SELECT text_content FROM chunks WHERE paper_id = ? ORDER BY id LIMIT 5",
-                        (paper_id,)
-                    ).fetchall()
-                    sample_text = "\n\n".join([ch["text_content"] for ch in chunks]) if chunks else ""
+                    # Retrieve chunks to construct content sample using vector repo
+                    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True, load_embeddings=False)
+                    chunks = vector_repo.get_chunks_for_paper(paper_id)
+                    sample_text = "\n\n".join([ch.text_content for ch in chunks[:5]]) if chunks else ""
                     abstract = props.get("abstract") or ""
                     
-                    # Lazy initialize LLM engine
-                    _, _, _, llm_engine = get_services(load_llm=True, load_embeddings=False)
                     if not llm_engine:
                         raise ValueError("LLM Engine could not be initialized. Please check your model path/provider config.")
                     
@@ -739,11 +634,7 @@ def storage(
                     
                     # Save to DB
                     props["summary"] = summary
-                    conn.execute(
-                        "UPDATE nodes SET properties = ? WHERE id = ?",
-                        (json.dumps(props, ensure_ascii=False), paper_id)
-                    )
-                    conn.commit()
+                    graph_repo.update_node_properties(paper_id, props)
                     con.success("Summary generated and saved to database.")
                 except Exception as e:
                     summary = f"Error generating summary: {e}"
@@ -754,6 +645,7 @@ def storage(
                 title=f"[bold cyan]LLM Summary: {title[:60]}[/bold cyan]",
                 border_style="cyan",
                 padding=(1, 2),
+                expand=True,
             ))
             con.console.print("\n  Press any key to return...")
             click.getchar()
@@ -797,8 +689,6 @@ def storage(
                 selected_idx = None
             else:
                 status_msg = "[dim]Deletion cancelled.[/dim]"
-
-    conn.close()
 
 
 # ── config ────────────────────────────────────────────────────────────────────
@@ -936,18 +826,15 @@ def visualize(
     """Generate an interactive HTML knowledge graph and open it in the browser."""
     graph_repo, _, _, _ = get_services(load_llm=False, load_embeddings=False)
 
-    conn = sqlite3.connect(graph_repo.db_path)
-    conn.row_factory = sqlite3.Row
-
     # Get node degrees
     degrees = {}
-    edges_rows = conn.execute("SELECT source_id, target_id, type FROM edges").fetchall()
+    edges_rows = graph_repo.get_all_edges()
     for e in edges_rows:
-        degrees[e["source_id"]] = degrees.get(e["source_id"], 0) + 1
-        degrees[e["target_id"]] = degrees.get(e["target_id"], 0) + 1
+        src_id, tgt_id, etype, _ = e
+        degrees[src_id] = degrees.get(src_id, 0) + 1
+        degrees[tgt_id] = degrees.get(tgt_id, 0) + 1
 
-    nodes_rows = conn.execute("SELECT id, label, properties FROM nodes").fetchall()
-    conn.close()
+    nodes_rows = graph_repo.get_all_nodes()
 
     if not nodes_rows:
         con.warning("Knowledge graph is empty. Index some documents first.")
@@ -956,9 +843,8 @@ def visualize(
     # Process nodes
     vis_nodes = []
     for r in nodes_rows:
-        node_id = r["id"]
-        label = r["label"]
-        props = json.loads(r["properties"])
+        node_id, label, props_str = r
+        props = json.loads(props_str)
         source_type = props.get("source_type", "paper")
         degree = degrees.get(node_id, 0)
 
@@ -1001,8 +887,8 @@ def visualize(
         })
 
     vis_edges = []
-    for r in edges_rows:
-        edge_type = r["type"]
+    for e in edges_rows:
+        src_id, tgt_id, edge_type, _ = e
         color = "#adb5bd"
         dashes = False
         width = 1
@@ -1023,8 +909,8 @@ def visualize(
 
 
         vis_edges.append({
-            "from": r["source_id"],
-            "to": r["target_id"],
+            "from": src_id,
+            "to": tgt_id,
             "label": edge_type,
             "arrows": "to",
             "font": {"size": 8, "align": "top"},

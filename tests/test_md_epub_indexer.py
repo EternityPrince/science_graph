@@ -37,8 +37,8 @@ class TestMarkdownParser(unittest.TestCase):
             This is an introduction to attention mechanisms.
             """))
         try:
-            from src.parsers.md_parser import parse_markdown
-            paper, links, body = parse_markdown(path)
+            from src.parsers.md_parser import MarkdownParser
+            paper, links, body = MarkdownParser().parse(path)
             self.assertEqual(paper.title, "My Research Note")
             self.assertIn("Alice Smith", paper.authors)
             self.assertIn("Bob Jones", paper.authors)
@@ -56,8 +56,8 @@ class TestMarkdownParser(unittest.TestCase):
             Also [[GPT|OpenAI GPT]] is relevant.
             """))
         try:
-            from src.parsers.md_parser import parse_markdown
-            _, links, _ = parse_markdown(path)
+            from src.parsers.md_parser import MarkdownParser
+            _, links, _ = MarkdownParser().parse(path)
             self.assertIn("Attention Mechanism", links)
             self.assertIn("BERT", links)
             self.assertIn("GPT", links)
@@ -71,8 +71,8 @@ class TestMarkdownParser(unittest.TestCase):
             This relates to #deep-learning and #nlp topics.
             """))
         try:
-            from src.parsers.md_parser import parse_markdown
-            paper, _, _ = parse_markdown(path)
+            from src.parsers.md_parser import MarkdownParser
+            paper, _, _ = MarkdownParser().parse(path)
             tags = paper.properties.get("tags", [])
             self.assertIn("deep-learning", tags)
             self.assertIn("nlp", tags)
@@ -86,8 +86,8 @@ class TestMarkdownParser(unittest.TestCase):
             Some content here.
             """))
         try:
-            from src.parsers.md_parser import parse_markdown
-            paper, _, _ = parse_markdown(path)
+            from src.parsers.md_parser import MarkdownParser
+            paper, _, _ = MarkdownParser().parse(path)
             self.assertEqual(paper.title, "Inferred Title")
         finally:
             os.unlink(path)
@@ -97,9 +97,9 @@ class TestMarkdownParser(unittest.TestCase):
         path1 = self._write_md("---\ntitle: Stable Title\n---\nContent 1")
         path2 = self._write_md("---\ntitle: Stable Title\n---\nContent 2")
         try:
-            from src.parsers.md_parser import parse_markdown
-            p1, _, _ = parse_markdown(path1)
-            p2, _, _ = parse_markdown(path2)
+            from src.parsers.md_parser import MarkdownParser
+            p1, _, _ = MarkdownParser().parse(path1)
+            p2, _, _ = MarkdownParser().parse(path2)
             self.assertEqual(p1.id, p2.id)
         finally:
             os.unlink(path1)
@@ -217,8 +217,9 @@ class TestIndexerMarkdownIntegration(unittest.TestCase):
 
         # Check references/citations were created
         # The reference/citation papers should be created as placeholders
-        ref_id = indexer._slugify("10.1109/CVPR.2016.90")
-        cit_id = indexer._slugify("10.18653/v1/N19-1423")
+        from src.models import slugify
+        ref_id = slugify("10.1109/CVPR.2016.90")
+        cit_id = slugify("10.18653/v1/N19-1423")
         
         ref_paper = self.graph_repo.get_paper(ref_id)
         cit_paper = self.graph_repo.get_paper(cit_id)
@@ -282,13 +283,13 @@ class TestIndexerMarkdownIntegration(unittest.TestCase):
         all_chunks_after = self.vector_repo.get_all_chunks()
         self.assertEqual(len(all_chunks_after), 1, "Chunks were deleted/lost during metadata reindexing!")
         self.assertEqual(all_chunks_after[0].id, "test_paper_id#0")
-    @patch("src.parsers.url_parser.parse_url")
-    def test_index_url_saves_local_copy(self, mock_parse_url):
+    @patch("src.parsers.url_parser.UrlParser.parse")
+    def test_index_url_saves_local_copy(self, mock_parse):
         from src.indexer import Indexer
         from src.models import Paper
         import os
 
-        # 1. Setup mock parse_url
+        # 1. Setup mock parse
         mock_paper = Paper(
             id="test_webpage",
             title="Test Webpage Title",
@@ -298,7 +299,7 @@ class TestIndexerMarkdownIntegration(unittest.TestCase):
             file_path="https://example.com/webpage",
             properties={"source_type": "webpage", "url": "https://example.com/webpage"}
         )
-        mock_parse_url.return_value = (mock_paper, "This is mock webpage content in Markdown.")
+        mock_parse.return_value = (mock_paper, [], "This is mock webpage content in Markdown.")
 
         # 2. Call index_url
         indexer = Indexer(self.graph_repo, self.vector_repo, self.emb_engine)

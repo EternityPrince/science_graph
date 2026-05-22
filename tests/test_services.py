@@ -134,7 +134,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         self.rag_service.llm_engine.generate_response.return_value = "Response from LLM"
         
         events = []
-        async for event in self.rag_service.stream_rag_response("question here", limit=1):
+        async for event in self.rag_service.generate_stream("question here", limit=1):
             events.append(event)
             
         self.assertTrue(len(events) > 1)

@@ -6,7 +6,8 @@ import fitz
 import pytest
 
 from src.config import config
-from src.indexer import compress_and_save_pdf
+from src.parsers.pdf_parser import PDFParser
+compress_and_save_pdf = PDFParser.compress_and_save_pdf
 
 def test_pdf_compression_success():
     # Create a temp PDF with a high-res image

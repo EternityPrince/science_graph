@@ -173,7 +173,10 @@ Answer in Russian:
         con.search_msg("Generating answer …")
         return self.llm_engine.generate_response(prompt)
 
-    async def stream_rag_response(self, question: str, limit: int = 5) -> AsyncGenerator[dict, None]:
+    async def generate_stream(self, question: str, limit: int = 5) -> AsyncGenerator[dict, None]:
+        import queue
+        import threading
+
         try:
             final_chunks = await asyncio.to_thread(self.retrieve_relevant_chunks, question, limit)
         except Exception as e:
@@ -201,31 +204,42 @@ Answer in Russian:
             "<|im_start|>assistant\n"
         )
 
-        try:
-            if hasattr(self.llm_engine, "model") and hasattr(self.llm_engine, "tokenizer") and self.llm_engine.model is not None:
-                from mlx_lm import stream_generate
-                
-                def _stream():
-                    return stream_generate(
+        token_queue = queue.Queue()
+
+        def run_mlx_stream():
+            try:
+                if hasattr(self.llm_engine, "model") and hasattr(self.llm_engine, "tokenizer") and self.llm_engine.model is not None:
+                    from mlx_lm import stream_generate
+                    gen = stream_generate(
                         model=self.llm_engine.model,
                         tokenizer=self.llm_engine.tokenizer,
                         prompt=prompt,
                         max_tokens=config.llm_max_tokens,
                     )
-                
-                gen = await asyncio.to_thread(_stream)
-                for response in gen:
-                    token_text = response.text if hasattr(response, "text") else str(response)
-                    if token_text:
-                        yield {"type": "token", "text": token_text}
-                        await asyncio.sleep(0)
-            else:
-                full_answer = await asyncio.to_thread(self.llm_engine.generate_response, prompt)
-                for word in full_answer.split(" "):
-                    yield {"type": "token", "text": word + " "}
-                    await asyncio.sleep(0.01)
-        except Exception as e:
-            yield {"type": "error", "text": f"Generation failed: {e}"}
-            return
+                    for response in gen:
+                        token_text = response.text if hasattr(response, "text") else str(response)
+                        if token_text:
+                            token_queue.put(token_text)
+                else:
+                    full_answer = self.llm_engine.generate_response(prompt)
+                    for word in full_answer.split(" "):
+                        token_queue.put(word + " ")
+            except Exception as e:
+                token_queue.put(e)
+            finally:
+                token_queue.put(None)
+
+        thread = threading.Thread(target=run_mlx_stream)
+        thread.start()
+
+        while True:
+            item = await asyncio.to_thread(token_queue.get)
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                yield {"type": "error", "text": f"Generation failed: {item}"}
+                return
+            yield {"type": "token", "text": item}
 
         yield {"type": "done"}
+

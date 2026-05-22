@@ -67,3 +67,90 @@ class SearchResultItem(BaseModel):
 
 class SearchResponse(BaseModel):
     results: List[SearchResultItem]
+
+class ExtensionStats(BaseModel):
+    extension: str
+    size: int
+    count: int
+
+class SourceStats(BaseModel):
+    source: str
+    size: int
+    count: int
+
+class StorageStats(BaseModel):
+    storage_dir: str
+    total_size: int
+    extensions: List[ExtensionStats]
+    sources: List[SourceStats]
+
+class StatsResponse(BaseModel):
+    papers: int
+    authors: int
+    concepts: int
+    edges: int
+    storage: Optional[StorageStats] = None
+
+class ConceptItem(BaseModel):
+    id: str
+    name: str
+
+class TagItem(BaseModel):
+    id: str
+    name: str
+
+class CitationItem(BaseModel):
+    id: str
+    title: str
+
+class PaperDetailResponse(BaseModel):
+    type: str = "paper"
+    id: str
+    title: str
+    authors: List[str] = Field(default_factory=list)
+    year: Optional[int] = None
+    doi: Optional[str] = None
+    abstract: Optional[str] = None
+    source_type: str = "paper"
+    concepts: List[ConceptItem] = Field(default_factory=list)
+    tags: List[TagItem] = Field(default_factory=list)
+    citations: List[CitationItem] = Field(default_factory=list)
+    cited_by: List[CitationItem] = Field(default_factory=list)
+    file_path: Optional[str] = None
+    summary: Optional[str] = None
+    created_at: Optional[str] = None
+
+class PaperBrief(BaseModel):
+    id: str
+    title: str
+    source_type: str = "paper"
+
+class AuthorDetailResponse(BaseModel):
+    type: str = "author"
+    id: str
+    name: str
+    papers: List[PaperBrief] = Field(default_factory=list)
+    papers_count: int
+
+class ConceptDetailResponse(BaseModel):
+    type: str
+    id: str
+    name: str
+    description: str
+    papers: List[PaperBrief] = Field(default_factory=list)
+    related: List[ConceptItem] = Field(default_factory=list)
+
+class UploadResponse(BaseModel):
+    status: str
+    id: str
+    filename: str
+
+class NoteCreateResponse(BaseModel):
+    status: str
+    id: str
+    file_path: str
+
+class OpenFileResponse(BaseModel):
+    status: str
+    message: str
+

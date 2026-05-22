@@ -68,7 +68,6 @@ class TestIndexerWikilinks(unittest.TestCase):
             # We expect a RELATED_TO edge directly from source_id to target_id (Attention Mechanism)
             # and a RELATED_TO edge to the concept "Quantum Computing"
             direct_paper_links = []
-            concept_links = []
             for src_id, src_label, edge_type, tgt_id, tgt_label, edge_props in neighbors:
                 if edge_type == "RELATED_TO":
                     # Determine neighbor node relative to source_id
@@ -81,13 +80,15 @@ class TestIndexerWikilinks(unittest.TestCase):
                         
                     if neighbor_label == "Paper":
                         direct_paper_links.append(neighbor_id)
-                    elif neighbor_label == "Concept":
-                        concept_links.append(neighbor_id)
 
             self.assertIn(target_id, direct_paper_links)
-            self.assertEqual(len(concept_links), 1)
-            # The concept id should be slugified "quantum_computing"
-            self.assertEqual(concept_links[0], "quantum_computing")
+            self.assertIn("quantum_computing", direct_paper_links)
+            
+            # Verify the missing target was created as a placeholder paper
+            placeholder = self.graph_repo.get_paper("quantum_computing")
+            self.assertIsNotNone(placeholder)
+            self.assertEqual(placeholder.title, "Quantum Computing")
+            self.assertTrue(placeholder.properties.get("is_placeholder"))
 
         finally:
             os.unlink(target_path)
