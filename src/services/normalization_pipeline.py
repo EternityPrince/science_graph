@@ -57,6 +57,8 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
     _spacy_attempted = True
     import os
     import sys
+    import subprocess
+    import shutil
     from src.config import config
     model_name = config.spacy_model_name
     try:
@@ -78,8 +80,7 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
                 from src import console as con
                 con.model_msg(f"spaCy model '{model_name}' is not installed. Attempting to download...")
                 
-                # Set environment variables to support uv and system Python environments
-                # when running outside of a virtual environment.
+                # Check if running in a virtual environment
                 in_virtual_env = (sys.prefix != sys.base_prefix) or ("VIRTUAL_ENV" in os.environ)
                 env_backup = {}
                 if not in_virtual_env:
@@ -90,7 +91,17 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
                     os.environ["PIP_BREAK_SYSTEM_PACKAGES"] = "true"
                 
                 try:
-                    spacy.cli.download(model_name)
+                    if not in_virtual_env:
+                        # Install with --system flag to avoid venv requirement
+                        model_pkg = f"spacy-{model_name.replace('_', '-')}"
+                        use_uv = shutil.which("uv") is not None
+                        if use_uv:
+                            cmd = ["uv", "pip", "install", "--system", model_pkg]
+                        else:
+                            cmd = [sys.executable, "-m", "pip", "install", "--system", model_pkg]
+                        subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    else:
+                        spacy.cli.download(model_name)
                 finally:
                     # Restore original environment
                     if not in_virtual_env:
@@ -213,7 +224,7 @@ class NormalizationPipeline:
         import re
         desc = description.strip()
         # Find closing think/thought tags
-        match = re.search(r'(</think>|</thought>)', desc, re.IGNORECASE)
+        match = re.search(r'(|</thought>)', desc, re.IGNORECASE)
         if match:
             desc = desc[match.end():].strip()
         # Strip any remaining tags
