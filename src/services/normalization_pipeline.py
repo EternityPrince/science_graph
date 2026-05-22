@@ -223,11 +223,11 @@ class NormalizationPipeline:
             return ""
         import re
         desc = description.strip()
-        # Find closing think/thought tags
-        match = re.search(r'(|</thought>)', desc, re.IGNORECASE)
-        if match:
-            desc = desc[match.end():].strip()
-        # Strip any remaining tags
+        # Remove closed think blocks (...)
+        desc = re.sub(r'.*?', '', desc, flags=re.DOTALL | re.IGNORECASE)
+        # Remove unclosed think blocks at the end
+        desc = re.sub(r'.*', '', desc, flags=re.DOTALL | re.IGNORECASE)
+        # Strip any remaining tags (just in case)
         desc = re.sub(r'</?(think|thought)>', '', desc, flags=re.IGNORECASE).strip()
         return desc
 
