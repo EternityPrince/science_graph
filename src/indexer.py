@@ -14,6 +14,8 @@ No direct sqlite3 access.
 import os
 import re
 import shutil
+import time
+import contextlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
@@ -86,14 +88,27 @@ class Indexer:
         self._extractor = ExtractionService(llm_engine=llm_engine)
         self._enricher = MetadataEnricher()
 
-    def index_pdf(self, file_path: str) -> str:
+    @contextlib.contextmanager
+    def _trace_stage(self, stage_name: str, trace_info: Optional[dict]):
+        """Context manager to measure and accumulate time taken by an ingestion stage."""
+        if trace_info is None:
+            yield
+        else:
+            t0 = time.perf_counter()
+            yield
+            dt = time.perf_counter() - t0
+            stages = trace_info.setdefault("stages", {})
+            stages[stage_name] = stages.get(stage_name, 0.0) + dt
+
+    def index_pdf(self, file_path: str, trace_info: Optional[dict] = None) -> str:
         """Runs the complete ingestion pipeline for a single PDF. Returns the paper ID."""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
         con.info(f"Parsing [bold]{os.path.basename(file_path)}[/bold]")
-        parser = ParserFactory.get_parser(file_path)
-        paper, raw_references, full_text = parser.parse(file_path)
+        with self._trace_stage("Document Parsing", trace_info):
+            parser = ParserFactory.get_parser(file_path)
+            paper, raw_references, full_text = parser.parse(file_path)
 
         # Determine archive path before enrichment (paper.id is stable)
         archive_dir = Path(config.archive_dir)
@@ -103,7 +118,8 @@ class Indexer:
 
         # NER fallback for author detection (PDF only, run early to populate paper.authors)
         if len(paper.authors) < 2:
-            paper.authors = self._ner_fallback_authors(paper.authors, file_path)
+            with self._trace_stage("NER Author Fallback", trace_info):
+                paper.authors = self._ner_fallback_authors(paper.authors, file_path)
 
         def _archive():
             self._archive_pdf(file_path, archive_path)
@@ -116,13 +132,15 @@ class Indexer:
             needs_enrichment=True,
             archive_fn=_archive,
             source_path=file_path,
+            trace_info=trace_info,
         )
 
-    def index_markdown(self, file_path: str) -> str:
+    def index_markdown(self, file_path: str, trace_info: Optional[dict] = None) -> str:
         """Indexes a Markdown note (.md) into the knowledge graph. Returns the note ID."""
         con.info(f"Parsing note [bold]{os.path.basename(file_path)}[/bold]")
-        parser = ParserFactory.get_parser(file_path)
-        paper, wiki_links, body = parser.parse(file_path)
+        with self._trace_stage("Document Parsing", trace_info):
+            parser = ParserFactory.get_parser(file_path)
+            paper, wiki_links, body = parser.parse(file_path)
 
         return self._run_pipeline(
             paper=paper,
@@ -132,13 +150,15 @@ class Indexer:
             needs_enrichment=False,
             archive_fn=None,
             source_path=file_path,
+            trace_info=trace_info,
         )
 
-    def index_epub(self, file_path: str) -> str:
+    def index_epub(self, file_path: str, trace_info: Optional[dict] = None) -> str:
         """Indexes an EPUB book into the knowledge graph. Returns the book ID."""
         con.info(f"Parsing EPUB [bold]{os.path.basename(file_path)}[/bold]")
-        parser = ParserFactory.get_parser(file_path)
-        paper, _, full_text = parser.parse(file_path)
+        with self._trace_stage("Document Parsing", trace_info):
+            parser = ParserFactory.get_parser(file_path)
+            paper, _, full_text = parser.parse(file_path)
 
         return self._run_pipeline(
             paper=paper,
@@ -148,13 +168,15 @@ class Indexer:
             needs_enrichment=False,
             archive_fn=None,
             source_path=file_path,
+            trace_info=trace_info,
         )
 
-    def index_url(self, url: str) -> str:
+    def index_url(self, url: str, trace_info: Optional[dict] = None) -> str:
         """Indexes a webpage URL into the knowledge graph. Returns the page ID."""
         con.info(f"Parsing URL [bold]{url}[/bold]")
-        parser = ParserFactory.get_parser(url)
-        paper, web_links, body = parser.parse(url)
+        with self._trace_stage("Document Parsing", trace_info):
+            parser = ParserFactory.get_parser(url)
+            paper, web_links, body = parser.parse(url)
 
         # Save local archive of the webpage
         archive_dir = Path(config.archive_dir)
@@ -176,7 +198,9 @@ class Indexer:
             needs_enrichment=False,
             archive_fn=None,
             source_path=None,
+            trace_info=trace_info,
         )
+
 
     def _run_pipeline(
         self,
@@ -187,6 +211,7 @@ class Indexer:
         needs_enrichment: bool,
         archive_fn: Optional[Callable[[], None]],
         source_path: Optional[str] = None,
+        trace_info: Optional[dict] = None,
     ) -> str:
         """
         Unified ingestion pipeline.
@@ -195,153 +220,160 @@ class Indexer:
         api_references: List[Dict] = []
         api_citations: List[Dict] = []
         if needs_enrichment:
-            api_meta = self._enricher.enrich(paper)
-            if api_meta:
-                paper, api_references, api_citations = self._enricher.apply(paper, api_meta)
+            with self._trace_stage("Metadata Enrichment", trace_info):
+                api_meta = self._enricher.enrich(paper)
+                if api_meta:
+                    paper, api_references, api_citations = self._enricher.apply(paper, api_meta)
 
         # ── Step 2: Extract concepts + tags ──
-        extraction: ExtractionResult = self._extractor.extract(
-            title=paper.title or "",
-            abstract=paper.abstract or "",
-            full_text=full_text,
-            use_llm=True,
-        )
-        # Merge any LLM-discovered authors into paper.authors
-        if extraction.authors:
-            existing = {a.lower() for a in paper.authors}
-            for a in extraction.authors:
-                if a.lower() not in existing:
-                    paper.authors.append(a)
-                    existing.add(a.lower())
+        with self._trace_stage("Concept & Tag Extraction", trace_info):
+            extraction: ExtractionResult = self._extractor.extract(
+                title=paper.title or "",
+                abstract=paper.abstract or "",
+                full_text=full_text,
+                use_llm=True,
+                trace_info=trace_info,
+            )
+            # Merge any LLM-discovered authors into paper.authors
+            if extraction.authors:
+                existing = {a.lower() for a in paper.authors}
+                for a in extraction.authors:
+                    if a.lower() not in existing:
+                        paper.authors.append(a)
+                        existing.add(a.lower())
 
-        # Apply extracted tags to paper properties, merging with existing tags
-        existing_tags = paper.properties.get("tags") or []
-        if extraction.tags:
-            seen_tags = {t.lower().strip() for t in existing_tags}
-            merged_tags = list(existing_tags)
-            for t in extraction.tags:
-                t_clean = t.strip()
-                if t_clean.lower() not in seen_tags:
-                    merged_tags.append(t_clean)
-                    seen_tags.add(t_clean.lower())
-            paper.properties["tags"] = merged_tags
+            # Apply extracted tags to paper properties, merging with existing tags
+            existing_tags = paper.properties.get("tags") or []
+            if extraction.tags:
+                seen_tags = {t.lower().strip() for t in existing_tags}
+                merged_tags = list(existing_tags)
+                for t in extraction.tags:
+                    t_clean = t.strip()
+                    if t_clean.lower() not in seen_tags:
+                        merged_tags.append(t_clean)
+                        seen_tags.add(t_clean.lower())
+                paper.properties["tags"] = merged_tags
 
-        # ── Step 3: Save Paper node ──
-        # INSERT OR REPLACE → upgrades placeholder if one already existed
-        self.graph_repo.save_paper(paper)
+        # ── Step 3: Save Paper node & Step 4-7: Persistence ──
+        with self._trace_stage("Graph Persistence", trace_info):
+            # ── Step 3: Save Paper node ──
+            self.graph_repo.save_paper(paper)
 
-        # ── Step 4: Save Author nodes + AUTHORED edges ──
-        for author_name in paper.authors:
-            author_id = slugify(author_name)
-            author = Author(id=author_id, name=author_name)
-            self.graph_repo.save_author(author)
-            self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
+            # ── Step 4: Save Author nodes + AUTHORED edges ──
+            for author_name in paper.authors:
+                author_id = slugify(author_name)
+                author = Author(id=author_id, name=author_name)
+                self.graph_repo.save_author(author)
+                self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
 
-        # ── Step 5: Concept nodes + MENTIONS_CONCEPT edges ──
-        for item in extraction.concepts:
-            c_name = item.get("name", "").strip()
-            if not c_name:
-                continue
-            c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name)
-            concept_id = slugify(c_name)
-            concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
-            self.graph_repo.save_concept(concept)
-            self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-
-        # ── Step 6: Tag nodes + HAS_TAG edges ──
-        for tag in paper.properties.get("tags") or []:
-            tag_id = slugify(tag)
-            if not tag_id:
-                continue
-            tag_desc = self._extractor.get_concept_description(tag)
-            tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
-            self.graph_repo.save_concept(tag_node)
-            self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
-
-        # ── Step 7: Wiki-links (is_markdown=True) or References (is_markdown=False) ──
-        if is_markdown:
-            for link_target in refs_or_links:
-                if link_target.startswith(("http://", "https://")):
-                    clean_target = link_target.replace("https://", "").replace("http://", "").strip("/")
-                    target_id = slugify(clean_target)
-                else:
-                    target_id = slugify(link_target)
-                if not target_id:
+            # ── Step 5: Concept nodes + MENTIONS_CONCEPT edges ──
+            for item in extraction.concepts:
+                c_name = item.get("name", "").strip()
+                if not c_name:
                     continue
-                if not self.graph_repo.get_paper(target_id):
-                    placeholder = Paper(
-                        id=target_id,
-                        title=link_target,
-                        authors=[],
-                        year=None,
-                        doi=None,
-                        properties={"is_placeholder": True}
+                c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name, trace_info=trace_info)
+                concept_id = slugify(c_name)
+                concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
+                self.graph_repo.save_concept(concept)
+                self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+
+            # ── Step 6: Tag nodes + HAS_TAG edges ──
+            for tag in paper.properties.get("tags") or []:
+                tag_id = slugify(tag)
+                if not tag_id:
+                    continue
+                tag_desc = self._extractor.get_concept_description(tag, trace_info=trace_info)
+                tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
+                self.graph_repo.save_concept(tag_node)
+                self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
+
+            # ── Step 7: Wiki-links (is_markdown=True) or References (is_markdown=False) ──
+            if is_markdown:
+                for link_target in refs_or_links:
+                    if link_target.startswith(("http://", "https://")):
+                        clean_target = link_target.replace("https://", "").replace("http://", "").strip("/")
+                        target_id = slugify(clean_target)
+                    else:
+                        target_id = slugify(link_target)
+                    if not target_id:
+                        continue
+                    if not self.graph_repo.get_paper(target_id):
+                        placeholder = Paper(
+                            id=target_id,
+                            title=link_target,
+                            authors=[],
+                            year=None,
+                            doi=None,
+                            properties={"is_placeholder": True}
+                        )
+                        self.graph_repo.save_paper(placeholder)
+                    self.graph_repo.add_edge(paper.id, target_id, "RELATED_TO")
+            else:
+                all_refs = api_references if (api_references or api_citations) else []
+                all_cits = api_citations if (api_references or api_citations) else []
+
+                for ref in all_refs:
+                    ref_title = ref.get("title")
+                    ref_doi = ref.get("doi")
+                    ref_id = slugify(ref_doi) if ref_doi else (
+                        slugify(ref_title[:120]) if ref_title else None
                     )
-                    self.graph_repo.save_paper(placeholder)
-                self.graph_repo.add_edge(paper.id, target_id, "RELATED_TO")
-        else:
-            all_refs = api_references if (api_references or api_citations) else []
-            all_cits = api_citations if (api_references or api_citations) else []
-
-            for ref in all_refs:
-                ref_title = ref.get("title")
-                ref_doi = ref.get("doi")
-                ref_id = slugify(ref_doi) if ref_doi else (
-                    slugify(ref_title[:120]) if ref_title else None
-                )
-                if ref_id:
-                    if not self.graph_repo.get_paper(ref_id):
-                        placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
-                        placeholder.properties["is_placeholder"] = True
-                        self.graph_repo.save_paper(placeholder)
-                    self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
-
-            for cit in all_cits:
-                cit_title = cit.get("title")
-                cit_doi = cit.get("doi")
-                cit_id = slugify(cit_doi) if cit_doi else (
-                    slugify(cit_title[:120]) if cit_title else None
-                )
-                if cit_id:
-                    if not self.graph_repo.get_paper(cit_id):
-                        placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
-                        placeholder.properties["is_placeholder"] = True
-                        self.graph_repo.save_paper(placeholder)
-                    self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
-
-            # Fallback: raw text references (PDF parsing fallback, no Semantic Scholar)
-            if not api_references and not api_citations:
-                for ref_str in refs_or_links:
-                    ref_clean = ref_str.strip()
-                    if len(ref_clean) > 10:
-                        ref_id = slugify(ref_clean[:120])
+                    if ref_id:
                         if not self.graph_repo.get_paper(ref_id):
-                            placeholder = Paper(id=ref_id, title=ref_clean[:120], authors=[], year=None, doi=None)
+                            placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
                             placeholder.properties["is_placeholder"] = True
                             self.graph_repo.save_paper(placeholder)
-                        self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"raw_text": ref_clean})
+                        self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
+
+                for cit in all_cits:
+                    cit_title = cit.get("title")
+                    cit_doi = cit.get("doi")
+                    cit_id = slugify(cit_doi) if cit_doi else (
+                        slugify(cit_title[:120]) if cit_title else None
+                    )
+                    if cit_id:
+                        if not self.graph_repo.get_paper(cit_id):
+                            placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
+                            placeholder.properties["is_placeholder"] = True
+                            self.graph_repo.save_paper(placeholder)
+                        self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
+
+                # Fallback: raw text references (PDF parsing fallback, no Semantic Scholar)
+                if not api_references and not api_citations:
+                    for ref_str in refs_or_links:
+                        ref_clean = ref_str.strip()
+                        if len(ref_clean) > 10:
+                            ref_id = slugify(ref_clean[:120])
+                            if not self.graph_repo.get_paper(ref_id):
+                                placeholder = Paper(id=ref_id, title=ref_clean[:120], authors=[], year=None, doi=None)
+                                placeholder.properties["is_placeholder"] = True
+                                self.graph_repo.save_paper(placeholder)
+                            self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"raw_text": ref_clean})
 
         # ── Step 8: Chunk + embed ──
-        con.dim(f"Chunking and embedding: {(paper.title or paper.id)[:60]}")
-        is_pdf = archive_fn is not None and (source_path or paper.file_path) and (source_path or paper.file_path).endswith(".pdf")
-        if is_pdf:
-            # For PDFs, split_text_to_chunks reads the actual file
-            chunks = split_text_to_chunks(paper.id, source_path or paper.file_path)
-        else:
-            chunks = _split_text_to_chunks_raw(paper.id, full_text)
+        with self._trace_stage("Chunking & Embedding", trace_info):
+            con.dim(f"Chunking and embedding: {(paper.title or paper.id)[:60]}")
+            is_pdf = archive_fn is not None and (source_path or paper.file_path) and (source_path or paper.file_path).endswith(".pdf")
+            if is_pdf:
+                # For PDFs, split_text_to_chunks reads the actual file
+                chunks = split_text_to_chunks(paper.id, source_path or paper.file_path)
+            else:
+                chunks = _split_text_to_chunks_raw(paper.id, full_text)
 
-        if chunks:
-            embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
-            for chunk, emb in zip(chunks, embeddings):
-                chunk.embedding = emb
-            self.vector_repo.save_chunks(chunks)
+            if chunks:
+                embeddings = self.emb_engine.get_embeddings([c.text_content for c in chunks])
+                for chunk, emb in zip(chunks, embeddings):
+                    chunk.embedding = emb
+                self.vector_repo.save_chunks(chunks)
 
         # ── Step 9: Archive ──
         if archive_fn is not None:
-            archive_fn()
+            with self._trace_stage("Archiving", trace_info):
+                archive_fn()
 
         # ── Step 10: Summary ──
-        self._extractor.generate_summary(paper, full_text, graph_repo=self.graph_repo)
+        with self._trace_stage("Summary Generation", trace_info):
+            self._extractor.generate_summary(paper, full_text, graph_repo=self.graph_repo, trace_info=trace_info)
 
         con.success(f"Indexed [bold]{(paper.title or paper.id)[:70]}[/bold] (ID: {paper.id[:12]}…)")
         return paper.id

@@ -28,8 +28,10 @@ class RAGService:
         from sentence_transformers import CrossEncoder
         con.model_msg("Loading reranker [bold]mxbai-rerank-xsmall-v1[/bold] …")
         with con.suppress_stderr(), con.suppress_stdout():
-            self._reranker = CrossEncoder("mixedbread-ai/mxbai-rerank-xsmall-v1")
-        con.success("Reranker ready")
+            import torch
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            self._reranker = CrossEncoder("mixedbread-ai/mxbai-rerank-xsmall-v1", device=device)
+        con.success(f"Reranker ready on {device.upper()}")
         return self._reranker
 
     def _resolve_node_name(self, node_id: str, label: str) -> str:

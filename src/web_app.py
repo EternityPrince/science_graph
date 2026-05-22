@@ -118,6 +118,41 @@ def get_note_service(
 
 app = FastAPI(title="Science Graph", version="0.1.0")
 
+
+@app.on_event("startup")
+async def startup_event():
+    # Pre-trigger loading of embedding engine, LLM engine and reranker in background
+    def preload():
+        try:
+            print("[*] Preloading EmbeddingEngine...")
+            emb = get_embedding_engine()
+        except Exception as e:
+            print(f"[!] Preloading EmbeddingEngine failed: {e}")
+            emb = None
+
+        try:
+            print("[*] Preloading LLMEngine...")
+            llm = get_llm_engine()
+        except Exception as e:
+            print(f"[!] Preloading LLMEngine failed: {e}")
+            llm = None
+
+        try:
+            print("[*] Preloading Reranker...")
+            if emb and llm:
+                graph_repo = get_graph_repo()
+                vector_repo = get_vector_repo()
+                rag = RAGService(graph_repo, vector_repo, emb, llm)
+                rag._get_reranker()
+                # Store globally to cache for subsequent API calls
+                global _rag_service_inst
+                _rag_service_inst = rag
+                print("[+] RAG preloading complete.")
+        except Exception as e:
+            print(f"[!] Preloading Reranker failed: {e}")
+
+    asyncio.create_task(asyncio.to_thread(preload))
+
 # Serve static files (frontend/ directory next to this file)
 _WEB_DIR = Path(__file__).parent / "frontend"
 

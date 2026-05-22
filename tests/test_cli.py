@@ -107,5 +107,57 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Row 12 selected", result.stdout)
 
+    @patch("typer.confirm")
+    @patch("src.cli.config")
+    def test_reset_command(self, mock_config, mock_confirm):
+        """Test reset CLI command with double confirmation prompts."""
+        import tempfile
+        from pathlib import Path
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            db_file = tmp_path / "test.db"
+            db_file.write_text("db content", encoding="utf-8")
+            
+            usearch_file = tmp_path / "test.usearch"
+            usearch_file.write_text("usearch content", encoding="utf-8")
+            
+            archive_dir = tmp_path / "archive"
+            archive_dir.mkdir()
+            (archive_dir / "paper.pdf").write_text("pdf content", encoding="utf-8")
+            
+            mock_config.db_path = str(db_file)
+            mock_config.archive_dir = str(archive_dir)
+            
+            # Case 1: First confirmation declined
+            mock_confirm.return_value = False
+            result = runner.invoke(app, ["reset"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Reset cancelled", result.stdout)
+            self.assertTrue(db_file.exists())
+            self.assertTrue(usearch_file.exists())
+            self.assertTrue((archive_dir / "paper.pdf").exists())
+            
+            # Case 2: First confirmation accepted, second declined
+            mock_confirm.side_effect = [True, False]
+            result = runner.invoke(app, ["reset"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Reset cancelled", result.stdout)
+            self.assertTrue(db_file.exists())
+            self.assertTrue(usearch_file.exists())
+            self.assertTrue((archive_dir / "paper.pdf").exists())
+            
+            # Case 3: Both confirmations accepted
+            mock_confirm.side_effect = None
+            mock_confirm.return_value = True
+            result = runner.invoke(app, ["reset"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Database and environment successfully reset", result.stdout)
+            self.assertFalse(db_file.exists())
+            self.assertFalse(usearch_file.exists())
+            self.assertFalse((archive_dir / "paper.pdf").exists())
+            self.assertTrue(archive_dir.exists())  # the directory itself should remain
+
+
 
 

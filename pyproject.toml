@@ -41,6 +41,8 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     # TUI
     "prompt-toolkit>=3.0.0",
+    "spacy>=3.8.14",
+    "lm-format-enforcer>=0.11.3",
 ]
 
 [project.scripts]

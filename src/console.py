@@ -41,7 +41,7 @@ _THEME = Theme(
         "accent":  "bold white",
         "label":   "bold cyan",
     },
-    inherit=False,
+    inherit=True,
 )
 
 console = Console(theme=_THEME, highlight=False)

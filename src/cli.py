@@ -51,10 +51,77 @@ def get_services(load_llm: bool = True, load_embeddings: bool = True):
 
 # ── index ─────────────────────────────────────────────────────────────────────
 
+def print_trace_table(source_name: str, trace_info: dict) -> None:
+    """Prints a premium, visually satisfying trace table for the ingestion stages."""
+    table = Table(
+        title=f"Ingestion Trace: {source_name}",
+        title_style="bold cyan",
+        show_header=True,
+        header_style="bold magenta",
+        show_footer=True,
+        box=box.ROUNDED,
+    )
+    table.add_column("Stage", footer="[accent]Total Duration[/accent]")
+    table.add_column("Duration", justify="right", style="yellow")
+    table.add_column("LLM Tokens", justify="right", style="bold magenta")
+
+    stages = trace_info.get("stages", {})
+    tokens = trace_info.get("tokens", {})
+
+    total_duration = sum(stages.values())
+    total_tokens = sum(tokens.values())
+
+    chronological_stages = [
+        "Document Parsing",
+        "NER Author Fallback",
+        "Metadata Enrichment",
+        "Concept & Tag Extraction",
+        "Graph Persistence",
+        "Chunking & Embedding",
+        "Archiving",
+        "Summary Generation",
+    ]
+
+    seen_stages = set()
+
+    for stage_name in chronological_stages:
+        if stage_name in stages or stage_name in tokens:
+            seen_stages.add(stage_name)
+            duration_val = stages.get(stage_name, 0.0)
+            duration_str = f"{duration_val:.3f}s" if stage_name in stages else "-"
+            token_val = tokens.get(stage_name, 0)
+            token_str = f"{token_val:,}" if token_val > 0 else "-"
+            table.add_row(stage_name, duration_str, token_str)
+
+    # Any other timing log
+    for stage_name, duration_val in stages.items():
+        if stage_name not in seen_stages:
+            seen_stages.add(stage_name)
+            token_val = tokens.get(stage_name, 0)
+            token_str = f"{token_val:,}" if token_val > 0 else "-"
+            table.add_row(stage_name, f"{duration_val:.3f}s", token_str)
+
+    # Any other token log
+    for token_stage, token_val in tokens.items():
+        if token_stage not in seen_stages:
+            table.add_row(token_stage, "-", f"{token_val:,}")
+
+    # Set footers for totals
+    table.columns[1].footer = f"[bold yellow]{total_duration:.3f}s[/bold yellow]"
+    table.columns[2].footer = f"[bold magenta]{total_tokens:,}[/bold magenta]" if total_tokens > 0 else "-"
+
+    con.blank()
+    con.console.print(table)
+    con.blank()
+
+
+# ── index ─────────────────────────────────────────────────────────────────────
+
 @app.command("index")
 def index(
     target: str = typer.Argument(..., help="Path to file, directory, or URL to index"),
     use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Use LLM to extract concepts (slower)"),
+    trace: bool = typer.Option(False, "--trace", "-t", help="Show detailed execution trace with timing and token count"),
 ):
     """Index PDF papers, Markdown notes (.md), EPUB books, or URLs into the knowledge graph."""
     graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
@@ -65,15 +132,28 @@ def index(
     def _index_file(path: Path) -> bool:
         t = path.suffix.lower().lstrip(".")
         try:
-            if t == "pdf":
-                indexer.index_pdf(str(path))
-            elif t == "md":
-                indexer.index_markdown(str(path))
-            elif t == "epub":
-                indexer.index_epub(str(path))
+            if trace:
+                trace_info = {"stages": {}, "tokens": {}}
+                if t == "pdf":
+                    indexer.index_pdf(str(path), trace_info=trace_info)
+                elif t == "md":
+                    indexer.index_markdown(str(path), trace_info=trace_info)
+                elif t == "epub":
+                    indexer.index_epub(str(path), trace_info=trace_info)
+                else:
+                    con.warning(f"Unknown file type '{t}' for {path.name}, skipping.")
+                    return False
+                print_trace_table(path.name, trace_info)
             else:
-                con.warning(f"Unknown file type '{t}' for {path.name}, skipping.")
-                return False
+                if t == "pdf":
+                    indexer.index_pdf(str(path))
+                elif t == "md":
+                    indexer.index_markdown(str(path))
+                elif t == "epub":
+                    indexer.index_epub(str(path))
+                else:
+                    con.warning(f"Unknown file type '{t}' for {path.name}, skipping.")
+                    return False
             return True
         except Exception as e:
             con.error(f"Failed to index {path.name}: {e}")
@@ -81,7 +161,12 @@ def index(
 
     if target.startswith("http://") or target.startswith("https://"):
         try:
-            indexer.index_url(target)
+            if trace:
+                trace_info = {"stages": {}, "tokens": {}}
+                indexer.index_url(target, trace_info=trace_info)
+                print_trace_table(target, trace_info)
+            else:
+                indexer.index_url(target)
         except Exception as e:
             con.error(f"Failed to index url {target}: {e}")
         return
@@ -797,6 +882,21 @@ def show_config():
     emb_table.add_row("Chunk overlap", str(config.chunk_overlap), "overlap between chunks")
     con.console.print(emb_table)
 
+    # ── NLP & Extraction ──────────────────────────────────────────────────────
+    nlp_table = Table(
+        title="🧠 NLP & Extraction Models (spacy & ner)",
+        box=rbox.ROUNDED, border_style="cyan",
+        show_header=True, header_style="bold cyan",
+        expand=True,
+    )
+    nlp_table.add_column("Model Task", style="bold white", min_width=18)
+    nlp_table.add_column("Model Name / Path")
+    nlp_table.add_column("Info", style="dim")
+
+    nlp_table.add_row("spaCy model", config.spacy_model_name, "lemmatization of concepts")
+    nlp_table.add_row("NER model", config.ner_model_name, "author name extraction")
+    con.console.print(nlp_table)
+
     # ── Environment ────────────────────────────────────────────────────────────
     env_table = Table(
         title="🌐 Environment",
@@ -1212,6 +1312,69 @@ def serve(
     )
 
 
+@app.command("extract-file")
+def extract_file(
+    target: str = typer.Argument(..., help="Path to text document"),
+    use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Use LLM to extract concepts"),
+):
+    """Extract authors, concepts, and tags from a text document and output as JSON graph."""
+    import sys
+    import re
+    # Redirect con output to stderr to keep stdout clean for JSON
+    old_file = con.console._file
+    con.console._file = sys.stderr
+    try:
+        path = Path(target)
+        if not path.exists():
+            con.error(f"File not found: {target}")
+            raise typer.Exit(1)
+            
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            con.error(f"Failed to read file: {e}")
+            raise typer.Exit(1)
+            
+        # Extract title, abstract, and body text
+        first_line = content.split('\n')[0].strip() if content else ""
+        if first_line.startswith("# "):
+            title = first_line.lstrip("# ").strip()
+            full_text = content[len(first_line):].strip()
+        else:
+            title = path.stem
+            full_text = content
+
+        paragraphs = [p.strip() for p in re.split(r'\n\n+', full_text) if p.strip()]
+        abstract = paragraphs[0][:800] if paragraphs else ""
+
+        # Load LLM engine if use_llm is True
+        llm_engine = None
+        if use_llm:
+            try:
+                llm_engine = LLMEngine()
+            except Exception as e:
+                con.warning(f"Could not load LLM engine: {e}. Falling back to regex extraction.")
+
+        from src.services.extraction_service import ExtractionService
+        extractor = ExtractionService(llm_engine=llm_engine)
+        
+        try:
+            result = extractor.extract(title, abstract, full_text, use_llm=use_llm)
+        except Exception as e:
+            con.error(f"Extraction failed: {e}")
+            raise typer.Exit(1)
+
+        output_dict = {
+            "authors": result.authors,
+            "concepts": result.concepts,
+            "tags": result.tags,
+        }
+        
+        sys.stdout.write(json.dumps(output_dict, indent=2, ensure_ascii=False) + "\n")
+    finally:
+        con.console._file = old_file
+
+
 @app.command("cleanup")
 def cleanup():
     """Remove orphaned Concept nodes with degree 0 (no connected papers/notes)."""
@@ -1222,6 +1385,70 @@ def cleanup():
         con.success(f"Successfully cleaned up [bold]{deleted_count}[/bold] orphaned concept nodes.")
     else:
         con.info("No orphaned concept nodes found in the database.")
+
+
+@app.command("reset")
+def reset():
+    """Completely reset the database, vector index, and local archives."""
+    con.warning("This will delete all papers, notes, concepts, embeddings, and cached files!")
+    
+    # First confirmation
+    first_confirm = typer.confirm("Are you sure you want to completely reset the database?", default=False)
+    if not first_confirm:
+        con.info("Reset cancelled.")
+        raise typer.Exit(0)
+        
+    # Second confirmation
+    second_confirm = typer.confirm("WARNING: This action is irreversible. Are you REALLY sure?", default=False)
+    if not second_confirm:
+        con.info("Reset cancelled.")
+        raise typer.Exit(0)
+
+    # Proceed with deletion
+    con.dim("Starting database reset...")
+    
+    # 1. Database path
+    db_path = Path(config.db_path)
+    if db_path.exists():
+        try:
+            db_path.unlink()
+            con.success(f"Deleted SQLite database: [dim]{db_path}[/dim]")
+        except Exception as e:
+            con.error(f"Failed to delete SQLite database: {e}")
+            
+    # Also delete WAL and shared memory files if they exist (graph.db-wal, graph.db-shm)
+    for suffix in ["-wal", "-shm"]:
+        side_file = Path(str(db_path) + suffix)
+        if side_file.exists():
+            try:
+                side_file.unlink()
+            except Exception:
+                pass
+                
+    # 2. Vector index path
+    usearch_path = Path(str(db_path).replace(".db", ".usearch"))
+    if usearch_path.exists():
+        try:
+            usearch_path.unlink()
+            con.success(f"Deleted vector index: [dim]{usearch_path}[/dim]")
+        except Exception as e:
+            con.error(f"Failed to delete vector index: {e}")
+            
+    # 3. Archive directory
+    archive_dir = Path(config.archive_dir)
+    if archive_dir.exists():
+        try:
+            import shutil
+            for child in archive_dir.iterdir():
+                if child.is_file() or child.is_symlink():
+                    child.unlink()
+                elif child.is_dir():
+                    shutil.rmtree(child)
+            con.success(f"Cleared archive directory: [dim]{archive_dir}[/dim]")
+        except Exception as e:
+            con.error(f"Failed to clear archive directory: {e}")
+            
+    con.success("Database and environment successfully reset to a pristine state.")
 
 
 if __name__ == "__main__":

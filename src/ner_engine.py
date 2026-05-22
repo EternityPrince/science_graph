@@ -53,9 +53,9 @@ def _is_model_cached(model_id: str) -> bool:
 class NEREngine:
     """Extracts PERSON entities from text using bert-base-NER."""
     
-    MODEL_ID = "dslim/bert-base-NER"
-    
     def __init__(self):
+        from src.config import config
+        self.model_id = config.ner_model_name
         self._pipeline = None
         self._load_model()
 
@@ -69,11 +69,11 @@ class NEREngine:
             os.environ["HF_TOKEN"] = hf_token
             os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
 
-        is_cached = _is_model_cached(self.MODEL_ID)
+        is_cached = _is_model_cached(self.model_id)
         if not is_cached:
-            con.info(f"Downloading NER model [bold]{self.MODEL_ID}[/bold] (one-time, ~400 MB)…")
+            con.info(f"Downloading NER model [bold]{self.model_id}[/bold] (one-time, ~400 MB)…")
         else:
-            con.model_msg(f"Loading NER model [bold]{self.MODEL_ID}[/bold] from cache…")
+            con.model_msg(f"Loading NER model [bold]{self.model_id}[/bold] from cache…")
 
         try:
             from transformers import pipeline
@@ -83,11 +83,11 @@ class NEREngine:
                 # Use 'first' strategy — more reliable for multi-token names than 'simple'
                 self._pipeline = pipeline(
                     "ner",
-                    model=self.MODEL_ID,
+                    model=self.model_id,
                     aggregation_strategy="first",
                     token=hf_token or None,
                 )
-            con.success(f"NER model ready: [bold]{self.MODEL_ID}[/bold]")
+            con.success(f"NER model ready: [bold]{self.model_id}[/bold]")
         except Exception as e:
             con.warning(f"NER model could not load ({e}). Falling back to regex extraction.")
             self._pipeline = None

@@ -15,8 +15,9 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.config import config
-from src.models import Paper
+from src.models import Paper, slugify
 from src import console as con
+from src.services.normalization_pipeline import NormalizationPipeline
 
 
 @dataclass
@@ -48,6 +49,7 @@ class ExtractionService:
 
     def __init__(self, llm_engine: Any = None) -> None:
         self.llm_engine = llm_engine
+        self.normalization_pipeline = NormalizationPipeline()
 
     @property
     def _tax(self) -> Dict[str, Any]:
@@ -63,6 +65,7 @@ class ExtractionService:
         abstract: str,
         full_text: str,
         use_llm: bool = True,
+        trace_info: Optional[dict] = None,
     ) -> ExtractionResult:
         """
         Extracts authors, concepts, and tags from the provided text.
@@ -72,13 +75,14 @@ class ExtractionService:
             abstract:  Document abstract (may be empty).
             full_text: Full document body text (used for keyword scan).
             use_llm:   Whether to attempt LLM-based extraction first.
+            trace_info: Optional dictionary to collect timing and token metrics.
 
         Returns:
             ExtractionResult with authors, concepts, and tags.
         """
         llm_result = None
         if use_llm and self.llm_engine:
-            llm_result = self._extract_via_llm(title, abstract, full_text)
+            llm_result = self._extract_via_llm(title, abstract, full_text, trace_info=trace_info)
 
         regex_result = self._extract_via_regex(title, abstract, full_text)
 
@@ -100,11 +104,11 @@ class ExtractionService:
                     llm_result.tags.append(t)
                     seen_tags.add(tag_key)
 
-            return llm_result
+            return self._normalize_extraction_result(llm_result)
 
-        return regex_result
+        return self._normalize_extraction_result(regex_result)
 
-    def get_concept_description(self, name: str) -> str:
+    def get_concept_description(self, name: str, trace_info: Optional[dict] = None) -> str:
         """
         Returns a one-sentence description for the given concept name.
 
@@ -124,6 +128,9 @@ class ExtractionService:
                     f"Provide a brief, one-sentence definition of the AI/ML concept "
                     f"or term: '{name}'. Do not write anything else. Keep it under 20 words."
                 )
+                if trace_info is not None:
+                    tokens_dict = trace_info.setdefault("tokens", {})
+                    tokens_dict["Concept description LLM calls"] = tokens_dict.get("Concept description LLM calls", 0) + self.llm_engine.count_tokens(prompt)
                 desc = self.llm_engine.generate_response(prompt, task="extraction").strip()
                 desc = re.sub(r'^["\']|["\']$', "", desc).strip()
                 if desc:
@@ -133,7 +140,13 @@ class ExtractionService:
 
         return f"A key concept representing '{name}' within the AI/ML literature."
 
-    def generate_summary(self, paper: Paper, full_text: str, graph_repo: Any = None) -> Optional[str]:
+    def generate_summary(
+        self,
+        paper: Paper,
+        full_text: str,
+        graph_repo: Any = None,
+        trace_info: Optional[dict] = None,
+    ) -> Optional[str]:
         """
         Generates an LLM summary for a paper and optionally persists it.
 
@@ -141,6 +154,7 @@ class ExtractionService:
             paper:      The Paper object whose summary is to be generated.
             full_text:  Full document text (used as context, first 4000 chars).
             graph_repo: If provided, saves the updated paper after generating summary.
+            trace_info: Optional dictionary to collect timing and token metrics.
 
         Returns:
             The generated summary string, or None if LLM is unavailable or fails.
@@ -159,6 +173,9 @@ class ExtractionService:
                 f"Content snippet:\n{sample_text}\n\n"
                 f"Provide a concise, professional markdown summary."
             )
+            if trace_info is not None:
+                tokens_dict = trace_info.setdefault("tokens", {})
+                tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
             summary = self.llm_engine.generate_response(prompt, task="synthesis")
             if summary:
                 paper.properties["summary"] = summary
@@ -171,41 +188,202 @@ class ExtractionService:
 
         return None
 
+    def split_text_semantically(
+        self, text: str, max_chunk_tokens: int, overlap_tokens: int
+    ) -> List[str]:
+        """Splits text into paragraph-aware chunks with overlap constraint."""
+        if not text:
+            return []
+
+        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        if not paragraphs:
+            paragraphs = [text.strip()]
+
+        def _tokens(t: str) -> int:
+            if self.llm_engine:
+                return self.llm_engine.count_tokens(t)
+            return len(t) // 4
+
+        chunks = []
+        current_chunk_paragraphs = []
+        current_tokens = 0
+
+        for paragraph in paragraphs:
+            p_tokens = _tokens(paragraph)
+            
+            if p_tokens > max_chunk_tokens:
+                if current_chunk_paragraphs:
+                    chunks.append("\n\n".join(current_chunk_paragraphs))
+                    current_chunk_paragraphs = []
+                    current_tokens = 0
+                
+                sub_paragraphs = [sp.strip() for sp in paragraph.split("\n") if sp.strip()]
+                for sp in sub_paragraphs:
+                    sp_tokens = _tokens(sp)
+                    if current_tokens + sp_tokens > max_chunk_tokens:
+                        if current_chunk_paragraphs:
+                            chunks.append("\n\n".join(current_chunk_paragraphs))
+                            
+                            overlap_paragraphs = []
+                            overlap_tokens_count = 0
+                            for op in reversed(current_chunk_paragraphs):
+                                op_tokens = _tokens(op)
+                                if overlap_tokens_count + op_tokens <= overlap_tokens:
+                                    overlap_paragraphs.insert(0, op)
+                                    overlap_tokens_count += op_tokens
+                                else:
+                                    break
+                            current_chunk_paragraphs = overlap_paragraphs
+                            current_tokens = overlap_tokens_count
+                            
+                        if sp_tokens > max_chunk_tokens:
+                            chunks.append(sp)
+                            current_chunk_paragraphs = []
+                            current_tokens = 0
+                            continue
+                            
+                    current_chunk_paragraphs.append(sp)
+                    current_tokens += sp_tokens
+                continue
+
+            if current_tokens + p_tokens > max_chunk_tokens:
+                if current_chunk_paragraphs:
+                    chunks.append("\n\n".join(current_chunk_paragraphs))
+                    
+                    overlap_paragraphs = []
+                    overlap_tokens_count = 0
+                    for op in reversed(current_chunk_paragraphs):
+                        op_tokens = _tokens(op)
+                        if overlap_tokens_count + op_tokens <= overlap_tokens:
+                            overlap_paragraphs.insert(0, op)
+                            overlap_tokens_count += op_tokens
+                        else:
+                            break
+                    current_chunk_paragraphs = overlap_paragraphs
+                    current_tokens = overlap_tokens_count
+
+            current_chunk_paragraphs.append(paragraph)
+            current_tokens += p_tokens
+
+        if current_chunk_paragraphs:
+            chunks.append("\n\n".join(current_chunk_paragraphs))
+
+        return chunks
+
     # ──────────────────────────────────────────────────────────────────────────
     # Private helpers
     # ──────────────────────────────────────────────────────────────────────────
 
     def _extract_via_llm(
-        self, title: str, abstract: str, full_text: str
+        self, title: str, abstract: str, full_text: str, trace_info: Optional[dict] = None
     ) -> Optional[ExtractionResult]:
-        """Attempts LLM-based extraction. Returns None on any failure."""
-        try:
-            sample = f"{title}\n\n{abstract}\n\n{full_text[:4000]}"
-            llm_data = self.llm_engine.extract_concepts_and_metadata(sample)
-            if not llm_data:
-                return None
-
-            raw_concepts = llm_data.get("concepts", [])
-            concepts = []
-            for item in raw_concepts:
-                c_name = item.get("name", "").strip()
-                if not c_name:
-                    continue
-                c_desc = (
-                    item.get("description", "").strip()
-                    or self.get_concept_description(c_name)
-                )
-                concepts.append({"name": c_name, "description": c_desc})
-
-            return ExtractionResult(
-                authors=llm_data.get("authors", []),
-                concepts=concepts,
-                tags=llm_data.get("tags", []),
-                via_llm=True,
-            )
-        except Exception as e:
-            con.warning(f"LLM extraction failed, falling back to regex: {e}")
+        """Attempts LLM-based extraction. Uses Map-Reduce if text is too long."""
+        if not self.llm_engine:
             return None
+
+        total_text = f"{title}\n\n{abstract}\n\n{full_text}"
+        limit = config.llm_extraction_input_limit
+        threshold = int(0.85 * limit)
+        
+        def _get_tokens(text: str) -> int:
+            cnt = self.llm_engine.count_tokens(text)
+            if not isinstance(cnt, (int, float)):
+                return len(text) // 4
+            return int(cnt)
+        
+        total_tokens = 0
+        if _get_tokens(total_text) > threshold:
+            con.info("Input text exceeds 85% of context window limit. Using Map-Reduce extraction.")
+            
+            prefix = f"{title}\n\n{abstract}\n\n"
+            prefix_tokens = _get_tokens(prefix)
+            
+            chunk_budget = threshold - prefix_tokens
+            max_chunk_tokens = max(chunk_budget, 1000)
+            overlap_tokens = int(max_chunk_tokens * 0.15)
+            
+            chunks = self.split_text_semantically(full_text, max_chunk_tokens, overlap_tokens)
+            con.info(f"Split document into {len(chunks)} semantic chunks for map phase.")
+            
+            all_authors = []
+            all_concepts = {}
+            all_tags = []
+            
+            for idx, chunk in enumerate(chunks):
+                con.dim(f"Extracting concepts from chunk {idx + 1}/{len(chunks)}...")
+                chunk_text = f"{prefix}{chunk}"
+                
+                # Accumulate tokens for this chunk's LLM call
+                total_tokens += _get_tokens(chunk_text)
+                
+                llm_data = self.llm_engine.extract_concepts_and_metadata(chunk_text)
+                if not llm_data:
+                    continue
+                
+                all_authors.extend(llm_data.get("authors", []))
+                
+                for item in llm_data.get("concepts", []):
+                    c_name = item.get("name", "").strip()
+                    if not c_name:
+                        continue
+                    c_desc = item.get("description", "").strip()
+                    slug = slugify(c_name)
+                    if slug:
+                        if slug in all_concepts:
+                            if len(c_desc) > len(all_concepts[slug]["description"]):
+                                all_concepts[slug] = {"name": c_name, "description": c_desc}
+                        else:
+                            all_concepts[slug] = {"name": c_name, "description": c_desc}
+                            
+                all_tags.extend(llm_data.get("tags", []))
+                
+            concepts = list(all_concepts.values())
+            
+            if trace_info is not None:
+                tokens_dict = trace_info.setdefault("tokens", {})
+                tokens_dict["Concept & Tag Extraction"] = tokens_dict.get("Concept & Tag Extraction", 0) + total_tokens
+            
+            return ExtractionResult(
+                authors=list(set(all_authors)),
+                concepts=concepts,
+                tags=list(set(all_tags)),
+                via_llm=True
+            )
+            
+        else:
+            try:
+                # Accumulate tokens for the single call
+                total_tokens = _get_tokens(total_text)
+                
+                llm_data = self.llm_engine.extract_concepts_and_metadata(total_text)
+                if not llm_data:
+                    return None
+
+                raw_concepts = llm_data.get("concepts", [])
+                concepts = []
+                for item in raw_concepts:
+                    c_name = item.get("name", "").strip()
+                    if not c_name:
+                        continue
+                    c_desc = (
+                        item.get("description", "").strip()
+                        or self.get_concept_description(c_name, trace_info=trace_info)
+                    )
+                    concepts.append({"name": c_name, "description": c_desc})
+
+                if trace_info is not None:
+                    tokens_dict = trace_info.setdefault("tokens", {})
+                    tokens_dict["Concept & Tag Extraction"] = tokens_dict.get("Concept & Tag Extraction", 0) + total_tokens
+
+                return ExtractionResult(
+                    authors=llm_data.get("authors", []),
+                    concepts=concepts,
+                    tags=llm_data.get("tags", []),
+                    via_llm=True,
+                )
+            except Exception as e:
+                con.warning(f"LLM extraction failed, falling back to regex: {e}")
+                return None
 
     def _extract_via_regex(
         self, title: str, abstract: str, full_text: str
@@ -229,3 +407,32 @@ class ExtractionService:
                     tags.append(tag_name)
 
         return ExtractionResult(concepts=concepts, tags=tags, via_llm=False)
+
+    def _normalize_extraction_result(self, result: ExtractionResult) -> ExtractionResult:
+        from src.llm_schemas import LLMExtractionResponse, LLMConcept
+        
+        concepts = [
+            LLMConcept(name=c["name"], description=c.get("description", ""))
+            for c in result.concepts
+        ]
+        
+        response_model = LLMExtractionResponse(
+            authors=result.authors,
+            concepts=concepts,
+            tags=result.tags
+        )
+        
+        normalized_response = self.normalization_pipeline.normalize_extraction_response(response_model)
+        
+        normalized_concepts = [
+            {"name": c.name, "description": c.description}
+            for c in normalized_response.concepts
+        ]
+        
+        return ExtractionResult(
+            authors=normalized_response.authors,
+            concepts=normalized_concepts,
+            tags=normalized_response.tags,
+            via_llm=result.via_llm
+        )
+

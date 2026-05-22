@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import json
+from typing import Optional, Type
+from pydantic import BaseModel
 
 from src.llm_schemas import (
     validate_extraction_response,
@@ -154,6 +156,15 @@ class DummyEngine(BaseLLMEngine):
     def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
         return self.response
 
+    def generate_json(
+        self,
+        prompt: str,
+        schema_class: Type[BaseModel],
+        temp: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        return self.response
+
 
 class TestLLMEngineIntegration(unittest.TestCase):
     def setUp(self):
@@ -254,3 +265,45 @@ class TestLLMEngineIntegration(unittest.TestCase):
         raw_output = "[\"item1\", \"item2\"] with extra text [ignored]"
         cleaned = self.engine._clean_json_response(raw_output)
         self.assertEqual(cleaned, "[\"item1\", \"item2\"]")
+
+    def test_strip_thinking_tokens(self):
+        """Test strip_thinking_tokens removes both closed and unclosed thinking blocks."""
+        from src.llm_engine import strip_thinking_tokens
+
+        # 1. Normal text
+        self.assertEqual(strip_thinking_tokens("hello world"), "hello world")
+        self.assertEqual(strip_thinking_tokens(""), "")
+        self.assertEqual(strip_thinking_tokens(None), None)
+
+        # 2. Closed block
+        self.assertEqual(strip_thinking_tokens("<think>thinking process</think>hello world"), "hello world")
+
+        # 3. Multiline closed block
+        multiline = (
+            "<think>\n"
+            "thinking\n"
+            "process\n"
+            "</think>\n"
+            "hello world"
+        )
+        self.assertEqual(strip_thinking_tokens(multiline), "hello world")
+
+        # 4. Unclosed trailing block
+        unclosed = (
+            "hello world\n"
+            "<think>\n"
+            "incomplete thinking"
+        )
+        self.assertEqual(strip_thinking_tokens(unclosed), "hello world")
+
+        # 5. Only thinking
+        only_thinking = "<think>only this</think>"
+        self.assertEqual(strip_thinking_tokens(only_thinking), "")
+
+        # 6. Unclosed only thinking
+        unclosed_only = "<think>only this"
+        self.assertEqual(strip_thinking_tokens(unclosed_only), "")
+
+        # 7. Multiple thinking blocks
+        multiple = "<think>first</think> hello <think>second</think> world"
+        self.assertEqual(strip_thinking_tokens(multiple), "hello  world")

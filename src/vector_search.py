@@ -11,9 +11,11 @@ class EmbeddingEngine:
         short = self.model_name.split("/")[-1]
         con.model_msg(f"Loading embeddings [bold]{short}[/bold] …")
         with con.suppress_stderr(), con.suppress_stdout():
+            import torch
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer(self.model_name)
-        con.success(f"Embeddings ready: [bold]{short}[/bold]")
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            self.model = SentenceTransformer(self.model_name, device=device)
+        con.success(f"Embeddings ready: [bold]{short}[/bold] on {device.upper()}")
 
     def get_embedding(self, text: str) -> List[float]:
         """Generates embedding for a single text string."""

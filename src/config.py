@@ -31,6 +31,12 @@ DEFAULT_CONFIG = {
         "chunk_size": 1000,
         "chunk_overlap": 200
     },
+    "spacy": {
+        "model_name": "en_core_web_sm"
+    },
+    "ner": {
+        "model_name": "dslim/bert-base-NER"
+    },
     "pdf_compression": {
         "enabled": True,
         "dpi_threshold": 151,
@@ -114,6 +120,16 @@ embedding:
 
   # Number of characters overlap between consecutive chunks
   chunk_overlap: 200
+
+# spaCy model configuration (used for lemmatization)
+spacy:
+  # spaCy model name (e.g. "en_core_web_sm") or path
+  model_name: "en_core_web_sm"
+
+# NER model configuration (used for name extraction)
+ner:
+  # NER model name or HuggingFace repo ID or local path
+  model_name: "dslim/bert-base-NER"
 
 # PDF compression settings (used to downsample high-DPI scanned PDFs)
 pdf_compression:
@@ -216,6 +232,14 @@ pdf_compression:
     @property
     def chunk_overlap(self) -> int:
         return self.data["embedding"]["chunk_overlap"]
+
+    @property
+    def spacy_model_name(self) -> str:
+        return self.data.get("spacy", {}).get("model_name", "en_core_web_sm")
+
+    @property
+    def ner_model_name(self) -> str:
+        return self.data.get("ner", {}).get("model_name", "dslim/bert-base-NER")
 
     @property
     def pdf_compression_enabled(self) -> bool:

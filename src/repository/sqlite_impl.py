@@ -17,8 +17,9 @@ class SQLiteGraphRepository(GraphRepository):
         self._init_db()
 
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -616,8 +617,9 @@ class SQLiteVectorRepository(VectorRepository):
         self._usearch_index = None
 
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -794,7 +796,9 @@ class SQLiteVectorRepository(VectorRepository):
             return []
             
         q_vec = np.array(query_embedding, dtype=np.float32)
-        matches = index.search(q_vec, limit)
+        # Fetch more candidates to account for deleted/ghost vectors
+        search_limit = max(limit * 3, 50)
+        matches = index.search(q_vec, search_limit)
         
         if len(matches) == 0:
             return []
@@ -812,6 +816,9 @@ class SQLiteVectorRepository(VectorRepository):
         
         results = []
         for r in rows:
+            h = r["id_hash"]
+            if h not in key_to_dist:
+                continue
             emb_array = np.frombuffer(r["embedding"], dtype=np.float32)
             chunk = Chunk(
                 id=r["id"],
@@ -820,7 +827,7 @@ class SQLiteVectorRepository(VectorRepository):
                 page_number=r["page_number"],
                 embedding=emb_array.tolist()
             )
-            dist = key_to_dist.get(r["id_hash"], 1.0)
+            dist = key_to_dist[h]
             similarity = 1.0 - dist
             results.append((chunk, similarity))
             
