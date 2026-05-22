@@ -57,8 +57,6 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
     _spacy_attempted = True
     import os
     import sys
-    import subprocess
-    import shutil
     from src.config import config
     model_name = config.spacy_model_name
     try:
@@ -91,17 +89,9 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
                     os.environ["PIP_BREAK_SYSTEM_PACKAGES"] = "true"
                 
                 try:
-                    if not in_virtual_env:
-                        # Install with --system flag to avoid venv requirement
-                        model_pkg = f"spacy-{model_name.replace('_', '-')}"
-                        use_uv = shutil.which("uv") is not None
-                        if use_uv:
-                            cmd = ["uv", "pip", "install", "--system", model_pkg]
-                        else:
-                            cmd = [sys.executable, "-m", "pip", "install", "--system", model_pkg]
-                        subprocess.run(cmd, check=True, capture_output=True, text=True)
-                    else:
-                        spacy.cli.download(model_name)
+                    # Always use spacy.cli.download – it uses pip internally,
+                    # which respects the environment variables set above.
+                    spacy.cli.download(model_name)
                 finally:
                     # Restore original environment
                     if not in_virtual_env:
