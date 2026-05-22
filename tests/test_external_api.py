@@ -93,3 +93,22 @@ class TestExternalAPI(unittest.TestCase):
         self.assertEqual(result["title"], "Attention Is All You Need")
         self.assertEqual(result["year"], 2017)
 
+    def test_normalize_response_with_null_fields(self):
+        raw_data = {
+            "title": "Null Fields Paper",
+            "authors": None,
+            "externalIds": None,
+            "references": None,
+            "citations": None,
+            "year": 2026,
+            "abstract": None
+        }
+        res = _normalize_response(raw_data)
+        self.assertEqual(res["title"], "Null Fields Paper")
+        self.assertEqual(res["authors"], [])
+        self.assertEqual(res["references"], [])
+        self.assertEqual(res["citations"], [])
+        self.assertIsNone(res["doi"])
+        self.assertEqual(res["year"], 2026)
+        self.assertIsNone(res["abstract"])
+

@@ -1288,3 +1288,47 @@
       border-radius: var(--radius-sm);
       padding: 12px;
     }
+    
+    /* Interactive Timestamps & Video Player Container */
+    .timestamp-btn {
+      background: rgba(244, 63, 94, 0.1);
+      color: var(--col-video);
+      border: 1px solid rgba(244, 63, 94, 0.2);
+      border-radius: var(--radius-sm);
+      padding: 2px 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      margin-right: 4px;
+      display: inline-block;
+      transition: all var(--transition);
+    }
+    .timestamp-btn:hover {
+      background: var(--col-video);
+      color: #fff;
+      border-color: var(--col-video);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(244, 63, 94, 0.3);
+    }
+    .video-player-container {
+      position: relative;
+      width: 100%;
+      padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
+      height: 0;
+      overflow: hidden;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      margin-top: 12px;
+      margin-bottom: 12px;
+      background: #000;
+    }
+    .video-player-container iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+

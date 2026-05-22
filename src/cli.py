@@ -16,7 +16,7 @@ from rich import box
 
 from src import console as con
 from src.config import config
-from src.indexer import Indexer
+from src.indexer import Indexer, DuplicateDocumentError
 from src.llm_engine import LLMEngine
 from src.rag import RAGPipeline
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
@@ -157,6 +157,9 @@ def index(
                     con.warning(f"Unknown file type '{t}' for {path.name}, skipping.")
                     return False
             return True
+        except DuplicateDocumentError as e:
+            con.warning(f"Duplicate detected: {e}")
+            return False
         except Exception as e:
             con.error(f"Failed to index {path.name}: {e}")
             return False
@@ -169,6 +172,8 @@ def index(
                 print_trace_table(target, trace_info)
             else:
                 indexer.index_url(target)
+        except DuplicateDocumentError as e:
+            con.warning(f"Duplicate detected: {e}")
         except Exception as e:
             con.error(f"Failed to index url {target}: {e}")
         return

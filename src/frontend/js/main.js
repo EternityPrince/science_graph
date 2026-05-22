@@ -304,6 +304,29 @@ onNoteSaved(async () => {
   await updateDashboardLists();
 });
 
+// Expose seekVideo globally to allow inline onclick handlers in transcript buttons to seek the iframe player
+window.seekVideo = function(videoId, seconds) {
+  const iframe = document.getElementById(`yt-player-${videoId}`);
+  if (iframe) {
+    iframe.src = `https://www.youtube.com/embed/${videoId}?start=${seconds}&autoplay=1&enablejsapi=1&rel=0`;
+  }
+};
+
+/**
+ * Format timestamps in text like [MM:SS] or [HH:MM:SS] as clickable buttons that seek the video.
+ */
+function formatTextWithTimestamps(htmlStr, videoId) {
+  if (!htmlStr) return '';
+  const regex = /\[(?:(\d{1,2}):)?(\d{2}):(\d{2})\]/g;
+  return htmlStr.replace(regex, (match, hh, mm, ss) => {
+    const hours = hh ? parseInt(hh, 10) : 0;
+    const minutes = parseInt(mm, 10);
+    const seconds = parseInt(ss, 10);
+    const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+    return `<button class="timestamp-btn" onclick="window.seekVideo('${escapeSingleQuotes(videoId)}', ${totalSeconds})">${match}</button>`;
+  });
+}
+
 // ── Node Details panel polymorphic rendering ──────────────────────────────────
 export async function showNodeDetails(nodeId) {
   const panel = document.getElementById('details-panel');
@@ -331,8 +354,8 @@ function renderDetails(panel, d) {
         </h3>
         <div class="details-row" style="margin-top: 10px;">
           <div class="details-field">
-            <div class="details-label">Количество публикаций</div>
-            <div class="details-value">${d.papers_count}</div>
+            <div class="details-label">Биография / Описание</div>
+            <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${escapeHtml(d.description)}</div>
           </div>
         </div>
       </div>`;
@@ -340,7 +363,7 @@ function renderDetails(panel, d) {
     if (d.papers?.length) {
       const typeIcon = { paper: '📄', note: '📝', book: '📚' };
       html += `<div class="details-card">
-        <h3>📚 Публикации</h3>
+        <h3>📚 Работы автора</h3>
         <div class="details-row" style="margin-top: 10px; gap: 10px;">
           ${d.papers.map(p => `
             <div class="details-value" style="font-size:13px; cursor:pointer; display:flex; gap:6px; align-items:center;" onclick="focusAndDetails('${escapeHtml(p.id)}')">
@@ -458,6 +481,16 @@ function renderDetails(panel, d) {
           <span class="details-badge badge-video">Видео</span>
           ${escapeHtml(d.title)}
         </h3>
+        ${props.video_id ? `
+          <div class="video-player-container">
+            <iframe 
+              id="yt-player-${props.video_id}"
+              src="https://www.youtube.com/embed/${props.video_id}?enablejsapi=1&rel=0" 
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+              allowfullscreen>
+            </iframe>
+          </div>
+        ` : ''}
         <div class="details-row" style="margin-top: 10px;">
           ${uploader ? `<div class="details-field"><div class="details-label">Автор</div><div class="details-value">${escapeHtml(uploader)}</div></div>` : ''}
           ${publishDate ? `<div class="details-field"><div class="details-label">Дата</div><div class="details-value">${publishDate}</div></div>` : ''}
@@ -467,23 +500,28 @@ function renderDetails(panel, d) {
       </div>`;
 
     if (props.video_overview || props.video_themes || props.video_outline || props.transcript) {
-      const overviewHtml = props.video_overview ? `<p style="font-size: 13px; color: var(--text2); line-height: 1.6;">${escapeHtml(props.video_overview).replace(/\n/g, '<br>')}</p>` : '<p style="color:var(--text3)">Нет обзора</p>';
+      const overviewRaw = props.video_overview ? `<p style="font-size: 13px; color: var(--text2); line-height: 1.6;">${escapeHtml(props.video_overview).replace(/\n/g, '<br>')}</p>` : '<p style="color:var(--text3)">Нет обзора</p>';
+      const overviewHtml = props.video_id ? formatTextWithTimestamps(overviewRaw, props.video_id) : overviewRaw;
       
       let themesHtml = '';
       if (props.video_themes && Array.isArray(props.video_themes) && props.video_themes.length) {
-        themesHtml = props.video_themes.map(t => `<div class="video-theme-item">${parseWikiLinks(escapeHtml(t))}</div>`).join('');
+        const rawThemes = props.video_themes.map(t => `<div class="video-theme-item">${parseWikiLinks(escapeHtml(t))}</div>`).join('');
+        themesHtml = props.video_id ? formatTextWithTimestamps(rawThemes, props.video_id) : rawThemes;
       } else {
         themesHtml = '<div style="color:var(--text3); font-size:12px;">Нет тем</div>';
       }
 
       let outlineHtml = '';
       if (props.video_outline && Array.isArray(props.video_outline) && props.video_outline.length) {
-        outlineHtml = props.video_outline.map(o => `<div class="video-outline-item">${parseWikiLinks(escapeHtml(o))}</div>`).join('');
+        const rawOutline = props.video_outline.map(o => `<div class="video-outline-item">${parseWikiLinks(escapeHtml(o))}</div>`).join('');
+        outlineHtml = props.video_id ? formatTextWithTimestamps(rawOutline, props.video_id) : rawOutline;
       } else {
         outlineHtml = '<div style="color:var(--text3); font-size:12px;">Нет конспекта</div>';
       }
 
       const transcriptText = props.transcript || 'Транскрипт отсутствует';
+      const escapedTranscript = escapeHtml(transcriptText);
+      const formattedTranscript = props.video_id ? formatTextWithTimestamps(escapedTranscript, props.video_id) : escapedTranscript;
       
       html += `
         <div class="details-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
@@ -504,7 +542,7 @@ function renderDetails(panel, d) {
             ${outlineHtml}
           </div>
           <div class="sidebar-tab-content" data-tab="transcript" style="padding: 16px; display: none;">
-            <div class="video-transcript-box">${escapeHtml(transcriptText)}</div>
+            <div class="video-transcript-box">${formattedTranscript}</div>
           </div>
         </div>
       `;

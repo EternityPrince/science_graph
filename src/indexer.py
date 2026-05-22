@@ -72,6 +72,13 @@ def _split_text_to_chunks_raw(
     return chunks
 
 
+class DuplicateDocumentError(ValueError):
+    """Exception raised when an ingested document is detected as already existing in the database."""
+    def __init__(self, message: str, duplicate_paper_id: str):
+        super().__init__(message)
+        self.duplicate_paper_id = duplicate_paper_id
+
+
 class Indexer:
     def __init__(
         self,
@@ -87,6 +94,161 @@ class Indexer:
 
         self._extractor = ExtractionService(llm_engine=llm_engine)
         self._enricher = MetadataEnricher()
+
+    def detect_duplicate(self, paper: Paper, full_text: str) -> Optional[Tuple[str, str]]:
+        """
+        Detects if the given paper/document is already present in the database.
+        Returns:
+            Optional[Tuple[str, str]]: (duplicate_paper_id, matching_reason) if a duplicate is found,
+                                       else None.
+        """
+        import hashlib
+
+        # Helper to check if a paper is a placeholder
+        def is_placeholder(p: Paper) -> bool:
+            if not p:
+                return False
+            return bool(p.properties.get("placeholder") or p.properties.get("is_placeholder"))
+
+        # 1. Exact ID check
+        existing = self.graph_repo.get_paper(paper.id)
+        if existing and not is_placeholder(existing):
+            return existing.id, "exact_id"
+
+        # 2. DOI check
+        if paper.doi:
+            existing_doi = self.graph_repo.find_paper_by_doi(paper.doi)
+            if existing_doi and not is_placeholder(existing_doi):
+                return existing_doi.id, "doi"
+
+        # 3. Content Hash check (for incoming text)
+        content_hash = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
+        existing_hash = self.graph_repo.find_paper_by_content_hash(content_hash)
+        if existing_hash and not is_placeholder(existing_hash):
+            return existing_hash.id, "content_hash"
+
+        # Helper for Jaccard similarity of author lists
+        def author_jaccard_similarity(authors1: List[str], authors2: List[str]) -> float:
+            set1 = {slugify(a) for a in authors1 if slugify(a)}
+            set2 = {slugify(a) for a in authors2 if slugify(a)}
+            if not set1 and not set2:
+                return 1.0
+            if not set1 or not set2:
+                return 0.0
+            return len(set1.intersection(set2)) / len(set1.union(set2))
+
+        # Helper for 3-word shingles
+        def get_3_shingles(text: str) -> set:
+            words = re.findall(r'\b\w+\b', text.lower())
+            shingles = set()
+            for i in range(len(words) - 2):
+                shingles.add((words[i], words[i+1], words[i+2]))
+            return shingles
+
+        # Helper for word Jaccard similarity
+        def word_jaccard_similarity(text1: str, text2: str) -> float:
+            words1 = set(re.findall(r'\b\w+\b', text1.lower()))
+            words2 = set(re.findall(r'\b\w+\b', text2.lower()))
+            if not words1 and not words2:
+                return 1.0
+            if not words1 or not words2:
+                return 0.0
+            return len(words1.intersection(words2)) / len(words1.union(words2))
+
+        # Helper to reconstruct text from chunks
+        def reconstruct_text(paper_id: str) -> str:
+            chunks = self.vector_repo.get_chunks_for_paper(paper_id)
+            def get_idx(chunk):
+                try:
+                    return int(chunk.id.split('#')[-1])
+                except Exception:
+                    return chunk.id
+            chunks_sorted = sorted(chunks, key=get_idx)
+            return " ".join(c.text_content for c in chunks_sorted)
+
+        # Build candidate set of Papers to avoid database-wide scans
+        candidates = {}
+
+        def add_candidate(p: Paper):
+            if p and p.id != paper.id and not is_placeholder(p):
+                candidates[p.id] = p
+
+        # Check exact ID candidate
+        # Check DOI candidate
+        if paper.doi:
+            add_candidate(self.graph_repo.find_paper_by_doi(paper.doi))
+
+        # Check content hash candidate
+        add_candidate(self.graph_repo.find_paper_by_content_hash(content_hash))
+
+        # Check case-insensitive title candidate
+        if paper.title:
+            add_candidate(self.graph_repo.find_paper_by_title(paper.title))
+
+        # Check shared author candidates
+        for author_name in paper.authors:
+            author_id = slugify(author_name)
+            if author_id:
+                for p in self.graph_repo.get_papers_by_author(author_id):
+                    add_candidate(p)
+
+        # Check vector similarity candidate & embedding similarity check
+        chunks = _split_text_to_chunks_raw(paper.id, full_text)
+        first_chunk_text = ""
+        if chunks:
+            first_chunk_text = chunks[0].text_content
+        elif full_text.strip():
+            first_chunk_text = full_text.strip()
+        elif paper.title.strip():
+            first_chunk_text = paper.title.strip()
+
+        if first_chunk_text:
+            emb = self.emb_engine.get_embeddings([first_chunk_text])[0]
+            similar_chunks = self.vector_repo.search_similar_chunks(emb, limit=10)
+            for c, sim in similar_chunks:
+                if sim >= 0.95:
+                    cand_paper = self.graph_repo.get_paper(c.paper_id)
+                    if cand_paper and not is_placeholder(cand_paper):
+                        add_candidate(cand_paper)
+                        if word_jaccard_similarity(first_chunk_text, c.text_content) >= 0.80:
+                            return cand_paper.id, "embedding_similarity"
+
+        # Now detailed checking on all candidates
+        shingles_new = get_3_shingles(full_text)
+
+        for cand_id, cand in candidates.items():
+            # A. Exact Title and Author similarity > 0.3 or both empty
+            if paper.title and cand.title:
+                if paper.title.strip().lower() == cand.title.strip().lower():
+                    author_sim = author_jaccard_similarity(paper.authors, cand.authors)
+                    if author_sim > 0.3 or (not paper.authors and not cand.authors):
+                        return cand_id, "title_author_similarity"
+
+            # B. Legacy content hash comparison
+            cand_hash = cand.properties.get("content_hash")
+            cand_text = None
+            if not cand_hash:
+                cand_text = reconstruct_text(cand_id)
+                cand_hash = hashlib.sha256(cand_text.encode('utf-8')).hexdigest()
+                updated_props = {**cand.properties, "content_hash": cand_hash}
+                self.graph_repo.update_node_properties(cand_id, updated_props)
+
+            if cand_hash == content_hash:
+                return cand_id, "content_hash"
+
+            # C. 3-word shingles check (threshold >= 0.70)
+            if shingles_new:
+                if cand_text is None:
+                    cand_text = reconstruct_text(cand_id)
+                shingles_cand = get_3_shingles(cand_text)
+                if shingles_cand:
+                    intersection = len(shingles_new.intersection(shingles_cand))
+                    union = len(shingles_new.union(shingles_cand))
+                    jaccard = intersection / union if union > 0 else 0.0
+                    if jaccard >= 0.70:
+                        return cand_id, "shingle_similarity"
+
+        return None
 
     @contextlib.contextmanager
     def _trace_stage(self, stage_name: str, trace_info: Optional[dict]):
@@ -216,6 +378,14 @@ class Indexer:
         """
         Unified ingestion pipeline.
         """
+        # Check for duplicates first
+        dup_info = self.detect_duplicate(paper, full_text)
+        if dup_info:
+            dup_id, reason = dup_info
+            raise DuplicateDocumentError(
+                f"Document already exists in database (ID: {dup_id}, match: {reason})",
+                duplicate_paper_id=dup_id
+            )
         # ── Step 1: Enrich metadata ──
         api_references: List[Dict] = []
         api_citations: List[Dict] = []
@@ -256,99 +426,103 @@ class Indexer:
 
         # ── Step 3: Save Paper node & Step 4-7: Persistence ──
         with self._trace_stage("Graph Persistence", trace_info):
-            # ── Step 3: Save Paper node ──
-            self.graph_repo.save_paper(paper)
+            with self.graph_repo.transaction():
+                # ── Step 3: Save Paper node ──
+                import hashlib
+                content_hash = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
+                paper.properties["content_hash"] = content_hash
+                self.graph_repo.save_paper(paper)
 
-            # ── Step 4: Save Author nodes + AUTHORED edges ──
-            for author_name in paper.authors:
-                author_id = slugify(author_name)
-                author = Author(id=author_id, name=author_name)
-                self.graph_repo.save_author(author)
-                self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
+                # ── Step 4: Save Author nodes + AUTHORED edges ──
+                for author_name in paper.authors:
+                    author_id = slugify(author_name)
+                    author = Author(id=author_id, name=author_name)
+                    self.graph_repo.save_author(author)
+                    self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
 
-            # ── Step 5: Concept nodes + MENTIONS_CONCEPT edges ──
-            for item in extraction.concepts:
-                c_name = item.get("name", "").strip()
-                if not c_name:
-                    continue
-                c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name, trace_info=trace_info)
-                concept_id = slugify(c_name)
-                concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
-                self.graph_repo.save_concept(concept)
-                self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
-
-            # ── Step 6: Tag nodes + HAS_TAG edges ──
-            for tag in paper.properties.get("tags") or []:
-                tag_id = slugify(tag)
-                if not tag_id:
-                    continue
-                tag_desc = self._extractor.get_concept_description(tag, trace_info=trace_info)
-                tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
-                self.graph_repo.save_concept(tag_node)
-                self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
-
-            # ── Step 7: Wiki-links (is_markdown=True) or References (is_markdown=False) ──
-            if is_markdown:
-                for link_target in refs_or_links:
-                    if link_target.startswith(("http://", "https://")):
-                        clean_target = link_target.replace("https://", "").replace("http://", "").strip("/")
-                        target_id = slugify(clean_target)
-                    else:
-                        target_id = slugify(link_target)
-                    if not target_id:
+                # ── Step 5: Concept nodes + MENTIONS_CONCEPT edges ──
+                for item in extraction.concepts:
+                    c_name = item.get("name", "").strip()
+                    if not c_name:
                         continue
-                    if not self.graph_repo.get_paper(target_id):
-                        placeholder = Paper(
-                            id=target_id,
-                            title=link_target,
-                            authors=[],
-                            year=None,
-                            doi=None,
-                            properties={"is_placeholder": True}
+                    c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name, trace_info=trace_info)
+                    concept_id = slugify(c_name)
+                    concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
+                    self.graph_repo.save_concept(concept)
+                    self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+
+                # ── Step 6: Tag nodes + HAS_TAG edges ──
+                for tag in paper.properties.get("tags") or []:
+                    tag_id = slugify(tag)
+                    if not tag_id:
+                        continue
+                    tag_desc = self._extractor.get_concept_description(tag, trace_info=trace_info)
+                    tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
+                    self.graph_repo.save_concept(tag_node)
+                    self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
+
+                # ── Step 7: Wiki-links (is_markdown=True) or References (is_markdown=False) ──
+                if is_markdown:
+                    for link_target in refs_or_links:
+                        if link_target.startswith(("http://", "https://")):
+                            clean_target = link_target.replace("https://", "").replace("http://", "").strip("/")
+                            target_id = slugify(clean_target)
+                        else:
+                            target_id = slugify(link_target)
+                        if not target_id:
+                            continue
+                        if not self.graph_repo.get_paper(target_id):
+                            placeholder = Paper(
+                                id=target_id,
+                                title=link_target,
+                                authors=[],
+                                year=None,
+                                doi=None,
+                                properties={"is_placeholder": True}
+                            )
+                            self.graph_repo.save_paper(placeholder)
+                        self.graph_repo.add_edge(paper.id, target_id, "RELATED_TO")
+                else:
+                    all_refs = api_references if (api_references or api_citations) else []
+                    all_cits = api_citations if (api_references or api_citations) else []
+
+                    for ref in all_refs:
+                        ref_title = ref.get("title")
+                        ref_doi = ref.get("doi")
+                        ref_id = slugify(ref_doi) if ref_doi else (
+                            slugify(ref_title[:120]) if ref_title else None
                         )
-                        self.graph_repo.save_paper(placeholder)
-                    self.graph_repo.add_edge(paper.id, target_id, "RELATED_TO")
-            else:
-                all_refs = api_references if (api_references or api_citations) else []
-                all_cits = api_citations if (api_references or api_citations) else []
-
-                for ref in all_refs:
-                    ref_title = ref.get("title")
-                    ref_doi = ref.get("doi")
-                    ref_id = slugify(ref_doi) if ref_doi else (
-                        slugify(ref_title[:120]) if ref_title else None
-                    )
-                    if ref_id:
-                        if not self.graph_repo.get_paper(ref_id):
-                            placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
-                            placeholder.properties["is_placeholder"] = True
-                            self.graph_repo.save_paper(placeholder)
-                        self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
-
-                for cit in all_cits:
-                    cit_title = cit.get("title")
-                    cit_doi = cit.get("doi")
-                    cit_id = slugify(cit_doi) if cit_doi else (
-                        slugify(cit_title[:120]) if cit_title else None
-                    )
-                    if cit_id:
-                        if not self.graph_repo.get_paper(cit_id):
-                            placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
-                            placeholder.properties["is_placeholder"] = True
-                            self.graph_repo.save_paper(placeholder)
-                        self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
-
-                # Fallback: raw text references (PDF parsing fallback, no Semantic Scholar)
-                if not api_references and not api_citations:
-                    for ref_str in refs_or_links:
-                        ref_clean = ref_str.strip()
-                        if len(ref_clean) > 10:
-                            ref_id = slugify(ref_clean[:120])
+                        if ref_id:
                             if not self.graph_repo.get_paper(ref_id):
-                                placeholder = Paper(id=ref_id, title=ref_clean[:120], authors=[], year=None, doi=None)
+                                placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
                                 placeholder.properties["is_placeholder"] = True
                                 self.graph_repo.save_paper(placeholder)
-                            self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"raw_text": ref_clean})
+                            self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
+
+                    for cit in all_cits:
+                        cit_title = cit.get("title")
+                        cit_doi = cit.get("doi")
+                        cit_id = slugify(cit_doi) if cit_doi else (
+                            slugify(cit_title[:120]) if cit_title else None
+                        )
+                        if cit_id:
+                            if not self.graph_repo.get_paper(cit_id):
+                                placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
+                                placeholder.properties["is_placeholder"] = True
+                                self.graph_repo.save_paper(placeholder)
+                            self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
+
+                    # Fallback: raw text references (PDF parsing fallback, no Semantic Scholar)
+                    if not api_references and not api_citations:
+                        for ref_str in refs_or_links:
+                            ref_clean = ref_str.strip()
+                            if len(ref_clean) > 10:
+                                ref_id = slugify(ref_clean[:120])
+                                if not self.graph_repo.get_paper(ref_id):
+                                    placeholder = Paper(id=ref_id, title=ref_clean[:120], authors=[], year=None, doi=None)
+                                    placeholder.properties["is_placeholder"] = True
+                                    self.graph_repo.save_paper(placeholder)
+                                self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"raw_text": ref_clean})
 
         # ── Step 8: Chunk + embed ──
         with self._trace_stage("Chunking & Embedding", trace_info):
@@ -459,67 +633,69 @@ class Indexer:
         ):
             paper.authors = self._ner_fallback_authors(paper.authors, paper.file_path)
 
-        # ── Persist updated paper ──
-        self.graph_repo.save_paper(paper)
+        # ── Persist updated paper and relationships ──
+        with self.graph_repo.transaction():
+            # ── Persist updated paper ──
+            self.graph_repo.save_paper(paper)
 
-        # ── Refresh AUTHORED edges ──
-        self.graph_repo.delete_edges_by_target(paper.id, ["AUTHORED"])
-        for author_name in paper.authors:
-            author_id = slugify(author_name)
-            author = Author(id=author_id, name=author_name)
-            self.graph_repo.save_author(author)
-            self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
+            # ── Refresh AUTHORED edges ──
+            self.graph_repo.delete_edges_by_target(paper.id, ["AUTHORED"])
+            for author_name in paper.authors:
+                author_id = slugify(author_name)
+                author = Author(id=author_id, name=author_name)
+                self.graph_repo.save_author(author)
+                self.graph_repo.add_edge(author_id, paper.id, "AUTHORED")
 
-        # ── Refresh MENTIONS_CONCEPT / HAS_TAG edges ──
-        self.graph_repo.delete_edges_by_source(paper.id, ["MENTIONS_CONCEPT", "HAS_TAG"])
+            # ── Refresh MENTIONS_CONCEPT / HAS_TAG edges ──
+            self.graph_repo.delete_edges_by_source(paper.id, ["MENTIONS_CONCEPT", "HAS_TAG"])
 
-        for item in extraction.concepts:
-            c_name = item.get("name", "").strip()
-            if not c_name:
-                continue
-            c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name)
-            concept_id = slugify(c_name)
-            concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
-            self.graph_repo.save_concept(concept)
-            self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
+            for item in extraction.concepts:
+                c_name = item.get("name", "").strip()
+                if not c_name:
+                    continue
+                c_desc = item.get("description", "") or self._extractor.get_concept_description(c_name)
+                concept_id = slugify(c_name)
+                concept = Concept(id=concept_id, name=c_name, properties={"description": c_desc})
+                self.graph_repo.save_concept(concept)
+                self.graph_repo.add_edge(paper.id, concept_id, "MENTIONS_CONCEPT")
 
-        for tag in extraction.tags:
-            tag_id = slugify(tag)
-            tag_desc = self._extractor.get_concept_description(tag)
-            tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
-            self.graph_repo.save_concept(tag_node)
-            self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
+            for tag in extraction.tags:
+                tag_id = slugify(tag)
+                tag_desc = self._extractor.get_concept_description(tag)
+                tag_node = Concept(id=tag_id, name=tag, properties={"is_tag": True, "description": tag_desc})
+                self.graph_repo.save_concept(tag_node)
+                self.graph_repo.add_edge(paper.id, tag_id, "HAS_TAG")
 
-        # ── Update citation edges ──
-        if api_references or api_citations:
-            for ref in api_references:
-                ref_title = ref.get("title")
-                ref_doi = ref.get("doi")
-                ref_id = slugify(ref_doi) if ref_doi else (
-                    slugify(ref_title[:120]) if ref_title else None
-                )
-                if ref_id:
-                    if not self.graph_repo.get_paper(ref_id):
-                        placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
-                        placeholder.properties["is_placeholder"] = True
-                        self.graph_repo.save_paper(placeholder)
-                    self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
+            # ── Update citation edges ──
+            if api_references or api_citations:
+                for ref in api_references:
+                    ref_title = ref.get("title")
+                    ref_doi = ref.get("doi")
+                    ref_id = slugify(ref_doi) if ref_doi else (
+                        slugify(ref_title[:120]) if ref_title else None
+                    )
+                    if ref_id:
+                        if not self.graph_repo.get_paper(ref_id):
+                            placeholder = Paper(id=ref_id, title=ref_title, authors=[], year=None, doi=ref_doi)
+                            placeholder.properties["is_placeholder"] = True
+                            self.graph_repo.save_paper(placeholder)
+                        self.graph_repo.add_edge(paper.id, ref_id, "CITES", {"api_sourced": True})
 
-            for cit in api_citations:
-                cit_title = cit.get("title")
-                cit_doi = cit.get("doi")
-                cit_id = slugify(cit_doi) if cit_doi else (
-                    slugify(cit_title[:120]) if cit_title else None
-                )
-                if cit_id:
-                    if not self.graph_repo.get_paper(cit_id):
-                        placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
-                        placeholder.properties["is_placeholder"] = True
-                        self.graph_repo.save_paper(placeholder)
-                    self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
+                for cit in api_citations:
+                    cit_title = cit.get("title")
+                    cit_doi = cit.get("doi")
+                    cit_id = slugify(cit_doi) if cit_doi else (
+                        slugify(cit_title[:120]) if cit_title else None
+                    )
+                    if cit_id:
+                        if not self.graph_repo.get_paper(cit_id):
+                            placeholder = Paper(id=cit_id, title=cit_title, authors=[], year=None, doi=cit_doi)
+                            placeholder.properties["is_placeholder"] = True
+                            self.graph_repo.save_paper(placeholder)
+                        self.graph_repo.add_edge(cit_id, paper.id, "CITES", {"api_sourced": True})
 
-        if use_llm and self.llm_engine:
-            self._extractor.generate_summary(paper, text_for_extraction, graph_repo=self.graph_repo)
+            if use_llm and self.llm_engine:
+                self._extractor.generate_summary(paper, text_for_extraction, graph_repo=self.graph_repo)
 
         con.success(f"Successfully re-indexed metadata for {(paper.title or paper.id)[:60]}")
         return True

@@ -197,10 +197,12 @@ class TestIndexerPipeline(unittest.TestCase):
         self.assertEqual(p2.year, 2024)
         self.assertFalse(p2.properties.get("is_placeholder", False))
 
+    @patch("src.external_api.fetch_paper_metadata")
     @patch("src.parsers.pdf_parser.PDFParser.parse")
     @patch("src.indexer.split_text_to_chunks")
-    def test_index_pdf_pipeline(self, mock_split_text, mock_pdf_extract):
+    def test_index_pdf_pipeline(self, mock_split_text, mock_pdf_extract, mock_fetch):
         """Test full PDF indexing pipeline and archive function."""
+        mock_fetch.return_value = None
         # Mock PyMuPDF-based text and reference extraction
         mock_pdf_extract.return_value = (
             Paper(id="pdf_sha", title="Mocked PDF Title", authors=["PDF Author"]),

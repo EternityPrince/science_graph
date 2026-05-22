@@ -411,7 +411,7 @@ class MlxLLMEngine(BaseLLMEngine):
 
             from mlx_lm import load
             with con.suppress_stderr(), con.suppress_stdout():
-                self.model, self.tokenizer = load(self.model_path)
+                self.model, self.tokenizer = load(self.model_path, tokenizer_config={"fix_mistral_regex": True})
 
             con.success(f"MLX LLM ready: [bold]{model_name}[/bold]")
 

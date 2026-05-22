@@ -28,6 +28,7 @@ from sse_starlette.sse import EventSourceResponse
 from src.config import config
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 from src.vector_search import EmbeddingEngine
+from src.indexer import DuplicateDocumentError
 from src.llm_engine import LLMEngine
 from src.services.rag_service import RAGService
 from src.services.note_service import NoteService
@@ -556,6 +557,8 @@ async def upload_file(
         paper_id = await asyncio.to_thread(_index)
         return {"status": "ok", "id": paper_id, "filename": file.filename}
 
+    except DuplicateDocumentError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -590,5 +593,7 @@ async def index_url_route(
         title = paper.title if paper else body.url
         
         return {"status": "ok", "id": paper_id, "title": title}
+    except DuplicateDocumentError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -132,24 +132,34 @@ def fetch_paper_metadata(
 def _normalize_response(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Helper to convert Semantic Scholar raw response to our standard format."""
     # Extract clean DOI
-    doi = raw.get("externalIds", {}).get("DOI")
+    ext_ids = raw.get("externalIds") or {}
+    doi = ext_ids.get("DOI")
     
     # Extract authors list of names
-    authors = [a.get("name") for a in raw.get("authors", []) if a.get("name")]
+    raw_authors = raw.get("authors") or []
+    authors = [a.get("name") for a in raw_authors if a and a.get("name")]
     
     # Extract references
     references = []
-    for ref in raw.get("references", []):
+    raw_references = raw.get("references") or []
+    for ref in raw_references:
+        if not ref:
+            continue
         ref_title = ref.get("title")
-        ref_doi = ref.get("externalIds", {}).get("DOI")
+        ref_ext_ids = ref.get("externalIds") or {}
+        ref_doi = ref_ext_ids.get("DOI")
         if ref_title:
             references.append({"title": ref_title, "doi": ref_doi})
             
     # Extract citations
     citations = []
-    for cit in raw.get("citations", []):
+    raw_citations = raw.get("citations") or []
+    for cit in raw_citations:
+        if not cit:
+            continue
         cit_title = cit.get("title")
-        cit_doi = cit.get("externalIds", {}).get("DOI")
+        cit_ext_ids = cit.get("externalIds") or {}
+        cit_doi = cit_ext_ids.get("DOI")
         if cit_title:
             citations.append({"title": cit_title, "doi": cit_doi})
             

@@ -3,6 +3,8 @@ import json
 import os
 import hashlib
 import numpy as np
+import threading
+from contextlib import contextmanager
 from typing import List, Dict, Any, Optional
 from src.repository.base import GraphRepository, VectorRepository
 from src.models import Paper, Author, Concept, Chunk, Edge
@@ -11,17 +13,77 @@ def stable_hash(text: str) -> int:
     """Returns a stable 60-bit integer hash of a string ID."""
     return int(hashlib.md5(text.encode('utf-8')).hexdigest()[:15], 16)
 
+class ConnectionProxy:
+    def __init__(self, conn, is_transaction=False):
+        self._conn = conn
+        self._is_transaction = is_transaction
+
+    def __enter__(self):
+        if not self._is_transaction:
+            self._conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not self._is_transaction:
+            return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        return False
+
+    def commit(self):
+        if not self._is_transaction:
+            self._conn.commit()
+
+    def rollback(self):
+        if not self._is_transaction:
+            self._conn.rollback()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __del__(self):
+        if not self._is_transaction and hasattr(self, "_conn") and self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
 class SQLiteGraphRepository(GraphRepository):
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self._local = threading.local()
         self._init_db()
 
     def _get_connection(self):
+        active_conn = getattr(self._local, "conn", None)
+        if active_conn is not None:
+            return ConnectionProxy(active_conn, is_transaction=True)
+
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.row_factory = sqlite3.Row
-        return conn
+        return ConnectionProxy(conn, is_transaction=False)
+
+    @contextmanager
+    def transaction(self):
+        if getattr(self._local, "conn", None) is not None:
+            yield
+            return
+
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.row_factory = sqlite3.Row
+        self._local.conn = conn
+        try:
+            conn.execute("BEGIN TRANSACTION;")
+            yield
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+        finally:
+            self._local.conn = None
+            conn.close()
 
     def _init_db(self):
         with self._get_connection() as conn:
@@ -161,6 +223,52 @@ class SQLiteGraphRepository(GraphRepository):
                     (clean_title,)
                 ).fetchone()
 
+            if row:
+                props = json.loads(row["properties"])
+                return Paper(
+                    id=row["id"],
+                    title=props.get("title", ""),
+                    authors=props.get("authors", []),
+                    year=props.get("year"),
+                    doi=props.get("doi"),
+                    abstract=props.get("abstract"),
+                    file_path=props.get("file_path"),
+                    created_at=props.get("created_at"),
+                    properties=props
+                )
+        return None
+
+    def find_paper_by_doi(self, doi: str) -> Optional[Paper]:
+        if not doi:
+            return None
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND json_extract(properties, '$.doi') = ?",
+                (doi.strip(),)
+            ).fetchone()
+            if row:
+                props = json.loads(row["properties"])
+                return Paper(
+                    id=row["id"],
+                    title=props.get("title", ""),
+                    authors=props.get("authors", []),
+                    year=props.get("year"),
+                    doi=props.get("doi"),
+                    abstract=props.get("abstract"),
+                    file_path=props.get("file_path"),
+                    created_at=props.get("created_at"),
+                    properties=props
+                )
+        return None
+
+    def find_paper_by_content_hash(self, content_hash: str) -> Optional[Paper]:
+        if not content_hash:
+            return None
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND json_extract(properties, '$.content_hash') = ?",
+                (content_hash,)
+            ).fetchone()
             if row:
                 props = json.loads(row["properties"])
                 return Paper(
@@ -625,7 +733,10 @@ class SQLiteVectorRepository(VectorRepository):
 
     def _get_index(self, ndim: int = 384):
         if self._usearch_index is not None:
-            return self._usearch_index
+            if getattr(self._usearch_index, "ndim", None) == ndim:
+                return self._usearch_index
+            else:
+                self._usearch_index = None
         
         from usearch.index import Index
         self._usearch_index = Index(ndim=ndim, metric="cos")
@@ -634,8 +745,10 @@ class SQLiteVectorRepository(VectorRepository):
         if self.index_path and os.path.exists(self.index_path):
             try:
                 self._usearch_index.load(self.index_path)
+                if getattr(self._usearch_index, "ndim", None) != ndim:
+                    self._usearch_index = Index(ndim=ndim, metric="cos")
             except Exception:
-                pass
+                self._usearch_index = Index(ndim=ndim, metric="cos")
                 
         # Self-healing: if SQLite has chunks, but USearch is empty, rebuild the index
         if len(self._usearch_index) == 0:
@@ -647,7 +760,9 @@ class SQLiteVectorRepository(VectorRepository):
                         key = stable_hash(r["id"])
                         if key not in self._usearch_index:
                             emb_array = np.frombuffer(r["embedding"], dtype=np.float32)
-                            self._usearch_index.add(key, emb_array)
+                            # Ensure dimension matches before adding
+                            if len(emb_array) == ndim:
+                                self._usearch_index.add(key, emb_array)
                     if self.index_path:
                         self._usearch_index.save(self.index_path)
             except Exception:

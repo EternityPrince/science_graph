@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+from contextlib import contextmanager
 from src.models import Paper, Author, Concept, Chunk, Edge
 
 class GraphRepository(ABC):
@@ -21,6 +22,16 @@ class GraphRepository(ABC):
     @abstractmethod
     def find_paper_by_title(self, title: str) -> Optional[Paper]:
         """Finds a paper or note by its exact or case-insensitive title."""
+        pass
+
+    @abstractmethod
+    def find_paper_by_doi(self, doi: str) -> Optional[Paper]:
+        """Finds a paper by its DOI."""
+        pass
+
+    @abstractmethod
+    def find_paper_by_content_hash(self, content_hash: str) -> Optional[Paper]:
+        """Finds a paper by its content hash."""
         pass
 
     @abstractmethod
@@ -150,6 +161,12 @@ class GraphRepository(ABC):
     def update_node_properties(self, node_id: str, properties: Dict[str, Any]) -> None:
         """Updates specific properties of a node in the graph."""
         pass
+
+    @contextmanager
+    def transaction(self):
+        """Context manager for running multiple operations in a single transaction."""
+        yield
+
 
 
 

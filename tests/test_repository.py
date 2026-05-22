@@ -144,5 +144,41 @@ class TestSQLiteRepositories(unittest.TestCase):
         self.assertTrue(len(results2) >= 1)
         self.assertEqual(results2[0][0].id, "c2")
 
+    def test_transaction_commit(self):
+        # Verify that multiple writes inside a transaction commit on success
+        paper = Paper(id="p_tx_commit", title="Tx Commit", authors=[], year=2026)
+        author = Author(id="auth_tx_commit", name="Auth Tx Commit")
+        
+        with self.graph_repo_temp.transaction():
+            self.graph_repo_temp.save_paper(paper)
+            self.graph_repo_temp.save_author(author)
+            self.graph_repo_temp.add_edge("auth_tx_commit", "p_tx_commit", "AUTHORED")
+            
+        # Verify data is committed
+        self.assertIsNotNone(self.graph_repo_temp.get_paper("p_tx_commit"))
+        self.assertIsNotNone(self.graph_repo_temp.get_author("auth_tx_commit"))
+        neighbors = self.graph_repo_temp.get_neighbors("p_tx_commit", max_depth=1)
+        self.assertTrue(any(n[0] == "auth_tx_commit" for n in neighbors))
+
+    def test_transaction_rollback(self):
+        # Verify that writes inside a transaction roll back on exception
+        paper = Paper(id="p_tx_rollback", title="Tx Rollback", authors=[], year=2026)
+        
+        # We verify that before transaction, paper does not exist
+        self.assertIsNone(self.graph_repo_temp.get_paper("p_tx_rollback"))
+        
+        try:
+            with self.graph_repo_temp.transaction():
+                self.graph_repo_temp.save_paper(paper)
+                # Ensure it's present inside the transaction connection
+                self.assertIsNotNone(self.graph_repo_temp.get_paper("p_tx_rollback"))
+                # Raise an error to trigger rollback
+                raise ValueError("Triggering rollback")
+        except ValueError:
+            pass
+            
+        # Verify data is NOT committed
+        self.assertIsNone(self.graph_repo_temp.get_paper("p_tx_rollback"))
+
 if __name__ == "__main__":
     unittest.main()
