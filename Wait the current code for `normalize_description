@@ -1,0 +1,12 @@
+def normalize_description(self, description: str) -> str:
+    if not description:
+        return ""
+    import re
+    desc = description.strip()
+    # Find closing think/thought tags
+    match = re.search(r'(|</thought>)', desc, re.IGNORECASE)
+    if match:
+        desc = desc[match.end():].strip()
+    # Strip any remaining tags
+    desc = re.sub(r'</?(think|thought)>', '', desc, flags=re.IGNORECASE).strip()
+    return desc
