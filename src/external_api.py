@@ -2,13 +2,14 @@ import urllib.request
 import urllib.parse
 import json
 import logging
+import time
+import random
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
 
-import time
 
 def fetch_paper_metadata(
     doi: Optional[str] = None,
@@ -94,15 +95,28 @@ def fetch_paper_metadata(
             elif he.code in (429, 500, 502, 503, 504):
                 logger.warning(f"[!] Semantic Scholar returned HTTP error {he.code} (attempt {attempt + 1}/{max_retries})")
                 if he.code == 429:
+                    # Handle rate limiting with Retry-After header or exponential backoff
                     retry_after = he.headers.get("Retry-After")
+                    sleep_time = None
                     if retry_after:
                         try:
-                            sleep_time = int(retry_after)
-                        except ValueError:
-                            sleep_time = backoff ** (attempt + 2)
-                    else:
-                        # Sleep longer for 429
-                        sleep_time = backoff ** (attempt + 2)
+                            # Retry-After can be integer seconds or a HTTP-date; we only handle seconds
+                            sleep_time = float(retry_after)
+                            # Validate sleep time: cap between 1 and 60 seconds
+                            sleep_time = max(1.0, min(sleep_time, 60.0))
+                        except (ValueError, TypeError):
+                            sleep_time = None
+                    if sleep_time is None:
+                        # No valid Retry-After: use exponential backoff with 10s base for rate limits
+                        base_backoff = 10  # Minimum 10s for 429 errors
+                        sleep_time = base_backoff * (backoff ** attempt)
+                    # Add jitter to prevent thundering herd (±20% of sleep time)
+                    jitter = sleep_time * 0.2 * (random.random() - 0.5)  # -10% to +10%
+                    sleep_time = max(1.0, sleep_time + jitter)
+                    logger.warning(f"[!] Rate limited (429). Retrying after {sleep_time:.1f} seconds...")
+                else:
+                    # For 5xx errors, use standard exponential backoff
+                    sleep_time = backoff ** (attempt + 1)
             else:
                 logger.warning(f"[!] Semantic Scholar HTTP error {he.code}: {he.reason}")
                 return None
@@ -113,7 +127,6 @@ def fetch_paper_metadata(
             time.sleep(sleep_time)
             
     return None
-
 
 
 def _normalize_response(raw: Dict[str, Any]) -> Dict[str, Any]:
