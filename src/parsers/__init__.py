@@ -3,6 +3,7 @@ from src.parsers.pdf_parser import PDFParser
 from src.parsers.md_parser import MarkdownParser
 from src.parsers.url_parser import UrlParser
 from src.parsers.epub_parser import EPUBParser
+from src.parsers.youtube_parser import YoutubeVideoParser
 from src.parsers.factory import ParserFactory
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "MarkdownParser",
     "UrlParser",
     "EPUBParser",
+    "YoutubeVideoParser",
     "ParserFactory",
 ]

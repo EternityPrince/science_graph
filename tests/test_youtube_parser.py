@@ -3,8 +3,8 @@ from unittest.mock import patch, MagicMock
 from src.parsers.youtube_parser import YoutubeVideoParser
 
 class TestYoutubeVideoParser(unittest.TestCase):
-    @patch("src.parsers.youtube_parser.yt_dlp.YoutubeDL")
-    @patch("src.parsers.youtube_parser.WhisperModel")
+    @patch("yt_dlp.YoutubeDL")
+    @patch("faster_whisper.WhisperModel")
     @patch("src.parsers.youtube_parser.os.path.exists")
     @patch("src.parsers.youtube_parser.os.remove")
     def test_parse_youtube_video_success(self, mock_remove, mock_exists, mock_whisper, mock_ytdl):
@@ -71,7 +71,7 @@ class TestYoutubeVideoParser(unittest.TestCase):
         # Ensure Whisper Model was loaded correctly
         mock_whisper.assert_called_once_with("/Users/vladimirkasterin/models/audio/faster-whisper-large-v3-turbo", device="cpu", compute_type="float32")
 
-    @patch("src.parsers.youtube_parser.yt_dlp.YoutubeDL")
+    @patch("yt_dlp.YoutubeDL")
     def test_parse_youtube_video_fallback(self, mock_ytdl):
         # Force yt-dlp to raise an error
         mock_ytdl.side_effect = Exception("yt-dlp error")
