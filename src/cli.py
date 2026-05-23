@@ -874,15 +874,19 @@ def show_config():
     llm_table.add_column("Value")
     llm_table.add_column("Info", style="dim")
 
-    llm_table.add_row("Provider",    config.llm_provider,         "mlx or openai")
-    if config.llm_provider.lower() == "openai":
-        llm_table.add_row("Base URL",    config.llm_base_url or "default", "OpenAI compatible API base")
-        api_key_masked = "configured" if config.llm_api_key else "[yellow]missing[/yellow]"
-        llm_table.add_row("API Key",     api_key_masked, "OpenAI / OpenRouter API Key")
-        llm_table.add_row("Model Name",  config.llm_model_path,       "Model name in API")
-    else:
-        llm_table.add_row("Model path",  config.llm_model_path,       _check(config.llm_model_path))
-        llm_table.add_row("Model type",  _model_info(config.llm_model_path), "local MLX inference")
+    llm_table.add_row("Active Provider",    config.llm_provider,         "mlx or openai")
+    llm_table.add_row("Local Model Path",   config.llm_local_model_path, _check(config.llm_local_model_path) if config.llm_local_model_path else "not set")
+    llm_table.add_row("Local Model Type",   _model_info(config.llm_local_model_path) if config.llm_local_model_path else "not set", "local MLX inference")
+    
+    cloud_provider = "openai"
+    if isinstance(config.data.get("llm"), dict) and isinstance(config.data["llm"].get("cloud"), dict):
+        cloud_provider = config.data["llm"]["cloud"].get("provider", "openai")
+    
+    llm_table.add_row("Cloud Provider",     cloud_provider,              "Cloud API provider")
+    llm_table.add_row("Cloud Model Name",   config.llm_cloud_model_name, "Model name in cloud API")
+    llm_table.add_row("Cloud Base URL",      config.llm_cloud_base_url or "default", "OpenAI compatible API base")
+    cloud_api_key_masked = "configured" if config.llm_cloud_api_key else "[yellow]missing[/yellow]"
+    llm_table.add_row("Cloud API Key",      cloud_api_key_masked,        "OpenAI / OpenRouter API Key")
         
     llm_table.add_row("Max tokens",  str(config.llm_max_tokens),  "max output length")
     llm_table.add_row("Temperature", str(config.llm_temp),        "0=deterministic, 1=creative")

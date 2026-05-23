@@ -242,7 +242,7 @@ python3 main.py config
 
 Shows 4 tables:
 - **Paths** — database, archive directory, config file (with existence check ✓/✗)
-- **LLM Model** — path, detected model family, max tokens, temperature
+- **LLM Model** — active provider, local model settings, cloud API settings, max tokens, temperature
 - **Embedding Model** — model name, reranker, chunk size/overlap
 - **Environment** — HF_TOKEN status, verbosity settings
 
@@ -267,20 +267,22 @@ llm:
   # Provider: 'mlx' (for local Apple Silicon) or 'openai' (for OpenAI / OpenRouter / compatible APIs)
   provider: "mlx"
 
-  # API key for OpenAI/OpenRouter (only used if provider is 'openai')
-  api_key: ""
-
-  # Base URL for API (only used if provider is 'openai')
-  base_url: ""
-
-  # Local path to MLX model directory or HuggingFace repo ID, or OpenAI model name
-  model_path: "~/models/llm/gemma-3-text-12b-it-4bit"
-
   # Global default maximum output tokens for LLM response
   max_tokens: 1000
 
   # Default temperature (0.0 = deterministic, 1.0 = creative)
   temp: 0.1
+
+  # Local model settings (used if provider is 'mlx')
+  local:
+    model_path: "~/models/llm/gemma-3-text-12b-it-4bit"
+
+  # Cloud model settings (used if provider is 'openai')
+  cloud:
+    provider: "openai"
+    model_name: "google/gemini-2.5-flash"
+    api_key: ""
+    base_url: "https://openrouter.ai/api/v1"
 
   # Task-specific input token limits (used to dynamically truncate inputs to fit context)
   extraction_input_limit: 5000
@@ -352,7 +354,7 @@ uv run pytest -v         # verbose output
 uv run pytest tests/test_repository.py   # specific module
 ```
 
-All 125 tests pass. Test coverage includes:
+All 156 tests pass. Test coverage includes:
 - SQLite graph and vector repositories (creation, deletion, updates)
 - Markdown parser (front-matter parsing, Obsidian-style `[[wikilinks]]` node resolution, fallback filesystem creation dates)
 - URL parser (arXiv ID, DOI, fallback meta tags extraction, local archive copies)
@@ -413,7 +415,7 @@ science-graph/
 │   │   └── rag_service.py        # Dense/sparse/graph hybrid retriever
 │   ├── external_api.py        # Semantic Scholar API client
 │   └── tui.py                 # Rich TUI chat
-└── tests/                     # 125 automated pytest tests
+└── tests/                     # 156 automated pytest tests
     ├── test_cleanup.py
     ├── test_cli.py
     ├── test_external_api.py
@@ -432,6 +434,7 @@ science-graph/
     ├── test_repository.py
     ├── test_repository_delete.py
     ├── test_services.py
+    ├── test_split_llm_config.py
     ├── test_taxonomy.py
     ├── test_tui.py
     └── test_url_parser.py

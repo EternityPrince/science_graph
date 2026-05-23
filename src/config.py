@@ -12,9 +12,6 @@ DEFAULT_CONFIG = {
     "hf_token": "",
     "llm": {
         "provider": "mlx",
-        "api_key": "",
-        "base_url": "",
-        "model_path": str(Path.home() / "models" / "llm" / "gemma-3-text-12b-it-4bit"),
         "max_tokens": 1000,
         "temp": 0.1,
         # Task-specific input token limits
@@ -24,7 +21,17 @@ DEFAULT_CONFIG = {
         # Task-specific output token limits
         "extraction_output_limit": 2048,
         "clustering_output_limit": 1500,
-        "synthesis_output_limit": 1500
+        "synthesis_output_limit": 1500,
+        # Nested split configurations
+        "local": {
+            "model_path": str(Path.home() / "models" / "llm" / "gemma-3-text-12b-it-4bit"),
+        },
+        "cloud": {
+            "provider": "openai",
+            "model_name": "google/gemini-2.5-flash",
+            "api_key": "",
+            "base_url": "https://openrouter.ai/api/v1",
+        }
     },
     "embedding": {
         "model_name": "sentence-transformers/all-MiniLM-L6-v2",
@@ -85,20 +92,22 @@ llm:
   # Provider: 'mlx' (for local Apple Silicon) or 'openai' (for OpenAI / OpenRouter / compatible APIs)
   provider: "mlx"
 
-  # API key for OpenAI/OpenRouter (only used if provider is 'openai')
-  api_key: ""
-
-  # Base URL for API (only used if provider is 'openai')
-  base_url: ""
-
-  # Local path to MLX model directory or HuggingFace repo ID, or OpenAI model name
-  model_path: "{DEFAULT_CONFIG['llm']['model_path']}"
-
   # Global default maximum output tokens for LLM response
   max_tokens: 1000
 
   # Default temperature (0.0 = deterministic, 1.0 = creative)
   temp: 0.1
+
+  # Local model settings (used if provider is 'mlx')
+  local:
+    model_path: "{DEFAULT_CONFIG['llm']['local']['model_path']}"
+
+  # Cloud model settings (used if provider is 'openai')
+  cloud:
+    provider: "openai"
+    model_name: "google/gemini-2.5-flash"
+    api_key: ""
+    base_url: "https://openrouter.ai/api/v1"
 
   # Task-specific input token limits (used to dynamically truncate inputs to fit context)
   extraction_input_limit: 5000
@@ -204,15 +213,43 @@ pdf_compression:
 
     @property
     def llm_api_key(self) -> str:
-        return self.data["llm"].get("api_key", "")
+        return self.llm_cloud_api_key
 
     @property
     def llm_base_url(self) -> str:
-        return self.data["llm"].get("base_url", "")
+        return self.llm_cloud_base_url
 
     @property
     def llm_model_path(self) -> str:
+        return self.llm_local_model_path
+
+    @property
+    def llm_local_model_path(self) -> str:
+        local_cfg = self.data["llm"].get("local", {})
+        if isinstance(local_cfg, dict):
+            return local_cfg.get("model_path", self.data["llm"].get("model_path", ""))
         return self.data["llm"].get("model_path", "")
+
+    @property
+    def llm_cloud_model_name(self) -> str:
+        cloud_cfg = self.data["llm"].get("cloud", {})
+        if isinstance(cloud_cfg, dict):
+            return cloud_cfg.get("model_name", self.data["llm"].get("model_path", ""))
+        return self.data["llm"].get("model_path", "")
+
+    @property
+    def llm_cloud_api_key(self) -> str:
+        cloud_cfg = self.data["llm"].get("cloud", {})
+        if isinstance(cloud_cfg, dict):
+            return cloud_cfg.get("api_key", self.data["llm"].get("api_key", ""))
+        return self.data["llm"].get("api_key", "")
+
+    @property
+    def llm_cloud_base_url(self) -> str:
+        cloud_cfg = self.data["llm"].get("cloud", {})
+        if isinstance(cloud_cfg, dict):
+            return cloud_cfg.get("base_url", self.data["llm"].get("base_url", ""))
+        return self.data["llm"].get("base_url", "")
 
     @property
     def llm_max_tokens(self) -> int:

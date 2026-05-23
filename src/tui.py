@@ -100,16 +100,24 @@ def handle_command(cmd_str: str, rag_pipeline: RAGPipeline, console: Console):
             provider = prompt(f"LLM Provider (mlx/openai) [{config.llm_provider}]: ").strip()
             if provider: config.data["llm"]["provider"] = provider
             
-            model = prompt(f"LLM Model Path or Name [{config.llm_model_path}]: ").strip()
-            if model: config.data["llm"]["model_path"] = model
+            # Ensure nested structures exist
+            if "local" not in config.data["llm"] or not isinstance(config.data["llm"]["local"], dict):
+                config.data["llm"]["local"] = {}
+            if "cloud" not in config.data["llm"] or not isinstance(config.data["llm"]["cloud"], dict):
+                config.data["llm"]["cloud"] = {}
             
-            if config.data["llm"]["provider"] == "openai":
-                masked_key = "*" * len(config.llm_api_key) if config.llm_api_key else ""
-                api_key = prompt(f"API Key [{masked_key}]: ", is_password=True).strip()
-                if api_key: config.data["llm"]["api_key"] = api_key
-                
-                base_url = prompt(f"Base URL [{config.llm_base_url}]: ").strip()
-                if base_url: config.data["llm"]["base_url"] = base_url
+            local_path = prompt(f"Local MLX Model Path [{config.llm_local_model_path}]: ").strip()
+            if local_path: config.data["llm"]["local"]["model_path"] = local_path
+            
+            cloud_model = prompt(f"Cloud Model Name [{config.llm_cloud_model_name}]: ").strip()
+            if cloud_model: config.data["llm"]["cloud"]["model_name"] = cloud_model
+            
+            masked_key = "*" * len(config.llm_cloud_api_key) if config.llm_cloud_api_key else ""
+            api_key = prompt(f"Cloud API Key [{masked_key}]: ", is_password=True).strip()
+            if api_key: config.data["llm"]["cloud"]["api_key"] = api_key
+            
+            base_url = prompt(f"Cloud Base URL [{config.llm_cloud_base_url}]: ").strip()
+            if base_url: config.data["llm"]["cloud"]["base_url"] = base_url
                 
             # HuggingFace token — always shown
             masked_hf = ("*" * len(config.hf_token)) if config.hf_token else "(not set)"

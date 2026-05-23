@@ -393,7 +393,7 @@ class BaseLLMEngine:
 
 class MlxLLMEngine(BaseLLMEngine):
     def __init__(self, model_path: str = None):
-        self.model_path = model_path or config.llm_model_path
+        self.model_path = model_path or config.llm_local_model_path
         self._tokenizer_data = None
         self.model = None
         self.tokenizer = None
@@ -538,9 +538,9 @@ class MlxLLMEngine(BaseLLMEngine):
 class OpenAILLMEngine(BaseLLMEngine):
     def __init__(self):
         import openai
-        api_key = config.llm_api_key
-        base_url = config.llm_base_url
-        self.model_name = config.llm_model_path
+        api_key = config.llm_cloud_api_key
+        base_url = config.llm_cloud_base_url
+        self.model_name = config.llm_cloud_model_name
 
         if not api_key:
             con.error("API key is not configured for OpenAI/OpenRouter.")
@@ -654,7 +654,8 @@ _cloud_engine_singleton = None
 def LLMEngine(use_cloud: bool = False, *args, **kwargs) -> BaseLLMEngine:
     """Factory for returning the correct LLM Engine based on config/parameters."""
     global _local_engine_singleton, _cloud_engine_singleton
-    if use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1":
+    is_cloud = use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1" or config.llm_provider == "openai"
+    if is_cloud:
         if _cloud_engine_singleton is None:
             _cloud_engine_singleton = OpenAILLMEngine()
         return _cloud_engine_singleton
