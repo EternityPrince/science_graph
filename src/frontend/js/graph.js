@@ -5,12 +5,63 @@ import { escapeHtml } from './utils.js';
 let network = null;
 let allNodes = null;
 let allEdges = null;
+let nodesView = null;
+let edgesView = null;
+let addedReferenceNodeIds = [];
+let addedReferenceEdgeIds = [];
+let physicsTimeout = null;
+
+export function startPhysicsTimeout(ms = 2000) {
+  if (physicsTimeout) clearTimeout(physicsTimeout);
+  physicsTimeout = setTimeout(() => {
+    if (network) {
+      console.log(`Physics timeout triggered (${ms}ms). Disabling physics.`);
+      network.setOptions({ physics: { enabled: false } });
+      const physicsToggle = document.getElementById('toggle-physics');
+      if (physicsToggle) {
+        physicsToggle.checked = false;
+      }
+    }
+  }, ms);
+}
 
 export const activeFilters = new Set(['paper', 'note', 'book', 'video', 'webpage', 'author', 'concept', 'tag']);
 export let activeHeatmapDate = null;
 
 let onNodeClickCallback = null;
 let viewSwitcherCallback = null;
+
+/**
+ * Filter function to determine node visibility in vis.DataView.
+ */
+export function isNodeVisible(n) {
+  let isVisible = activeFilters.has(n.group);
+
+  if (isVisible && n.created_at && ['paper', 'note', 'book', 'video', 'webpage'].includes(n.group)) {
+    const docDate = n.created_at.substring(0, 10); // YYYY-MM-DD
+    if (activeHeatmapDate) {
+      if (docDate !== activeHeatmapDate) {
+        isVisible = false;
+      }
+    } else {
+      const fromDate = document.getElementById('filter-from-date')?.value || '';
+      const toDate = document.getElementById('filter-to-date')?.value || '';
+      if (fromDate && docDate < fromDate) isVisible = false;
+      if (toDate && docDate > toDate) isVisible = false;
+    }
+  }
+  return isVisible;
+}
+
+/**
+ * Filter function to determine edge visibility in vis.DataView.
+ */
+export function isEdgeVisible(e) {
+  if (!allNodes) return false;
+  const fromNode = allNodes.get(e.from);
+  const toNode = allNodes.get(e.to);
+  return fromNode && isNodeVisible(fromNode) && toNode && isNodeVisible(toNode);
+}
 
 /**
  * Register a callback for when a node is clicked.
@@ -51,7 +102,9 @@ export async function loadGraph() {
   if (emptyEl) emptyEl.classList.remove('visible');
 
   try {
-    const data = await fetchGraph();
+    const referencesToggle = document.getElementById('toggle-references');
+    const showReferences = referencesToggle ? referencesToggle.checked : false;
+    const data = await fetchGraph(showReferences);
 
     if (!data.nodes || data.nodes.length === 0) {
       if (loadingEl) loadingEl.classList.add('hidden');
@@ -62,6 +115,15 @@ export async function loadGraph() {
     // Check edge labels toggle value
     const edgeLabelsToggle = document.getElementById('toggle-edge-labels');
     const showEdgeLabels = edgeLabelsToggle ? edgeLabelsToggle.checked : true;
+
+    // Get current spacing and edge length config values
+    const spacingRange = document.getElementById('node-spacing-range');
+    const gravityRange = document.getElementById('gravity-range');
+    const edgeLengthRange = document.getElementById('edge-length-range');
+
+    const currentSpacing = spacingRange ? parseInt(spacingRange.value) : -15000;
+    const currentGravity = gravityRange ? parseFloat(gravityRange.value) : 0.04;
+    const currentEdgeLength = edgeLengthRange ? parseInt(edgeLengthRange.value) : 260;
 
     // Process nodes to ensure they have default opacity and font style
     const processedNodes = data.nodes.map(n => ({
@@ -74,18 +136,33 @@ export async function loadGraph() {
     const processedEdges = data.edges.map(e => {
       const originalLabel = e.label || "";
       const originalColor = e.color || { color: "#adb5bd", highlight: "#74c0fc" };
+      
+      let edgeLength = currentEdgeLength;
+      if (originalLabel === "MENTIONS_CONCEPT") {
+        edgeLength = currentEdgeLength * 1.4;
+      } else if (originalLabel === "HAS_TAG") {
+        edgeLength = currentEdgeLength * 1.5;
+      } else if (originalLabel === "AUTHORED") {
+        edgeLength = currentEdgeLength * 1.1;
+      } else if (originalLabel === "CITES") {
+        edgeLength = currentEdgeLength * 1.6;
+      }
+
       return {
         ...e,
         originalLabel: originalLabel,
         label: showEdgeLabels ? originalLabel : "",
         originalColor: originalColor,
+        length: edgeLength,
         font: { color: 'rgba(201, 205, 224, 0.6)', size: 8, align: 'top' }
       };
     });
 
-    // Initialize vis.DataSets
+    // Initialize vis.DataSets and DataViews
     allNodes = new vis.DataSet(processedNodes);
     allEdges = new vis.DataSet(processedEdges);
+    nodesView = new vis.DataView(allNodes, { filter: isNodeVisible });
+    edgesView = new vis.DataView(allEdges, { filter: isEdgeVisible });
 
     const container = document.getElementById('mynetwork');
     
@@ -94,17 +171,9 @@ export async function loadGraph() {
     const initialSolver = solverSelect ? solverSelect.value : 'barnesHut';
     
     const physicsToggle = document.getElementById('toggle-physics');
-    const physicsEnabled = physicsToggle ? !physicsToggle.checked : true;
+    const physicsEnabled = physicsToggle ? physicsToggle.checked : true;
 
-    const spacingRange = document.getElementById('node-spacing-range');
-    const gravityRange = document.getElementById('gravity-range');
-    const edgeLengthRange = document.getElementById('edge-length-range');
-
-    const currentSpacing = spacingRange ? parseInt(spacingRange.value) : -15000;
-    const currentGravity = gravityRange ? parseFloat(gravityRange.value) : 0.04;
-    const currentEdgeLength = edgeLengthRange ? parseInt(edgeLengthRange.value) : 260;
-
-    network = new vis.Network(container, { nodes: allNodes, edges: allEdges }, {
+    network = new vis.Network(container, { nodes: nodesView, edges: edgesView }, {
       nodes: {
         borderWidth: 1.5,
         borderWidthSelected: 3,
@@ -138,17 +207,36 @@ export async function loadGraph() {
         hover: true,
         tooltipDelay: 150,
         hideEdgesOnDrag: true,
+        hideEdgesOnZoom: true,
       },
     });
+
+    if (physicsEnabled) {
+      startPhysicsTimeout(2000);
+    }
 
     network.on('stabilizationIterationsDone', () => {
       if (loadingEl) loadingEl.classList.add('hidden');
       network.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
     });
 
+    network.on('stabilized', () => {
+      console.log('Graph stabilized, disabling physics...');
+      if (physicsTimeout) {
+        clearTimeout(physicsTimeout);
+        physicsTimeout = null;
+      }
+      network.setOptions({ physics: { enabled: false } });
+      const physicsToggle = document.getElementById('toggle-physics');
+      if (physicsToggle) {
+        physicsToggle.checked = false;
+      }
+    });
+
     network.on('click', async ({ nodes }) => {
       if (!nodes.length) {
         resetHighlighting();
+        clearExpandedReferences();
         return;
       }
       const selectedNodeId = nodes[0];
@@ -179,31 +267,8 @@ export function applyFilters() {
   if (!allNodes) return;
   resetHighlighting();
   
-  const all = allNodes.get();
-  const fromDate = document.getElementById('filter-from-date')?.value || '';
-  const toDate = document.getElementById('filter-to-date')?.value || '';
-
-  const updates = all.map(n => {
-    let isVisible = activeFilters.has(n.group);
-
-    if (isVisible && n.created_at && ['paper', 'note', 'book', 'video', 'webpage'].includes(n.group)) {
-      const docDate = n.created_at.substring(0, 10); // YYYY-MM-DD
-      if (activeHeatmapDate) {
-        if (docDate !== activeHeatmapDate) {
-          isVisible = false;
-        }
-      } else {
-        if (fromDate && docDate < fromDate) isVisible = false;
-        if (toDate && docDate > toDate) isVisible = false;
-      }
-    }
-
-    return {
-      id: n.id,
-      hidden: !isVisible,
-    };
-  });
-  allNodes.update(updates);
+  if (nodesView) nodesView.refresh();
+  if (edgesView) edgesView.refresh();
 }
 
 /**
@@ -453,7 +518,7 @@ function toggleEdgeLabels(show) {
 /**
  * Highlights a node's immediate neighbors and dims everything else.
  */
-function highlightNeighbors(selectedNodeId) {
+export function highlightNeighbors(selectedNodeId) {
   if (!network || !allNodes || !allEdges) return;
 
   const connectedNodes = new Set(network.getConnectedNodes(selectedNodeId));
@@ -493,7 +558,7 @@ function highlightNeighbors(selectedNodeId) {
 /**
  * Resets all node and edge highlighting back to normal.
  */
-function resetHighlighting() {
+export function resetHighlighting() {
   if (!allNodes || !allEdges) return;
 
   const nodes = allNodes.get();
@@ -515,6 +580,167 @@ function resetHighlighting() {
     }
   }));
   allEdges.update(edgeUpdates);
+}
+
+/**
+ * Dynamically expand citations and cited_by references around a node.
+ */
+export function expandNodeReferences(nodeId, citations = [], citedBy = []) {
+  if (!allNodes || !allEdges) return;
+
+  // 1. Clear any previously expanded references
+  clearExpandedReferences();
+
+  // If the references checkbox is checked, we already show everything globally.
+  // No need to add them dynamically.
+  const referencesToggle = document.getElementById('toggle-references');
+  if (referencesToggle && referencesToggle.checked) return;
+
+  const maxToShow = 25; // Limit references to avoid overloading
+  const citationsToShow = citations.slice(0, maxToShow);
+  const citedByToShow = citedBy.slice(0, maxToShow);
+
+  const newNodes = [];
+  const newEdges = [];
+
+  // Determine current position of the clicked node to center the circle around it
+  const positions = network ? network.getPositions([nodeId]) : {};
+  const pos = positions[nodeId];
+  const cx = pos ? pos.x : 0;
+  const cy = pos ? pos.y : 0;
+
+  const totalRefs = citationsToShow.length + citedByToShow.length;
+  const radius = 220 + Math.min(totalRefs, 50) * 10; // Radius scales up to 720px for 50 references
+  let refIndex = 0;
+
+  // 2. Add citation nodes & edges
+  citationsToShow.forEach(cit => {
+    const citId = cit.id;
+    
+    // Check if the node already exists (could be a local paper or already rendered)
+    if (!allNodes.get(citId)) {
+      const angle = totalRefs > 0 ? (refIndex / totalRefs) * 2 * Math.PI : 0;
+      const x = cx + radius * Math.cos(angle);
+      const y = cy + radius * Math.sin(angle);
+      refIndex++;
+
+      newNodes.push({
+        id: citId,
+        x: x,
+        y: y,
+        physics: false, // EXCLUDE from physics calculation to maintain 60 FPS
+        label: cit.title.length < 28 ? cit.title : cit.title.substring(0, 25) + '…',
+        title: `<b>Paper (Reference)</b>: ${cit.title}`,
+        color: "#475569", // Slate/Gray color for stub references
+        size: 14,
+        group: "paper",
+        shape: "dot",
+        isTempReference: true,
+        full_title: cit.title,
+        opacity: 1.0,
+        font: { color: '#c9cde0', size: 12, face: 'Inter' }
+      });
+      addedReferenceNodeIds.push(citId);
+    }
+
+    const edgeId = `${nodeId}-${citId}-CITES`;
+    if (!allEdges.get(edgeId)) {
+      const originalColor = { color: "rgba(255, 255, 255, 0.08)", highlight: "#6366f1" };
+      newEdges.push({
+        id: edgeId,
+        from: nodeId,
+        to: citId,
+        label: "CITES",
+        originalLabel: "CITES",
+        originalColor: originalColor,
+        arrows: "to",
+        font: { size: 8, align: "top", color: "#94a3b8" },
+        color: originalColor,
+        isTempReference: true
+      });
+      addedReferenceEdgeIds.push(edgeId);
+    }
+  });
+
+  // 3. Add citedBy nodes & edges
+  citedByToShow.forEach(cb => {
+    const cbId = cb.id;
+
+    if (!allNodes.get(cbId)) {
+      const angle = totalRefs > 0 ? (refIndex / totalRefs) * 2 * Math.PI : 0;
+      const x = cx + radius * Math.cos(angle);
+      const y = cy + radius * Math.sin(angle);
+      refIndex++;
+
+      newNodes.push({
+        id: cbId,
+        x: x,
+        y: y,
+        physics: false, // EXCLUDE from physics calculation
+        label: cb.title.length < 28 ? cb.title : cb.title.substring(0, 25) + '…',
+        title: `<b>Paper (Reference)</b>: ${cb.title}`,
+        color: "#475569",
+        size: 14,
+        group: "paper",
+        shape: "dot",
+        isTempReference: true,
+        full_title: cb.title,
+        opacity: 1.0,
+        font: { color: '#c9cde0', size: 12, face: 'Inter' }
+      });
+      addedReferenceNodeIds.push(cbId);
+    }
+
+    const edgeId = `${cbId}-${nodeId}-CITES`;
+    if (!allEdges.get(edgeId)) {
+      const originalColor = { color: "rgba(255, 255, 255, 0.08)", highlight: "#6366f1" };
+      newEdges.push({
+        id: edgeId,
+        from: cbId,
+        to: nodeId,
+        label: "CITES",
+        originalLabel: "CITES",
+        originalColor: originalColor,
+        arrows: "to",
+        font: { size: 8, align: "top", color: "#94a3b8" },
+        color: originalColor,
+        isTempReference: true
+      });
+      addedReferenceEdgeIds.push(edgeId);
+    }
+  });
+
+  if (newNodes.length > 0) {
+    allNodes.add(newNodes);
+  }
+  if (newEdges.length > 0) {
+    allEdges.add(newEdges);
+  }
+
+  // 4. Temporarily enable physics to let surrounding nodes settle, but strictly timeout after 2s
+  const physicsToggle = document.getElementById('toggle-physics');
+  const physicsEnabledByDefault = physicsToggle ? physicsToggle.checked : true;
+  if (physicsEnabledByDefault && network) {
+    network.setOptions({ physics: { enabled: true } });
+    startPhysicsTimeout(2000);
+  }
+}
+
+/**
+ * Remove any dynamically added reference nodes/edges.
+ */
+export function clearExpandedReferences() {
+  if (!allNodes || !allEdges) return;
+
+  if (addedReferenceEdgeIds.length > 0) {
+    allEdges.remove(addedReferenceEdgeIds);
+    addedReferenceEdgeIds = [];
+  }
+
+  if (addedReferenceNodeIds.length > 0) {
+    allNodes.remove(addedReferenceNodeIds);
+    addedReferenceNodeIds = [];
+  }
 }
 
 let controlsInitialized = false;
@@ -617,8 +843,16 @@ function setupGraphControls() {
     physicsToggle.addEventListener('change', () => {
       if (!network) return;
       network.setOptions({
-        physics: { enabled: !physicsToggle.checked }
+        physics: { enabled: physicsToggle.checked }
       });
+      if (physicsToggle.checked) {
+        startPhysicsTimeout(2000);
+      } else {
+        if (physicsTimeout) {
+          clearTimeout(physicsTimeout);
+          physicsTimeout = null;
+        }
+      }
     });
   }
 
@@ -626,6 +860,13 @@ function setupGraphControls() {
   if (edgeLabelsToggle) {
     edgeLabelsToggle.addEventListener('change', () => {
       toggleEdgeLabels(edgeLabelsToggle.checked);
+    });
+  }
+
+  const referencesToggle = document.getElementById('toggle-references');
+  if (referencesToggle) {
+    referencesToggle.addEventListener('change', () => {
+      loadGraph();
     });
   }
 
@@ -645,8 +886,9 @@ function setupGraphControls() {
         edgeRange.value = 260;
         edgeVal.textContent = 260;
       }
-      if (physicsToggle) physicsToggle.checked = false;
+      if (physicsToggle) physicsToggle.checked = true;
       if (edgeLabelsToggle) edgeLabelsToggle.checked = true;
+      if (referencesToggle) referencesToggle.checked = false;
 
       if (!network) return;
       network.setOptions({
@@ -665,54 +907,58 @@ function setupGraphControls() {
       });
       toggleEdgeLabels(true);
       resetHighlighting();
+      loadGraph();
     });
   }
 
   const searchInput = document.getElementById('graph-search-input');
   const searchResults = document.getElementById('graph-search-results');
+  let graphSearchTimer = null;
 
   if (searchInput && searchResults) {
     searchInput.addEventListener('input', () => {
+      clearTimeout(graphSearchTimer);
       const q = searchInput.value.trim().toLowerCase();
       if (!q) {
         searchResults.classList.remove('visible');
         searchResults.innerHTML = '';
         return;
       }
-      if (!allNodes) return;
-      const matching = allNodes.get({
-        filter: (item) => {
-          if (item.hidden) return false;
-          const label = (item.label || '').toLowerCase();
-          const id = (item.id || '').toLowerCase();
-          return label.includes(q) || id.includes(q);
-        }
-      });
-
-      if (matching.length === 0) {
-        searchResults.innerHTML = `<div style="padding: 8px 12px; font-size: 12px; color: var(--text3);">Ничего не найдено</div>`;
-      } else {
-        const typeIcon = { paper: '📄', note: '📝', book: '📚', video: '🎥', webpage: '🌐', author: '👤', concept: '🧠', tag: '🏷️' };
-        searchResults.innerHTML = matching.slice(0, 10).map(item => `
-          <div class="graph-search-result-item" data-id="${escapeHtml(item.id)}">
-            <span>${typeIcon[item.group] || '📌'}</span>
-            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.label || item.id)}</span>
-          </div>
-        `).join('');
-
-        searchResults.querySelectorAll('.graph-search-result-item').forEach(item => {
-          item.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const nodeId = item.dataset.id;
-            searchInput.value = '';
-            searchResults.classList.remove('visible');
-            searchResults.innerHTML = '';
-            
-            await focusAndDetails(nodeId);
-          });
+      graphSearchTimer = setTimeout(() => {
+        if (!nodesView) return;
+        const matching = nodesView.get({
+          filter: (item) => {
+            const label = (item.label || '').toLowerCase();
+            const id = (item.id || '').toLowerCase();
+            return label.includes(q) || id.includes(q);
+          }
         });
-      }
-      searchResults.classList.add('visible');
+
+        if (matching.length === 0) {
+          searchResults.innerHTML = `<div style="padding: 8px 12px; font-size: 12px; color: var(--text3);">Ничего не найдено</div>`;
+        } else {
+          const typeIcon = { paper: '📄', note: '📝', book: '📚', video: '🎥', webpage: '🌐', author: '👤', concept: '🧠', tag: '🏷️' };
+          searchResults.innerHTML = matching.slice(0, 10).map(item => `
+            <div class="graph-search-result-item" data-id="${escapeHtml(item.id)}">
+              <span>${typeIcon[item.group] || '📌'}</span>
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.label || item.id)}</span>
+            </div>
+          `).join('');
+
+          searchResults.querySelectorAll('.graph-search-result-item').forEach(item => {
+            item.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const nodeId = item.dataset.id;
+              searchInput.value = '';
+              searchResults.classList.remove('visible');
+              searchResults.innerHTML = '';
+              
+              await focusAndDetails(nodeId);
+            });
+          });
+        }
+        searchResults.classList.add('visible');
+      }, 350);
     });
 
     document.addEventListener('click', (e) => {

@@ -1,7 +1,7 @@
 import { fetchStats, openLocalFile, uploadFile, fetchPaperDetails, fetchNotes, indexUrl } from './api.js';
 import { toast, log } from './ui.js';
 import { escapeHtml, escapeSingleQuotes } from './utils.js';
-import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters, getAllNodes } from './graph.js';
+import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters, getAllNodes, highlightNeighbors, expandNodeReferences, clearExpandedReferences } from './graph.js';
 import { loadNotes, saveNewNote, onNoteSaved, parseWikiLinks } from './notes.js';
 import { sendMessage, registerViewSwitcher as registerChatViewSwitcher, askAbout } from './chat.js';
 
@@ -77,16 +77,21 @@ export async function loadStats() {
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 let searchTimer = null;
+let searchAbortController = null;
 
 if (searchInput && searchResults) {
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimer);
+    if (searchAbortController) {
+      searchAbortController.abort();
+      searchAbortController = null;
+    }
     const q = searchInput.value.trim();
     if (!q) {
       searchResults.classList.remove('visible');
       return;
     }
-    searchTimer = setTimeout(() => doSearch(q), 280);
+    searchTimer = setTimeout(() => doSearch(q), 350);
   });
 
   searchInput.addEventListener('blur', () => {
@@ -101,10 +106,18 @@ window.askAbout = askAbout;
 import { searchPapers } from './api.js';
 
 async function doSearch(q) {
+  if (searchAbortController) {
+    searchAbortController.abort();
+  }
+  searchAbortController = new AbortController();
+
   try {
-    const d = await searchPapers(q);
+    const d = await searchPapers(q, searchAbortController.signal);
     renderSearchResults(d.results || []);
   } catch (e) {
+    if (e.name === 'AbortError') {
+      return;
+    }
     toast('Ошибка поиска: ' + e.message, 'err');
   }
 }
@@ -335,6 +348,17 @@ export async function showNodeDetails(nodeId) {
 
   try {
     const d = await fetchPaperDetails(nodeId);
+    
+    // Dynamically expand citations and cited_by references on the graph
+    if (d.type === 'paper') {
+      expandNodeReferences(nodeId, d.citations, d.cited_by);
+    } else {
+      clearExpandedReferences();
+    }
+    
+    // Highlight neighbors again to include the newly added reference nodes
+    highlightNeighbors(nodeId);
+
     renderDetails(panel, d);
   } catch (e) {
     panel.innerHTML = `<div class="details-empty"><div class="icon">⚠️</div><p>${e.message}</p></div>`;

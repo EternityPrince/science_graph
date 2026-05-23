@@ -71,8 +71,11 @@ export async function sendMessage() {
 
   let accumulated = '';
 
+  const providerSelect = document.getElementById('chat-provider-select');
+  const useCloud = providerSelect ? (providerSelect.value === 'cloud') : false;
+
   try {
-    const response = await postQuery(q, 5);
+    const response = await postQuery(q, 5, useCloud);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';

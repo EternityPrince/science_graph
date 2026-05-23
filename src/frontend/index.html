@@ -14,10 +14,7 @@
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
   <!-- DOMPurify for HTML sanitization (XSS protection) -->
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="/css/style.css" />
 </head>
@@ -249,8 +246,8 @@
           <!-- Toggle options -->
           <div class="settings-checkbox-group">
             <label class="settings-checkbox-label">
-              <input type="checkbox" id="toggle-physics" />
-              <span>Зафиксировать узлы (Freeze)</span>
+              <input type="checkbox" id="toggle-physics" checked />
+              <span>Включить физику</span>
             </label>
           </div>
 
@@ -258,6 +255,13 @@
             <label class="settings-checkbox-label">
               <input type="checkbox" id="toggle-edge-labels" checked />
               <span>Показывать имена связей</span>
+            </label>
+          </div>
+
+          <div class="settings-checkbox-group">
+            <label class="settings-checkbox-label">
+              <input type="checkbox" id="toggle-references" />
+              <span>Показывать внешние цитирования</span>
             </label>
           </div>
 
@@ -294,6 +298,10 @@
         </div>
       </div>
       <div class="chat-input-wrap">
+        <select id="chat-provider-select" class="settings-select" style="width: auto; max-width: 140px; font-size: 12px; background: var(--bg); border: 1px solid var(--border-solid); color: var(--text); border-radius: 4px; padding: 0 8px; cursor: pointer; outline: none;">
+          <option value="local" selected>🤖 Локальный (MLX)</option>
+          <option value="cloud">☁️ Облачный ИИ</option>
+        </select>
         <textarea id="chat-input" placeholder="Ваш вопрос…" rows="1"></textarea>
         <button id="chat-send" title="Отправить (Enter)">➤</button>
       </div>

@@ -158,6 +158,65 @@ class TestCLI(unittest.TestCase):
             self.assertFalse((archive_dir / "paper.pdf").exists())
             self.assertTrue(archive_dir.exists())  # the directory itself should remain
 
+    @patch("src.cli.config")
+    def test_init_command(self, mock_config):
+        """Test config init command."""
+        result = runner.invoke(app, ["init"])
+        self.assertEqual(result.exit_code, 0)
+        mock_config.init_config.assert_called_once()
+        self.assertIn("has been successfully updated", result.stdout)
+
+    @patch("src.cli.get_services")
+    def test_export_db_command(self, mock_get_services):
+        """Test export-db command outputs correct JSON/YAML."""
+        mock_graph_repo = MagicMock()
+        mock_vector_repo = MagicMock()
+        mock_get_services.return_value = (mock_graph_repo, mock_vector_repo, MagicMock(), MagicMock())
+        
+        mock_graph_repo.get_all_nodes.return_value = [("n1", "Paper", '{"title": "Test Paper"}')]
+        mock_graph_repo.get_all_edges.return_value = [("n1", "n2", "AUTHORED", '{}')]
+        
+        # Test JSON format
+        result = runner.invoke(app, ["export-db", "--format", "json", "--no-chunks"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('"id": "n1"', result.stdout)
+        self.assertIn('"label": "Paper"', result.stdout)
+        
+        # Test YAML format
+        result = runner.invoke(app, ["export-db", "--format", "yaml", "--no-chunks"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("label: Paper", result.stdout)
+
+        # Test export with chunks (no --no-chunks option)
+        mock_conn = MagicMock()
+        mock_vector_repo._get_connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = [
+            {"id": "paper1#42", "paper_id": "paper1", "text_content": "some text", "page_number": 3}
+        ]
+        
+        result = runner.invoke(app, ["export-db", "--format", "json"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('"idx": 42', result.stdout)
+        self.assertIn('"text_content": "some text"', result.stdout)
+        self.assertIn('"page_number": 3', result.stdout)
+
+    @patch("src.cli.get_services")
+    @patch("src.cli.RAGPipeline")
+    def test_query_command_with_cloud(self, mock_rag_pipeline_cls, mock_get_services):
+        """Test query command with --cloud flag sets env var."""
+        import os
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        mock_pipeline_instance = MagicMock()
+        mock_rag_pipeline_cls.return_value = mock_pipeline_instance
+        mock_pipeline_instance.ask.return_value = "Cloud Answer"
+        
+        if "SCIENCE_GRAPH_USE_CLOUD" in os.environ:
+            del os.environ["SCIENCE_GRAPH_USE_CLOUD"]
+            
+        result = runner.invoke(app, ["query", "test question", "--cloud"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(os.environ.get("SCIENCE_GRAPH_USE_CLOUD"), "1")
+
 
 
 

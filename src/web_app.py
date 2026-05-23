@@ -81,35 +81,57 @@ def get_embedding_engine() -> EmbeddingEngine:
     return _embedding_engine_inst
 
 
-def get_llm_engine() -> Optional[LLMEngine]:
-    global _llm_engine_inst
-    if _llm_engine_inst is None:
-        try:
-            _llm_engine_inst = LLMEngine()
-        except Exception as e:
-            print(f"[!] LLM engine unavailable: {e}")
-    return _llm_engine_inst
+_llm_engine_local: Optional[LLMEngine] = None
+_llm_engine_cloud: Optional[LLMEngine] = None
+
+def get_llm_engine(use_cloud: bool = False) -> Optional[LLMEngine]:
+    global _llm_engine_local, _llm_engine_cloud
+    if use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1":
+        if _llm_engine_cloud is None:
+            try:
+                _llm_engine_cloud = LLMEngine(use_cloud=True)
+            except Exception as e:
+                print(f"[!] Cloud LLM engine unavailable: {e}")
+        return _llm_engine_cloud
+    else:
+        if _llm_engine_local is None:
+            try:
+                _llm_engine_local = LLMEngine(use_cloud=False)
+            except Exception as e:
+                print(f"[!] Local LLM engine unavailable: {e}")
+        return _llm_engine_local
+
+# Helper dependency wrapper for endpoint injection
+def get_default_llm_engine() -> Optional[LLMEngine]:
+    return get_llm_engine(use_cloud=False)
 
 
-def get_rag_service(
-    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo),
-    vector_repo: SQLiteVectorRepository = Depends(get_vector_repo),
-    embedding_engine: EmbeddingEngine = Depends(get_embedding_engine),
-    llm_engine: Optional[LLMEngine] = Depends(get_llm_engine)
-) -> Optional[RAGService]:
-    global _rag_service_inst
-    if _rag_service_inst is None:
-        if llm_engine is None:
-            return None
-        _rag_service_inst = RAGService(graph_repo, vector_repo, embedding_engine, llm_engine)
-    return _rag_service_inst
+_rag_service_local: Optional[RAGService] = None
+_rag_service_cloud: Optional[RAGService] = None
+
+def get_rag_service(use_cloud: bool = False) -> Optional[RAGService]:
+    global _rag_service_local, _rag_service_cloud
+    if use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1":
+        if _rag_service_cloud is None:
+            llm = get_llm_engine(use_cloud=True)
+            if llm is None:
+                return None
+            _rag_service_cloud = RAGService(get_graph_repo(), get_vector_repo(), get_embedding_engine(), llm)
+        return _rag_service_cloud
+    else:
+        if _rag_service_local is None:
+            llm = get_llm_engine(use_cloud=False)
+            if llm is None:
+                return None
+            _rag_service_local = RAGService(get_graph_repo(), get_vector_repo(), get_embedding_engine(), llm)
+        return _rag_service_local
 
 
 def get_note_service(
     graph_repo: SQLiteGraphRepository = Depends(get_graph_repo),
     vector_repo: SQLiteVectorRepository = Depends(get_vector_repo),
     embedding_engine: EmbeddingEngine = Depends(get_embedding_engine),
-    llm_engine: Optional[LLMEngine] = Depends(get_llm_engine)
+    llm_engine: Optional[LLMEngine] = Depends(get_default_llm_engine)
 ) -> NoteService:
     global _note_service_inst
     if _note_service_inst is None:
@@ -181,13 +203,42 @@ async def get_stats(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
 # ── /api/graph ──
 
 @app.get("/api/graph", response_model=GraphResponse)
-async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)):
+async def get_graph(
+    show_references: bool = False,
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
+):
     """Returns all nodes and edges formatted for vis-network."""
     nodes_rows = await asyncio.to_thread(graph_repo.get_all_nodes)
     edges_rows = await asyncio.to_thread(graph_repo.get_all_edges)
 
+    # 1. Identify local and stub papers
+    local_paper_ids = set()
+    all_paper_ids = set()
+    for node_id, label, properties_json in nodes_rows:
+        if label == "Paper":
+            all_paper_ids.add(node_id)
+            props = json.loads(properties_json or "{}")
+            if props.get("file_path") is not None:
+                local_paper_ids.add(node_id)
+
+    allowed_paper_ids = all_paper_ids if show_references else local_paper_ids
+
+    # 2. Identify authors and concepts connected to the allowed papers
+    connected_non_papers = set()
+    for source_id, target_id, edge_type, edge_properties in edges_rows:
+        if source_id in allowed_paper_ids:
+            connected_non_papers.add(target_id)
+        if target_id in allowed_paper_ids:
+            connected_non_papers.add(source_id)
+
+    allowed_node_ids = allowed_paper_ids.union(connected_non_papers)
+
+    # 3. Format allowed nodes
     vis_nodes = []
     for node_id, label, properties_json in nodes_rows:
+        if node_id not in allowed_node_ids:
+            continue
+
         props = json.loads(properties_json or "{}")
         source_type = props.get("source_type", "paper")
 
@@ -244,8 +295,11 @@ async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
             "full_title": props.get("title", props.get("name", node_id)),
         })
 
+    # 4. Format allowed edges
     vis_edges = []
     for source_id, target_id, edge_type, edge_properties in edges_rows:
+        if source_id not in allowed_node_ids or target_id not in allowed_node_ids:
+            continue
         vis_edges.append({
             "from": source_id,
             "to": target_id,
@@ -256,6 +310,7 @@ async def get_graph(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
         })
 
     return {"nodes": vis_nodes, "edges": vis_edges}
+
 
 
 # ── /api/paper/{id} ──
@@ -448,12 +503,12 @@ async def search(
 
 @app.post("/api/query")
 async def query_rag(
-    body: QueryRequest,
-    rag_service: Optional[RAGService] = Depends(get_rag_service)
+    body: QueryRequest
 ):
     """
     SSE-streamed RAG answer.
     """
+    rag_service = get_rag_service(use_cloud=bool(body.cloud))
     if rag_service is None:
         raise HTTPException(status_code=503, detail="LLM engine is not available.")
 

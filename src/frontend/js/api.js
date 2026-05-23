@@ -12,26 +12,33 @@ export async function fetchStats() {
 /**
  * Fetch entire graph structure (nodes + edges).
  */
-export async function fetchGraph() {
-  const r = await fetch(`${API_BASE}/api/graph`);
+export async function fetchGraph(showReferences = false) {
+  const r = await fetch(`${API_BASE}/api/graph?show_references=${showReferences}`);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
+
+const paperDetailsCache = new Map();
 
 /**
  * Fetch a node's details by its ID.
  */
 export async function fetchPaperDetails(paperId) {
+  if (paperDetailsCache.has(paperId)) {
+    return paperDetailsCache.get(paperId);
+  }
   const r = await fetch(`${API_BASE}/api/paper/${encodeURIComponent(paperId)}`);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
+  const data = await r.json();
+  paperDetailsCache.set(paperId, data);
+  return data;
 }
 
 /**
  * Search papers by title.
  */
-export async function searchPapers(q) {
-  const r = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
+export async function searchPapers(q, signal) {
+  const r = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`, { signal });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -98,11 +105,11 @@ export async function uploadFile(file) {
 /**
  * Initiates the RAG stream query.
  */
-export async function postQuery(question, limit = 5) {
+export async function postQuery(question, limit = 5, cloud = false) {
   const r = await fetch(`${API_BASE}/api/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, limit })
+    body: JSON.stringify({ question, limit, cloud })
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r;

@@ -30,7 +30,7 @@ app = typer.Typer(
 
 # ── Service factory ───────────────────────────────────────────────────────────
 
-def get_services(load_llm: bool = True, load_embeddings: bool = True):
+def get_services(load_llm: bool = True, load_embeddings: bool = True, use_cloud: bool = False):
     """Initializes and returns database repositories and engines."""
     graph_repo = SQLiteGraphRepository(config.db_path)
     vector_repo = SQLiteVectorRepository(config.db_path)
@@ -42,7 +42,7 @@ def get_services(load_llm: bool = True, load_embeddings: bool = True):
     llm_engine = None
     if load_llm:
         try:
-            llm_engine = LLMEngine()
+            llm_engine = LLMEngine(use_cloud=use_cloud)
         except Exception as e:
             con.error(f"Could not load LLM engine: {e}")
 
@@ -122,11 +122,14 @@ def index(
     target: str = typer.Argument(..., help="Path to file, directory, or URL to index"),
     use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Use LLM to extract concepts (slower)"),
     trace: bool = typer.Option(False, "--trace", "-t", help="Show detailed execution trace with timing and token count"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Index PDF papers, Markdown notes (.md), EPUB books, or URLs into the knowledge graph."""
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
     if trace:
         con.SHOW_TIME = True
-    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm, use_cloud=cloud)
     if use_llm and not llm_engine:
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
@@ -212,13 +215,16 @@ def reindex_meta(
     all_metadata: bool = typer.Option(False, "--all-metadata", help="Reindex metadata for all papers"),
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit the number of papers to reindex"),
     use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM for extracting concepts/tags (slower)"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Partially re-index paper metadata (authors, year, tags, citations) without regenerating embeddings."""
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
     if not all_metadata and not missing_authors and not missing_tags:
         con.warning("Please specify a filter: --missing-authors, --missing-tags, or --all-metadata")
         raise typer.Exit(0)
 
-    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm, use_cloud=cloud)
     if use_llm and not llm_engine:
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
@@ -269,13 +275,16 @@ def reindex_full(
     paper_id: Optional[str] = typer.Option(None, "--id", help="Reindex a single paper by ID"),
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit the number of papers to reindex"),
     use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM for extracting concepts/tags (slower)"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Fully re-index papers (re-chunk and recreate embeddings) by re-ingesting original files/URLs."""
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
     if not all_papers and not paper_id:
         con.warning("Please specify either --all or --id <paper_id>")
         raise typer.Exit(0)
 
-    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm)
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm, use_cloud=cloud)
     if use_llm and not llm_engine:
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
@@ -318,9 +327,12 @@ def reindex_full(
 def query(
     text: str = typer.Argument(..., help="Your question about the indexed documents"),
     limit: int = typer.Option(5, "--limit", "-l", help="Number of context chunks to retrieve"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Answer a question using hybrid RAG over all indexed documents."""
-    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True)
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True, use_cloud=cloud)
     if not llm_engine:
         con.error("LLM engine is required for query. Check your model path with: graph config")
         raise typer.Exit(1)
@@ -464,10 +476,14 @@ def stats():
 @app.command("storage")
 def storage(
     limit: int = typer.Option(20, "--limit", "-l", help="Number of items to display per page"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Display indexed data with interactive pagination, deletion and editing."""
     import click
     import math
+
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
 
     TABLES = ["documents", "authors", "concepts"]
     TABLE_LABELS = {"documents": "📚 Documents", "authors": "👥 Authors", "concepts": "🧠 Concepts"}
@@ -1228,9 +1244,13 @@ def visualize(
 # ── chat ──────────────────────────────────────────────────────────────────────
 
 @app.command("chat")
-def chat():
+def chat(
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
+):
     """Start an interactive TUI chat session with RAG memory."""
-    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True)
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True, use_cloud=cloud)
     if not llm_engine:
         con.error("LLM engine is not available. Run: graph config")
         raise typer.Exit(1)
@@ -1249,9 +1269,12 @@ def review(
     limit: int = typer.Option(20, "--limit", "-l", help="Max number of chunks to retrieve"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Path to save the Markdown report"),
     fast: bool = typer.Option(False, "--fast", help="Skip LLM clustering (single-section mode)"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Generate a full Markdown literature review on a topic using the indexed knowledge base."""
-    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True)
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True, use_cloud=cloud)
     if not llm_engine:
         con.error("LLM engine is required for review generation. Run: graph config")
         raise typer.Exit(1)
@@ -1283,8 +1306,11 @@ def serve(
     port: int = typer.Option(8000, "--port", "-p", help="Port to listen on"),
     reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open browser automatically"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Start the Science Graph Web UI (FastAPI + interactive vis-network graph)."""
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
     try:
         import uvicorn
     except ImportError:
@@ -1323,8 +1349,11 @@ def serve(
 def extract_file(
     target: str = typer.Argument(..., help="Path to text document"),
     use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Use LLM to extract concepts"),
+    cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Extract authors, concepts, and tags from a text document and output as JSON graph."""
+    if cloud:
+        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
     import sys
     import re
     # Redirect con output to stderr to keep stdout clean for JSON
@@ -1358,7 +1387,7 @@ def extract_file(
         llm_engine = None
         if use_llm:
             try:
-                llm_engine = LLMEngine()
+                llm_engine = LLMEngine(use_cloud=cloud)
             except Exception as e:
                 con.warning(f"Could not load LLM engine: {e}. Falling back to regex extraction.")
 
@@ -1565,6 +1594,91 @@ def doctor(
         con.success(f"✔️ Successfully corrected [bold]{total_issues}[/bold] anomalies across all tables!")
     else:
         con.warning(f"⚠️ Found [bold]{total_issues}[/bold] anomalies. Run with [bold]--fix[/bold] to repair them.")
+
+
+@app.command("init")
+def init():
+    """Bring the configuration file up-to-date with current settings (adding new and removing obsolete fields)."""
+    try:
+        config.init_config()
+        con.success(f"Configuration file [bold]{config.config_file}[/bold] has been successfully updated.")
+    except Exception as e:
+        con.error(f"Failed to initialize configuration: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("export-db")
+def export_db(
+    format_type: str = typer.Option("yaml", "--format", "-f", help="Output format: json or yaml"),
+    no_chunks: bool = typer.Option(False, "--no-chunks", help="Exclude text chunks from export"),
+):
+    """Export the database contents (nodes, edges, chunks without embeddings) to stdout as YAML or JSON."""
+    graph_repo, vector_repo, _, _ = get_services(load_llm=False, load_embeddings=False)
+    
+    # 1. Fetch nodes
+    raw_nodes = graph_repo.get_all_nodes()
+    nodes = []
+    for node_id, label, props_json in raw_nodes:
+        try:
+            props = json.loads(props_json) if props_json else {}
+        except Exception:
+            props = {}
+        nodes.append({
+            "id": node_id,
+            "label": label,
+            "properties": props
+        })
+        
+    # 2. Fetch edges
+    raw_edges = graph_repo.get_all_edges()
+    edges = []
+    for source_id, target_id, edge_type, props_json in raw_edges:
+        try:
+            props = json.loads(props_json) if props_json else {}
+        except Exception:
+            props = {}
+        edges.append({
+            "source_id": source_id,
+            "target_id": target_id,
+            "type": edge_type,
+            "properties": props
+        })
+        
+    # 3. Fetch chunks (if requested)
+    chunks = []
+    if not no_chunks:
+        with vector_repo._get_connection() as conn:
+            rows = conn.execute("SELECT id, paper_id, text_content, page_number FROM chunks").fetchall()
+            for r in rows:
+                chunk_id = r["id"]
+                # Chunk ID is formatted as: paper_id#index. Try to extract index from it
+                idx_val = 0
+                if chunk_id and "#" in chunk_id:
+                    try:
+                        idx_val = int(chunk_id.split("#")[-1])
+                    except ValueError:
+                        pass
+                chunks.append({
+                    "id": chunk_id,
+                    "paper_id": r["paper_id"],
+                    "idx": idx_val,
+                    "text_content": r["text_content"],
+                    "page_number": r["page_number"]
+                })
+                
+    export_data = {
+        "nodes": nodes,
+        "edges": edges
+    }
+    if not no_chunks:
+        export_data["chunks"] = chunks
+        
+    import sys
+    if format_type.lower() == "json":
+        sys.stdout.write(json.dumps(export_data, indent=2, ensure_ascii=False) + "\n")
+    else:
+        import yaml
+        yaml.safe_dump(export_data, sys.stdout, default_flow_style=False, allow_unicode=True)
 
 
 if __name__ == "__main__":

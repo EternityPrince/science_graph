@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 class QueryRequest(BaseModel):
     question: str
     limit: Optional[int] = 5
+    cloud: Optional[bool] = False
 
 class NoteCreate(BaseModel):
     title: str

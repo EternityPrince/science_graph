@@ -647,10 +647,18 @@ class OpenAILLMEngine(BaseLLMEngine):
                 return strip_thinking_tokens(response.choices[0].message.content)
 
 
-def LLMEngine(*args, **kwargs) -> BaseLLMEngine:
-    """Factory for returning the correct LLM Engine based on config."""
-    provider = config.llm_provider.lower()
-    if provider == "openai":
-        return OpenAILLMEngine()
+_local_engine_singleton = None
+_cloud_engine_singleton = None
+
+
+def LLMEngine(use_cloud: bool = False, *args, **kwargs) -> BaseLLMEngine:
+    """Factory for returning the correct LLM Engine based on config/parameters."""
+    global _local_engine_singleton, _cloud_engine_singleton
+    if use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1":
+        if _cloud_engine_singleton is None:
+            _cloud_engine_singleton = OpenAILLMEngine()
+        return _cloud_engine_singleton
     else:
-        return MlxLLMEngine(*args, **kwargs)
+        if _local_engine_singleton is None:
+            _local_engine_singleton = MlxLLMEngine(*args, **kwargs)
+        return _local_engine_singleton

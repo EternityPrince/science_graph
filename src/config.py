@@ -161,6 +161,31 @@ pdf_compression:
         with open(self.config_file, "w", encoding="utf-8") as f:
             yaml.dump(self.data, f, default_flow_style=False, allow_unicode=True)
 
+    def init_config(self) -> None:
+        """Brings the config.yaml file up-to-date with DEFAULT_CONFIG, preserving user values."""
+        loaded = {}
+        if self.config_file.exists():
+            with open(self.config_file, "r", encoding="utf-8") as f:
+                try:
+                    loaded = yaml.safe_load(f) or {}
+                except Exception:
+                    pass
+
+        def sync_dict(template: dict, current: dict) -> dict:
+            result = {}
+            for k, v in template.items():
+                if k in current:
+                    if isinstance(v, dict) and isinstance(current[k], dict):
+                        result[k] = sync_dict(v, current[k])
+                    else:
+                        result[k] = current[k]
+                else:
+                    result[k] = v
+            return result
+
+        self.data = sync_dict(DEFAULT_CONFIG, loaded)
+        self.save()
+
     @property
     def hf_token(self) -> str:
         return self.data.get("hf_token", "")
