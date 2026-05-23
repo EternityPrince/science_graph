@@ -180,5 +180,38 @@ class TestSQLiteRepositories(unittest.TestCase):
         # Verify data is NOT committed
         self.assertIsNone(self.graph_repo_temp.get_paper("p_tx_rollback"))
 
+    def test_placeholders_separation(self):
+        # 1. Save an indexed paper (is_placeholder is False by default)
+        indexed_paper = Paper(
+            id="indexed_p",
+            title="Indexed Paper",
+            authors=["John Doe"],
+            year=2025,
+            properties={}
+        )
+        self.graph_repo_temp.save_paper(indexed_paper)
+
+        # 2. Save a placeholder paper
+        placeholder_paper = Paper(
+            id="placeholder_p",
+            title="Placeholder Paper",
+            authors=[],
+            year=None,
+            properties={"is_placeholder": True}
+        )
+        self.graph_repo_temp.save_paper(placeholder_paper)
+
+        # 3. Check get_stats
+        stats = self.graph_repo_temp.get_stats()
+        self.assertEqual(stats["papers"], 2)
+        self.assertEqual(stats["indexed_papers"], 1)
+        self.assertEqual(stats["mentioned_papers"], 1)
+
+        # 4. Check get_non_placeholder_paper_ids
+        non_placeholders = self.graph_repo_temp.get_non_placeholder_paper_ids()
+        self.assertEqual(len(non_placeholders), 1)
+        self.assertIn("indexed_p", non_placeholders)
+        self.assertNotIn("placeholder_p", non_placeholders)
+
 if __name__ == "__main__":
     unittest.main()

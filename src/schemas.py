@@ -90,6 +90,8 @@ class StatsResponse(BaseModel):
     authors: int
     concepts: int
     edges: int
+    indexed_papers: int = 0
+    mentioned_papers: int = 0
     storage: Optional[StorageStats] = None
 
 class ConceptItem(BaseModel):

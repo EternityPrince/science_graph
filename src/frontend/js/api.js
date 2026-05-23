@@ -10,6 +10,15 @@ export async function fetchStats() {
 }
 
 /**
+ * Fetch configured AI models.
+ */
+export async function fetchModels() {
+  const r = await fetch(`${API_BASE}/api/models`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+/**
  * Fetch entire graph structure (nodes + edges).
  */
 export async function fetchGraph(showReferences = false) {

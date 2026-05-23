@@ -1,7 +1,7 @@
-import { fetchStats, openLocalFile, uploadFile, fetchPaperDetails, fetchNotes, indexUrl } from './api.js';
+import { fetchStats, openLocalFile, uploadFile, fetchPaperDetails, fetchNotes, indexUrl, fetchModels } from './api.js';
 import { toast, log } from './ui.js';
 import { escapeHtml, escapeSingleQuotes } from './utils.js';
-import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters, getAllNodes, highlightNeighbors, expandNodeReferences, clearExpandedReferences } from './graph.js';
+import { loadGraph, onNodeClick, registerViewSwitcher as registerGraphViewSwitcher, focusAndDetails, getNetwork, activeFilters, applyFilters, getAllNodes, highlightNeighbors, expandNodeReferences, clearExpandedReferences, hasExpandedReferences } from './graph.js';
 import { loadNotes, saveNewNote, onNoteSaved, parseWikiLinks } from './notes.js';
 import { sendMessage, registerViewSwitcher as registerChatViewSwitcher, askAbout } from './chat.js';
 
@@ -35,23 +35,26 @@ export function switchView(viewName) {
   }
 }
 
-// Stats Loader
 export async function loadStats() {
   try {
     const d = await fetchStats();
     const papersEl = document.getElementById('stat-papers');
     const conceptsEl = document.getElementById('stat-concepts');
-    if (papersEl) papersEl.textContent = d.papers ?? '—';
+    if (papersEl) papersEl.textContent = d.indexed_papers ?? d.papers ?? '—';
     if (conceptsEl) conceptsEl.textContent = d.concepts ?? '—';
 
     // Bento Stats
-    const bentoPapersEl = document.getElementById('bento-stat-papers');
+    const bentoPapersIndexedEl = document.getElementById('bento-stat-papers-indexed');
+    const bentoPapersMentionedEl = document.getElementById('bento-stat-papers-mentioned');
     const bentoConceptsEl = document.getElementById('bento-stat-concepts');
     const bentoNotesEl = document.getElementById('bento-stat-notes');
+    const bentoEdgesEl = document.getElementById('bento-stat-edges');
     const bentoStorageEl = document.getElementById('bento-stat-storage');
 
-    if (bentoPapersEl) bentoPapersEl.textContent = d.papers ?? '—';
+    if (bentoPapersIndexedEl) bentoPapersIndexedEl.textContent = d.indexed_papers ?? '—';
+    if (bentoPapersMentionedEl) bentoPapersMentionedEl.textContent = d.mentioned_papers ?? '—';
     if (bentoConceptsEl) bentoConceptsEl.textContent = d.concepts ?? '—';
+    if (bentoEdgesEl) bentoEdgesEl.textContent = d.edges ?? '—';
 
     try {
       const notes = await fetchNotes();
@@ -349,14 +352,10 @@ export async function showNodeDetails(nodeId) {
   try {
     const d = await fetchPaperDetails(nodeId);
     
-    // Dynamically expand citations and cited_by references on the graph
-    if (d.type === 'paper') {
-      expandNodeReferences(nodeId, d.citations, d.cited_by);
-    } else {
-      clearExpandedReferences();
-    }
+    // Clear any previously expanded references
+    clearExpandedReferences();
     
-    // Highlight neighbors again to include the newly added reference nodes
+    // Highlight neighbors of the selected node
     highlightNeighbors(nodeId);
 
     renderDetails(panel, d);
@@ -381,6 +380,9 @@ function renderDetails(panel, d) {
             <div class="details-label">Биография / Описание</div>
             <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${escapeHtml(d.description)}</div>
           </div>
+        </div>
+        <div style="font-size: 10px; color: var(--text3); margin-top: 12px; border-top: 1px solid var(--border-solid); padding-top: 8px;">
+          👥 Извлечено NER-моделью: <code style="color: var(--accent); font-family: inherit;">${escapeHtml(window.appModels?.ner || 'dslim/bert-base-NER')}</code>
         </div>
       </div>`;
 
@@ -415,6 +417,9 @@ function renderDetails(panel, d) {
             <div class="details-label">Описание</div>
             <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${escapeHtml(d.description)}</div>
           </div>
+        </div>
+        <div style="font-size: 10px; color: var(--text3); margin-top: 12px; border-top: 1px solid var(--border-solid); padding-top: 8px;">
+          🧬 Извлечено NLP (spaCy: <code style="color: var(--accent); font-family: inherit;">${escapeHtml(window.appModels?.spacy || 'en_core_web_sm')}</code>) & LLM
         </div>
       </div>`;
 
@@ -460,6 +465,9 @@ function renderDetails(panel, d) {
             <div class="details-label">Описание</div>
             <div class="details-value" style="font-size:13px; color:var(--text2); line-height:1.5;">${escapeHtml(d.description)}</div>
           </div>
+        </div>
+        <div style="font-size: 10px; color: var(--text3); margin-top: 12px; border-top: 1px solid var(--border-solid); padding-top: 8px;">
+          🏷️ Извлечено с помощью LLM
         </div>
       </div>`;
 
@@ -568,6 +576,9 @@ function renderDetails(panel, d) {
           <div class="sidebar-tab-content" data-tab="transcript" style="padding: 16px; display: none;">
             <div class="video-transcript-box">${formattedTranscript}</div>
           </div>
+          <div style="font-size: 10px; color: var(--text3); padding: 8px 16px; border-top: 1px solid var(--border-solid); background: var(--surface2);">
+            🤖 Обзор сгенерирован LLM: <code style="color: var(--accent); font-family: inherit;">${escapeHtml(window.appModels?.llm_provider === 'local' ? window.appModels?.llm_local : window.appModels?.llm_cloud)}</code>
+          </div>
         </div>
       `;
     } else if (d.summary) {
@@ -578,6 +589,9 @@ function renderDetails(panel, d) {
         <h3>🎥 Обзор видео</h3>
         <div style="font-size: 13px; color: var(--text2); line-height: 1.6; margin-top: 10px; max-height: 250px; overflow-y: auto; background: var(--surface3); padding: 10px 12px; border-radius: var(--radius-sm);">
           ${processedSummary}
+        </div>
+        <div style="font-size: 10px; color: var(--text3); margin-top: 12px; border-top: 1px solid var(--border-solid); padding-top: 8px;">
+          🤖 Сгенерировано LLM: <code style="color: var(--accent); font-family: inherit;">${escapeHtml(window.appModels?.llm_provider === 'local' ? window.appModels?.llm_local : window.appModels?.llm_cloud)}</code>
         </div>
       </div>`;
     }
@@ -661,6 +675,9 @@ function renderDetails(panel, d) {
       <div style="font-size: 13px; color: var(--text2); line-height: 1.6; margin-top: 10px; max-height: 250px; overflow-y: auto; background: var(--surface3); padding: 10px 12px; border-radius: var(--radius-sm);">
         ${processedSummary}
       </div>
+      <div style="font-size: 10px; color: var(--text3); margin-top: 12px; border-top: 1px solid var(--border-solid); padding-top: 8px;">
+        🤖 Сгенерировано LLM: <code style="color: var(--accent); font-family: inherit;">${escapeHtml(window.appModels?.llm_provider === 'local' ? window.appModels?.llm_local : window.appModels?.llm_cloud)}</code>
+      </div>
     </div>`;
   }
 
@@ -700,6 +717,13 @@ function renderDetails(panel, d) {
     </div>`;
   }
 
+  if (d.citations?.length || d.cited_by?.length) {
+    const isExpanded = hasExpandedReferences();
+    html += `<button class="btn ${isExpanded ? 'btn-danger' : 'btn-ghost'}" id="btn-toggle-refs" style="width:100%;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="toggleGraphReferences('${escapeSingleQuotes(d.id)}')">
+      ${isExpanded ? '❌ Скрыть упомянутые работы с графа' : '🔍 Показать упомянутые работы на графе'}
+    </button>`;
+  }
+
   if (d.file_path) {
     html += `<button class="btn btn-ghost" style="width:100%;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="openLocalFile('${escapeSingleQuotes(d.file_path)}')">
       📂 Открыть локальный файл
@@ -719,6 +743,32 @@ window.openLocalFile = async (filePath) => {
     toast(`Открыт файл: ${d.message || filePath}`, 'ok');
   } catch (e) {
     toast(`Ошибка открытия файла: ${e.message}`, 'err');
+  }
+};
+
+window.toggleGraphReferences = async (nodeId) => {
+  const btn = document.getElementById('btn-toggle-refs');
+  if (!btn) return;
+
+  if (hasExpandedReferences()) {
+    clearExpandedReferences();
+    highlightNeighbors(nodeId);
+    btn.innerHTML = '🔍 Показать упомянутые работы на графе';
+    btn.classList.remove('btn-danger');
+    btn.classList.add('btn-ghost');
+  } else {
+    try {
+      const d = await fetchPaperDetails(nodeId);
+      if (d.type === 'paper') {
+        expandNodeReferences(nodeId, d.citations, d.cited_by);
+        highlightNeighbors(nodeId);
+        btn.innerHTML = '❌ Скрыть упомянутые работы с графа';
+        btn.classList.remove('btn-ghost');
+        btn.classList.add('btn-danger');
+      }
+    } catch (e) {
+      toast('Не удалось загрузить упомянутые работы: ' + e.message, 'err');
+    }
   }
 };
 
@@ -831,9 +881,16 @@ if (quickAskInput && btnQuickAsk) {
   });
 }
 
+window.appModels = {};
+
 // ── Application Bootstrapping ────────────────────────────────────────────────
 (async () => {
   switchView('dashboard');
+  try {
+    window.appModels = await fetchModels();
+  } catch (e) {
+    console.error("Failed to load AI models info:", e);
+  }
   await Promise.all([loadStats(), loadGraph(), loadNotes()]);
   await updateDashboardLists();
 })();

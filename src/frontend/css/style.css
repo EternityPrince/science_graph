@@ -44,6 +44,7 @@
   --col-author:  #cbd5e1;
   --col-concept: #00f2fe;
   --col-tag:     #ff9f00;
+  --col-reference: #64748b;
 }
 
 html, body { height: 100%; }
@@ -880,6 +881,7 @@ p, span, label, button, input, textarea, code, pre {
 .badge-author { background: rgba(203, 213, 225, 0.05); color: var(--col-author); }
 .badge-concept{ background: rgba(0, 242, 254, 0.05); color: var(--col-concept); }
 .badge-tag    { background: rgba(255, 159, 0, 0.05); color: var(--col-tag); }
+.badge-reference { background: rgba(100, 116, 139, 0.05); color: var(--col-reference); }
 
 .details-row { display: flex; flex-direction: column; gap: 14px; }
 .details-field { display: flex; flex-direction: column; gap: 4px; }

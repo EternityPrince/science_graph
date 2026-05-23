@@ -25,7 +25,7 @@ export function startPhysicsTimeout(ms = 2000) {
   }, ms);
 }
 
-export const activeFilters = new Set(['paper', 'note', 'book', 'video', 'webpage', 'author', 'concept', 'tag']);
+export const activeFilters = new Set(['paper', 'note', 'book', 'video', 'webpage', 'reference', 'author', 'concept', 'tag']);
 export let activeHeatmapDate = null;
 
 let onNodeClickCallback = null;
@@ -37,7 +37,7 @@ let viewSwitcherCallback = null;
 export function isNodeVisible(n) {
   let isVisible = activeFilters.has(n.group);
 
-  if (isVisible && n.created_at && ['paper', 'note', 'book', 'video', 'webpage'].includes(n.group)) {
+  if (isVisible && n.created_at && ['paper', 'note', 'book', 'video', 'webpage', 'reference'].includes(n.group)) {
     const docDate = n.created_at.substring(0, 10); // YYYY-MM-DD
     if (activeHeatmapDate) {
       if (docDate !== activeHeatmapDate) {
@@ -631,9 +631,9 @@ export function expandNodeReferences(nodeId, citations = [], citedBy = []) {
         physics: false, // EXCLUDE from physics calculation to maintain 60 FPS
         label: cit.title.length < 28 ? cit.title : cit.title.substring(0, 25) + '…',
         title: `<b>Paper (Reference)</b>: ${cit.title}`,
-        color: "#475569", // Slate/Gray color for stub references
+        color: "#64748b", // Slate color for stub references
         size: 14,
-        group: "paper",
+        group: "reference",
         shape: "dot",
         isTempReference: true,
         full_title: cit.title,
@@ -679,9 +679,9 @@ export function expandNodeReferences(nodeId, citations = [], citedBy = []) {
         physics: false, // EXCLUDE from physics calculation
         label: cb.title.length < 28 ? cb.title : cb.title.substring(0, 25) + '…',
         title: `<b>Paper (Reference)</b>: ${cb.title}`,
-        color: "#475569",
+        color: "#64748b",
         size: 14,
-        group: "paper",
+        group: "reference",
         shape: "dot",
         isTempReference: true,
         full_title: cb.title,
@@ -741,6 +741,10 @@ export function clearExpandedReferences() {
     allNodes.remove(addedReferenceNodeIds);
     addedReferenceNodeIds = [];
   }
+}
+
+export function hasExpandedReferences() {
+  return addedReferenceNodeIds.length > 0;
 }
 
 let controlsInitialized = false;

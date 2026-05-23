@@ -87,22 +87,42 @@ class SQLiteGraphRepository(GraphRepository):
 
     def _init_db(self):
         with self._get_connection() as conn:
-            # Create nodes table with virtual generated title column
+            # Create nodes table with virtual generated title & is_placeholder columns
             conn.execute("""
             CREATE TABLE IF NOT EXISTS nodes (
                 id TEXT PRIMARY KEY,
                 label TEXT NOT NULL,
                 properties TEXT NOT NULL,
-                title TEXT GENERATED ALWAYS AS (json_extract(properties, '$.title')) VIRTUAL
+                title TEXT GENERATED ALWAYS AS (json_extract(properties, '$.title')) VIRTUAL,
+                is_placeholder INTEGER GENERATED ALWAYS AS (
+                    CASE 
+                        WHEN json_extract(properties, '$.is_placeholder') = 1 THEN 1
+                        WHEN json_extract(properties, '$.placeholder') = 1 THEN 1
+                        ELSE 0
+                    END
+                ) VIRTUAL
             );
             """)
             
-            # Schema migration: check if title column exists in nodes table for existing setups
-            cursor = conn.execute("PRAGMA table_info(nodes);")
+            # Schema migration: check if columns exist in nodes table for existing setups
+            cursor = conn.execute("PRAGMA table_xinfo(nodes);")
             columns = [row[1] for row in cursor.fetchall()]
             if "title" not in columns:
                 try:
                     conn.execute("ALTER TABLE nodes ADD COLUMN title TEXT GENERATED ALWAYS AS (json_extract(properties, '$.title')) VIRTUAL;")
+                except sqlite3.OperationalError:
+                    pass
+            if "is_placeholder" not in columns:
+                try:
+                    conn.execute("""
+                    ALTER TABLE nodes ADD COLUMN is_placeholder INTEGER GENERATED ALWAYS AS (
+                        CASE 
+                            WHEN json_extract(properties, '$.is_placeholder') = 1 THEN 1
+                            WHEN json_extract(properties, '$.placeholder') = 1 THEN 1
+                            ELSE 0
+                        END
+                    ) VIRTUAL;
+                    """)
                 except sqlite3.OperationalError:
                     pass
 
@@ -122,6 +142,7 @@ class SQLiteGraphRepository(GraphRepository):
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_label ON nodes(label);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_title ON nodes(title);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_is_placeholder ON nodes(is_placeholder);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);")
             conn.commit()
@@ -439,11 +460,15 @@ class SQLiteGraphRepository(GraphRepository):
             author_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Author'").fetchone()[0]
             concept_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Concept'").fetchone()[0]
             edge_count = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+            indexed_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Paper' AND is_placeholder = 0").fetchone()[0]
+            mentioned_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Paper' AND is_placeholder = 1").fetchone()[0]
             return {
                 "papers": paper_count,
                 "authors": author_count,
                 "concepts": concept_count,
-                "edges": edge_count
+                "edges": edge_count,
+                "indexed_papers": indexed_count,
+                "mentioned_papers": mentioned_count
             }
 
     def cleanup_orphaned_concepts(self) -> int:
@@ -602,13 +627,8 @@ class SQLiteGraphRepository(GraphRepository):
 
     def get_non_placeholder_paper_ids(self) -> List[str]:
         with self._get_connection() as conn:
-            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
-            candidates = []
-            for r in rows:
-                props = json.loads(r["properties"])
-                if not props.get("placeholder") and not props.get("is_placeholder"):
-                    candidates.append(r["id"])
-            return candidates
+            rows = conn.execute("SELECT id FROM nodes WHERE label = 'Paper' AND is_placeholder = 0").fetchall()
+            return [r["id"] for r in rows]
 
     def get_paper_source_types(self) -> Dict[str, str]:
         with self._get_connection() as conn:

@@ -75,8 +75,12 @@
         <h3>📊 Статистика базы</h3>
         <div class="stats-bento-grid">
           <div class="stat-bento-item">
-            <span class="stat-bento-num" id="bento-stat-papers">—</span>
-            <span class="stat-bento-label">Статей</span>
+            <span class="stat-bento-num" id="bento-stat-papers-indexed">—</span>
+            <span class="stat-bento-label">Индексировано</span>
+          </div>
+          <div class="stat-bento-item">
+            <span class="stat-bento-num" id="bento-stat-papers-mentioned">—</span>
+            <span class="stat-bento-label">Упомянуто</span>
           </div>
           <div class="stat-bento-item">
             <span class="stat-bento-num" id="bento-stat-concepts">—</span>
@@ -85,6 +89,10 @@
           <div class="stat-bento-item">
             <span class="stat-bento-num" id="bento-stat-notes">—</span>
             <span class="stat-bento-label">Заметок</span>
+          </div>
+          <div class="stat-bento-item">
+            <span class="stat-bento-num" id="bento-stat-edges">—</span>
+            <span class="stat-bento-label">Связей</span>
           </div>
           <div class="stat-bento-item">
             <span class="stat-bento-num" id="bento-stat-storage">—</span>
@@ -176,6 +184,9 @@
         </div>
         <div class="filter-chip active" data-group="webpage" id="chip-webpage">
           <span class="chip-dot" style="background:var(--col-webpage)"></span> Веб-страницы
+        </div>
+        <div class="filter-chip active" data-group="reference" id="chip-reference">
+          <span class="chip-dot" style="background:var(--col-reference)"></span> Упомянутые
         </div>
         <div class="filter-chip active" data-group="author" id="chip-author">
           <span class="chip-dot" style="background:var(--col-author)"></span> Авторы

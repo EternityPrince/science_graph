@@ -200,6 +200,20 @@ async def get_stats(graph_repo: SQLiteGraphRepository = Depends(get_graph_repo))
     return stats
 
 
+# ── /api/models ──
+
+@app.get("/api/models")
+async def get_models():
+    return {
+        "llm_local": config.llm_local_model_path.split("/")[-1] if config.llm_local_model_path else "not set",
+        "llm_cloud": config.llm_cloud_model_name,
+        "llm_provider": config.llm_provider,
+        "embedding": config.embedding_model_name.split("/")[-1] if config.embedding_model_name else "not set",
+        "spacy": config.spacy_model_name,
+        "ner": config.ner_model_name.split("/")[-1] if config.ner_model_name else "not set"
+    }
+
+
 # ── /api/graph ──
 
 @app.get("/api/graph", response_model=GraphResponse)
@@ -211,17 +225,21 @@ async def get_graph(
     nodes_rows = await asyncio.to_thread(graph_repo.get_all_nodes)
     edges_rows = await asyncio.to_thread(graph_repo.get_all_edges)
 
-    # 1. Identify local and stub papers
-    local_paper_ids = set()
-    all_paper_ids = set()
+    # 1. Identify indexed and mentioned (placeholder) papers
+    indexed_paper_ids = set()
+    placeholder_paper_ids = set()
     for node_id, label, properties_json in nodes_rows:
         if label == "Paper":
-            all_paper_ids.add(node_id)
             props = json.loads(properties_json or "{}")
-            if props.get("file_path") is not None:
-                local_paper_ids.add(node_id)
+            is_placeholder = bool(props.get("is_placeholder") or props.get("placeholder"))
+            if is_placeholder:
+                placeholder_paper_ids.add(node_id)
+            else:
+                indexed_paper_ids.add(node_id)
 
-    allowed_paper_ids = all_paper_ids if show_references else local_paper_ids
+    allowed_paper_ids = indexed_paper_ids
+    if show_references:
+        allowed_paper_ids = allowed_paper_ids.union(placeholder_paper_ids)
 
     # 2. Identify authors and concepts connected to the allowed papers
     connected_non_papers = set()
@@ -241,20 +259,28 @@ async def get_graph(
 
         props = json.loads(properties_json or "{}")
         source_type = props.get("source_type", "paper")
+        is_placeholder = bool(props.get("is_placeholder") or props.get("placeholder"))
 
         if label == "Paper":
             title = props.get("title", node_id)
             display = title if len(title) < 28 else title[:25] + "…"
-            color_map = {
-                "note": "#a5b4fc",
-                "book": "#818cf8",
-                "paper": "#6366f1",
-                "video": "#f43f5e",
-                "webpage": "#06b6d4"
-            }
-            color = color_map.get(source_type, "#6366f1")
-            size = 25
-            group = source_type
+            
+            if is_placeholder:
+                color = "#64748b" # slate/grey color for placeholder references
+                size = 14
+                group = "reference"
+                source_type = "reference"
+            else:
+                color_map = {
+                    "note": "#a5b4fc",
+                    "book": "#818cf8",
+                    "paper": "#6366f1",
+                    "video": "#f43f5e",
+                    "webpage": "#06b6d4"
+                }
+                color = color_map.get(source_type, "#6366f1")
+                size = 25
+                group = source_type
         elif label == "Author":
             display = props.get("name", node_id)
             color = "#cbd5e1"
@@ -276,7 +302,7 @@ async def get_graph(
             size = 14
             group = "other"
 
-        tooltip = f"<b>{label}</b>: {props.get('title', props.get('name', node_id))}"
+        tooltip = f"<b>{label} (Упомянутая работа)</b>: {props.get('title', props.get('name', node_id))}" if is_placeholder else f"<b>{label}</b>: {props.get('title', props.get('name', node_id))}"
         if props.get("year"):
             tooltip += f"<br>Year: {props['year']}"
         if props.get("authors"):
@@ -397,13 +423,13 @@ async def get_paper(
             {"id": pid, "title": p.title}
             for pid in citation_ids
             if (p := citations_map.get(pid)) and p.title
-        ][:10]
+        ][:100]
 
         cited_by = [
             {"id": pid, "title": p.title}
             for pid in cited_by_ids
             if (p := cited_by_map.get(pid)) and p.title
-        ][:10]
+        ][:100]
 
         return {
             "type": "paper",
