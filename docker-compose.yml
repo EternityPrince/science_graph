@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  back:
+    build:
+      context: ./back
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./back/data:/app/data
+      - ./back/config:/app/config
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_URL=http://back:8000
+    depends_on:
+      - back
+    restart: always
