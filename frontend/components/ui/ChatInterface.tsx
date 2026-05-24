@@ -23,6 +23,10 @@ export default function ChatInterface() {
   const graphNodes = useStore((state) => state.graphData?.nodes || []);
   const setSelectedNodeId = useStore((state) => state.setSelectedNodeId);
   const setView = useStore((state) => state.setView);
+  const activeDocumentId = useStore((state) => state.activeDocumentId);
+  const activeDocumentTitle = useStore((state) => state.activeDocumentTitle);
+  const setActiveDocument = useStore((state) => state.setActiveDocument);
+
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -183,10 +187,46 @@ export default function ChatInterface() {
     
     return withWiki || '<span style="color:var(--text3)">Нет ответа от модели.</span>';
   };
-
   return (
     <div id="view-chat" className="main-view active">
       <div className="chat-container">
+        {activeDocumentId && activeDocumentTitle && (
+          <div 
+            style={{
+              padding: "10px 16px",
+              background: "rgba(99, 102, 241, 0.1)",
+              border: "2px solid var(--accent)",
+              borderBottomWidth: "2px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: "12px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              color: "var(--text)",
+              marginBottom: "12px"
+            }}
+          >
+            <div>
+              <span style={{ color: "var(--accent)", marginRight: "8px" }}>🧬 FOCUSED_CONTEXT //</span>
+              <strong>{activeDocumentTitle}</strong>
+            </div>
+            <button
+              onClick={() => setActiveDocument(null, null)}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--border)",
+                color: "var(--text3)",
+                padding: "2px 8px",
+                fontSize: "10px",
+                cursor: "pointer",
+                textTransform: "uppercase"
+              }}
+              className="hover-accent"
+            >
+              [СБРОСИТЬ]
+            </button>
+          </div>
+        )}
         <div id="chat-messages" onClick={handleMessageClick}>
           {messages.length === 0 ? (
             <div className="chat-welcome">

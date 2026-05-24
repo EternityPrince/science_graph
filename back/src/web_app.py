@@ -145,48 +145,32 @@ def get_note_service(
 
 app = FastAPI(title="Science Graph", version="0.1.0")
 
-# Serve static files (frontend/ directory next to this file)
-_WEB_DIR = Path(__file__).parent / "frontend"
+# Serve static files from frontend/out in the repository root
+_WEB_DIR = Path(__file__).resolve().parents[2] / "frontend" / "out"
 
-# Mount static assets if directory exists (JS, CSS, images)
-if (_WEB_DIR / "js").exists():
-    app.mount("/js", StaticFiles(directory=str(_WEB_DIR / "js")), name="js")
-if (_WEB_DIR / "css").exists():
-    app.mount("/css", StaticFiles(directory=str(_WEB_DIR / "css")), name="css")
-if (_WEB_DIR / "static").exists():
-    app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
+# Mount Next.js static assets if the directory exists
+if (_WEB_DIR / "_next").exists():
+    app.mount("/_next", StaticFiles(directory=str(_WEB_DIR / "_next")), name="next-assets")
 
 
 @app.get("/", include_in_schema=False)
 async def root():
     index_file = _WEB_DIR / "index.html"
     if not index_file.exists():
-        raise HTTPException(status_code=404, detail="Web UI not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Web UI build not found. Please run 'npm run build' inside the 'frontend' directory first."
+        )
     return FileResponse(str(index_file))
-
-
-@app.get("/vis-network.min.js", include_in_schema=False)
-async def get_vis_network():
-    vis_file = _WEB_DIR / "vis-network.min.js"
-    if vis_file.exists():
-        return FileResponse(str(vis_file))
-    raise HTTPException(status_code=404, detail="vis-network.min.js not found.")
-
-
-@app.get("/favicon.png", include_in_schema=False)
-async def get_favicon():
-    fav_file = _WEB_DIR / "favicon.png"
-    if fav_file.exists():
-        return FileResponse(str(fav_file))
-    raise HTTPException(status_code=404, detail="favicon.png not found.")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def get_favicon_ico():
-    fav_file = _WEB_DIR / "favicon.png"
+    fav_file = _WEB_DIR / "favicon.ico"
     if fav_file.exists():
         return FileResponse(str(fav_file))
     raise HTTPException(status_code=404, detail="favicon.ico not found.")
+
 
 
 # ── /api/stats ──
@@ -842,3 +826,20 @@ async def index_url_route(
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Catch-all to serve other exported files (e.g. SVG assets, subpages) or fallback to index.html for SPA routing
+@app.get("/{path_name:path}", include_in_schema=False)
+async def catch_all(path_name: str):
+    if not path_name:
+        return await root()
+        
+    file_path = _WEB_DIR / path_name
+    if file_path.is_file():
+        return FileResponse(str(file_path))
+        
+    index_file = _WEB_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+        
+    raise HTTPException(status_code=404, detail="Not found")

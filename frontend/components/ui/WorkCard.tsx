@@ -1,10 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { fetchPaperDetails, openLocalFile } from "@/lib/api";
 import { PaperDetailResponse, LibraryPaperItem } from "@/lib/types";
 import { motion, AnimatePresence } from "framer-motion";
+import WikiLinkParser from "./WikiLinkParser";
+
 
 interface WorkCardProps {
   item: LibraryPaperItem;
@@ -14,12 +17,15 @@ interface WorkCardProps {
 }
 
 export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetails }: WorkCardProps) {
+  const router = useRouter();
   const {
     addLibraryFilter,
     askAbout,
     setSelectedNodeId,
     setView,
+    setActiveDocument,
   } = useStore();
+
 
   const [details, setDetails] = useState<PaperDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -223,9 +229,10 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
               {/* AI Summary Snippet */}
               <div style={{ marginBottom: "16px" }}>
                 <strong style={{ fontSize: "11px", color: "var(--accent)" }}>🧬 RESUME:</strong>
-                <p style={{ marginTop: "4px", fontSize: "12px", color: "var(--text2)", lineHeight: "1.5" }}>
-                  {summarySnippet}
-                </p>
+                <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--text2)", lineHeight: "1.5" }}>
+                  <WikiLinkParser text={summarySnippet} />
+                </div>
+
                 <button
                   className="btn btn-ghost btn-sm"
                   style={{ marginTop: "8px", fontSize: "10px", padding: "2px 6px" }}
@@ -353,12 +360,27 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
         )}
 
         <button
+          className="btn btn-ghost btn-sm"
+          style={{ fontSize: "11px", textTransform: "uppercase" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedNodeId(item.id);
+            setView("graph");
+            router.push("/");
+          }}
+        >
+          🗺️ Graph
+        </button>
+
+        <button
           className="btn btn-primary btn-sm"
           style={{ fontSize: "11px", textTransform: "uppercase" }}
           onClick={(e) => {
             e.stopPropagation();
+            setActiveDocument(item.id, item.title);
             askAbout(item.title);
             setView("chat");
+            router.push("/");
           }}
         >
           💬 RAG

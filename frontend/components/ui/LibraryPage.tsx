@@ -7,7 +7,11 @@ import WorkCard from "./WorkCard";
 import DetailSheet from "./DetailSheet";
 import { List } from "react-window";
 
-export default function LibraryPage() {
+interface LibraryPageProps {
+  initialData?: any;
+}
+
+export default function LibraryPage({ initialData }: LibraryPageProps) {
   const {
     libraryData,
     libraryPage,
@@ -22,10 +26,28 @@ export default function LibraryPage() {
 
   const listRef = useRef<any>(null);
 
+  const initialized = useRef(false);
+  if (!initialized.current && initialData) {
+    useStore.setState({ libraryData: initialData });
+    initialized.current = true;
+  }
+
   // Initialize data on mount
   useEffect(() => {
-    refreshAll();
-  }, []);
+    if (!initialData) {
+      refreshAll();
+    } else {
+      // Load other visual details like stats, models, notes, and graph
+      const state = useStore.getState();
+      Promise.all([
+        state.fetchStats(),
+        state.fetchModels(),
+        state.fetchNotes(),
+        state.fetchGraphData()
+      ]).catch(console.error);
+    }
+  }, [initialData]);
+
 
   // Whenever card expansion changes, reset virtualization heights if supported
   useEffect(() => {
