@@ -534,11 +534,106 @@ async def get_documents(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     q: Optional[str] = Query(None),
+    source_type: Optional[List[str]] = Query(None),
+    author: Optional[List[str]] = Query(None),
+    concept: Optional[List[str]] = Query(None),
+    tag: Optional[List[str]] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
     graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
 ):
     """Paginated list of papers/notes/books with search and concepts."""
-    total = await asyncio.to_thread(graph_repo.get_browse_count, "documents", q)
-    rows = await asyncio.to_thread(graph_repo.get_browse_rows, "documents", page, limit, q)
+    conditions = ["label = 'Paper'"]
+    params = []
+
+    if q:
+        like_pat = f"%{q}%"
+        conditions.append(
+            "(id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?) OR properties LIKE ?)"
+        )
+        params.extend([like_pat, like_pat])
+
+    if source_type:
+        placeholders = ", ".join("?" for _ in source_type)
+        conditions.append(f"json_extract(properties, '$.source_type') IN ({placeholders})")
+        params.extend(source_type)
+
+    if from_date:
+        conditions.append("substr(json_extract(properties, '$.created_at'), 1, 10) >= ?")
+        params.append(from_date)
+
+    if to_date:
+        conditions.append("substr(json_extract(properties, '$.created_at'), 1, 10) <= ?")
+        params.append(to_date)
+
+    if author:
+        author_placeholders = ", ".join("?" for _ in author)
+        conditions.append(
+            f"""
+            id IN (
+                SELECT target_id FROM edges 
+                WHERE type = 'AUTHORED' 
+                AND source_id IN (
+                    SELECT id FROM nodes 
+                    WHERE label = 'Author' 
+                    AND (id IN ({author_placeholders}) OR json_extract(properties, '$.name') IN ({author_placeholders}))
+                )
+            )
+            """
+        )
+        params.extend(author * 2)
+
+    if concept:
+        concept_placeholders = ", ".join("?" for _ in concept)
+        conditions.append(
+            f"""
+            id IN (
+                SELECT source_id FROM edges 
+                WHERE type = 'MENTIONS_CONCEPT' 
+                AND target_id IN (
+                    SELECT id FROM nodes 
+                    WHERE label = 'Concept' 
+                    AND (id IN ({concept_placeholders}) OR json_extract(properties, '$.name') IN ({concept_placeholders}))
+                )
+            )
+            """
+        )
+        params.extend(concept * 2)
+
+    if tag:
+        tag_placeholders = ", ".join("?" for _ in tag)
+        conditions.append(
+            f"""
+            id IN (
+                SELECT source_id FROM edges 
+                WHERE type = 'MENTIONS_CONCEPT' 
+                AND target_id IN (
+                    SELECT id FROM nodes 
+                    WHERE label = 'Concept' 
+                    AND json_extract(properties, '$.is_tag') = 1
+                    AND (id IN ({tag_placeholders}) OR json_extract(properties, '$.name') IN ({tag_placeholders}))
+                )
+            )
+            """
+        )
+        params.extend(tag * 2)
+
+    where_clause = " AND ".join(conditions)
+
+    def _fetch_data():
+        with graph_repo._get_connection() as conn:
+            # Get total count
+            count_sql = f"SELECT count(*) FROM nodes WHERE {where_clause}"
+            total_count = conn.execute(count_sql, params).fetchone()[0]
+
+            # Get paginated rows
+            off = (page - 1) * limit
+            rows_sql = f"SELECT id, properties FROM nodes WHERE {where_clause} LIMIT ? OFFSET ?"
+            rows_params = params + [limit, off]
+            rows_data = conn.execute(rows_sql, rows_params).fetchall()
+            return total_count, [dict(r) for r in rows_data]
+
+    total, rows = await asyncio.to_thread(_fetch_data)
 
     results = []
     for r in rows:
