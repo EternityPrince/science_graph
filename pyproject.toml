@@ -3,12 +3,27 @@ name = "science-graph-root"
 version = "0.1.0"
 description = "Science Graph Root Workspace"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "graph",
+]
+
+[project.scripts]
+graph = "src.cli:app"
 
 [tool.uv]
 workspace = { members = ["back"] }
+sources = { graph = { workspace = true } }
 
 [tool.pytest.ini_options]
 testpaths = ["back/tests"]
 pythonpath = ["back"]
 asyncio_mode = "strict"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
+
+

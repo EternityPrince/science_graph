@@ -316,14 +316,21 @@ class TestPipelineRefactoring(unittest.TestCase):
         mock_indexer = MagicMock()
         mock_indexer_cls.return_value = mock_indexer
         
-        def mock_index_pdf(path, trace_info=None):
-            if trace_info is not None:
-                trace_info.setdefault("stages", {})["Document Parsing"] = 0.05
-                trace_info.setdefault("stages", {})["Concept & Tag Extraction"] = 1.2
-                trace_info.setdefault("tokens", {})["Concept & Tag Extraction"] = 500
-            return "paper_id"
+        def mock_index_batch(targets, use_llm=True, trace=False, chunk_pool_size=None):
+            trace_info = {
+                "name": "test.pdf",
+                "success": True,
+                "stages": {
+                    "Document Parsing": 0.05,
+                    "Concept & Tag Extraction": 1.2,
+                },
+                "tokens": {
+                    "Concept & Tag Extraction": 500,
+                }
+            }
+            return [trace_info]
             
-        mock_indexer.index_pdf.side_effect = mock_index_pdf
+        mock_indexer.index_batch.side_effect = mock_index_batch
         
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as tmpdir:

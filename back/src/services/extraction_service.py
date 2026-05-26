@@ -48,9 +48,32 @@ class ExtractionService:
         3. Empty result (graceful degradation)
     """
 
-    def __init__(self, llm_engine: Any = None) -> None:
+    def __init__(self, llm_engine: Any = None, chunk_pool_size: Optional[int] = None) -> None:
         self.llm_engine = llm_engine
         self.normalization_pipeline = NormalizationPipeline()
+        self._chunk_pool_size = chunk_pool_size
+        self._sem = None
+
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        if self._sem is None:
+            if self._chunk_pool_size is not None:
+                limit = self._chunk_pool_size
+            else:
+                is_cloud = False
+                if self.llm_engine:
+                    is_cloud = (
+                        getattr(self.llm_engine, "use_cloud", False)
+                        or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1"
+                        or config.llm_provider == "openai"
+                        or self.llm_engine.__class__.__name__ == "OpenAILLMEngine"
+                    )
+                if is_cloud:
+                    limit = getattr(config, "llm_chunk_pool_size", 50)
+                else:
+                    limit = getattr(config, "llm_chunk_pool_size", 2)
+            self._sem = asyncio.Semaphore(limit)
+        return self._sem
 
     @property
     def _tax(self) -> Dict[str, Any]:
@@ -59,44 +82,46 @@ class ExtractionService:
     async def _call_llm_extract_async(self, text: str) -> Optional[dict]:
         if not self.llm_engine:
             return None
-        from unittest.mock import Mock
-        func = getattr(self.llm_engine, "extract_concepts_and_metadata_async", None)
-        sync_func = getattr(self.llm_engine, "extract_concepts_and_metadata", None)
-        is_sync_mocked = isinstance(sync_func, Mock)
-        is_async_mocked = isinstance(func, Mock) and not hasattr(func, "assert_awaited")
-        
-        if (is_sync_mocked and is_async_mocked) or (sync_func and not func):
-            return await asyncio.to_thread(sync_func, text)
+        async with self.semaphore:
+            from unittest.mock import Mock
+            func = getattr(self.llm_engine, "extract_concepts_and_metadata_async", None)
+            sync_func = getattr(self.llm_engine, "extract_concepts_and_metadata", None)
+            is_sync_mocked = isinstance(sync_func, Mock)
+            is_async_mocked = isinstance(func, Mock) and not hasattr(func, "assert_awaited")
             
-        if func:
-            res = func(text)
-            if asyncio.iscoroutine(res) or hasattr(res, "__await__"):
-                return await res
-            return res
-        return None
+            if (is_sync_mocked and is_async_mocked) or (sync_func and not func):
+                return await asyncio.to_thread(sync_func, text)
+                
+            if func:
+                res = func(text)
+                if asyncio.iscoroutine(res) or hasattr(res, "__await__"):
+                    return await res
+                return res
+            return None
 
     async def _call_llm_generate_async(self, prompt: str, task: str = None) -> str:
         if not self.llm_engine:
             return ""
-        from unittest.mock import Mock
-        func = getattr(self.llm_engine, "generate_response_async", None)
-        sync_func = getattr(self.llm_engine, "generate_response", None)
-        is_sync_mocked = isinstance(sync_func, Mock)
-        is_async_mocked = isinstance(func, Mock) and not hasattr(func, "assert_awaited")
-        
-        kwargs = {}
-        if task:
-            kwargs["task"] = task
+        async with self.semaphore:
+            from unittest.mock import Mock
+            func = getattr(self.llm_engine, "generate_response_async", None)
+            sync_func = getattr(self.llm_engine, "generate_response", None)
+            is_sync_mocked = isinstance(sync_func, Mock)
+            is_async_mocked = isinstance(func, Mock) and not hasattr(func, "assert_awaited")
             
-        if (is_sync_mocked and is_async_mocked) or (sync_func and not func):
-            return await asyncio.to_thread(sync_func, prompt, **kwargs)
-            
-        if func:
-            res = func(prompt, **kwargs)
-            if asyncio.iscoroutine(res) or hasattr(res, "__await__"):
-                return await res
-            return res
-        return ""
+            kwargs = {}
+            if task:
+                kwargs["task"] = task
+                
+            if (is_sync_mocked and is_async_mocked) or (sync_func and not func):
+                return await asyncio.to_thread(sync_func, prompt, **kwargs)
+                
+            if func:
+                res = func(prompt, **kwargs)
+                if asyncio.iscoroutine(res) or hasattr(res, "__await__"):
+                    return await res
+                return res
+            return ""
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API
@@ -458,10 +483,11 @@ class ExtractionService:
                     tokens_dict = trace_info.setdefault("tokens", {})
                     tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
                 
-                summary_raw = await self.llm_engine.generate_and_validate_json_async(
-                    prompt=prompt,
-                    schema_class=LLMVideoSummaryResponse,
-                )
+                async with self.semaphore:
+                    summary_raw = await self.llm_engine.generate_and_validate_json_async(
+                        prompt=prompt,
+                        schema_class=LLMVideoSummaryResponse,
+                    )
                 summary_json = json.loads(summary_raw)
                 
                 overview = summary_json.get("overview", "")

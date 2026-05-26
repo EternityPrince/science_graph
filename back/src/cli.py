@@ -203,7 +203,8 @@ def index_orchestrator(
     target: str,
     use_llm: bool,
     trace: bool,
-    cloud: bool
+    cloud: bool,
+    chunk_pool_size: Optional[int] = None
 ):
     if cloud:
         os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
@@ -214,38 +215,6 @@ def index_orchestrator(
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
-    session_traces = []
-
-    def _index_file(path: Path) -> bool:
-        t = path.suffix.lower().lstrip(".")
-        trace_info = {"stages": {}, "tokens": {}, "success": False, "name": path.name}
-        try:
-            if t == "pdf":
-                indexer.index_pdf(str(path), trace_info=trace_info)
-            elif t == "md":
-                indexer.index_markdown(str(path), trace_info=trace_info)
-            elif t == "epub":
-                indexer.index_epub(str(path), trace_info=trace_info)
-            else:
-                con.warning(f"Unknown file type '{t}' for {path.name}, skipping.")
-                return False
-                
-            trace_info["success"] = True
-            session_traces.append(trace_info)
-            
-            if trace:
-                print_trace_table(path.name, trace_info)
-            return True
-        except DuplicateDocumentError as e:
-            con.warning(f"Duplicate detected: {e}")
-            trace_info["skipped_duplicate"] = True
-            session_traces.append(trace_info)
-            return False
-        except Exception as e:
-            con.error(f"Failed to index {path.name}: {e}")
-            session_traces.append(trace_info)
-            return False
-
     import re
     raw_targets = re.split(r'[,;]', target)
     targets = [t.strip() for t in raw_targets if t.strip()]
@@ -254,48 +223,22 @@ def index_orchestrator(
         con.error("No targets provided to index.")
         raise typer.Exit(1)
 
-    for tgt in targets:
-        if tgt.startswith("http://") or tgt.startswith("https://"):
-            trace_info = {"stages": {}, "tokens": {}, "success": False, "name": tgt}
-            try:
-                indexer.index_url(tgt, trace_info=trace_info)
-                trace_info["success"] = True
-                session_traces.append(trace_info)
-                if trace:
-                    print_trace_table(tgt, trace_info)
-            except DuplicateDocumentError as e:
-                con.warning(f"Duplicate detected: {e}")
-                trace_info["skipped_duplicate"] = True
-                session_traces.append(trace_info)
-            except Exception as e:
-                con.error(f"Failed to index url {tgt}: {e}")
-                session_traces.append(trace_info)
-        else:
-            path = Path(tgt).resolve()
-            if not path.exists():
-                con.error(f"Path not found: {path}")
-                raise typer.Exit(1)
-
-            if path.is_file():
-                _index_file(path)
-            elif path.is_dir():
-                allowed = {".pdf", ".md", ".epub"}
-                files = [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in allowed]
-                if not files:
-                    con.warning(f"No supported files found in {path}")
-                    continue
-
-                con.info(f"Found [bold]{len(files)}[/bold] files — starting indexing …")
-                ok = 0
-                for f in files:
-                    if _index_file(f):
-                        ok += 1
-                if ok == len(files):
-                    con.success(f"All {ok} files indexed successfully")
-                else:
-                    con.warning(f"{ok}/{len(files)} files indexed ({len(files)-ok} failed)")
+    try:
+        session_traces = indexer.index_batch(
+            targets=targets,
+            use_llm=use_llm,
+            trace=trace,
+            chunk_pool_size=chunk_pool_size
+        )
+    except Exception as e:
+        con.error(f"Failed during batch indexing: {e}")
+        raise typer.Exit(1)
 
     if session_traces:
+        if trace:
+            for trace_info in session_traces:
+                if trace_info.get("success") or trace_info.get("skipped_duplicate"):
+                    print_trace_table(trace_info["name"], trace_info)
         print_session_summary_table(session_traces)
 
 
@@ -305,9 +248,10 @@ def index(
     use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Use LLM to extract concepts (slower)"),
     trace: bool = typer.Option(False, "--trace", "-t", help="Show detailed execution trace with timing and token count"),
     cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
+    chunk_pool: Optional[int] = typer.Option(1, "--chunk-pool", help="Number of concurrent chunks to process in parallel via LLM"),
 ):
     """Index PDF papers, Markdown notes (.md), EPUB books, or URLs into the knowledge graph."""
-    index_orchestrator(target, use_llm, trace, cloud)
+    index_orchestrator(target, use_llm, trace, cloud, chunk_pool)
 
 
 # ── reindex ───────────────────────────────────────────────────────────────────

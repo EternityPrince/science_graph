@@ -2194,7 +2194,13 @@ wheels = [
 [[package]]
 name = "science-graph-root"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
+dependencies = [
+    { name = "graph" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "graph", editable = "back" }]
 
 [[package]]
 name = "scikit-learn"

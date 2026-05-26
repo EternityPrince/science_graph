@@ -332,3 +332,67 @@ class TestIndexerPipeline(unittest.TestCase):
         
         # parser/indexer method should have been called
         mock_index_markdown.assert_called_once_with("my_note.md")
+
+    def test_index_batch_basic(self):
+        """Test index_batch with multiple markdown files."""
+        md1 = self._write_file("# Paper One\nThis is content for paper one.", suffix=".md")
+        md2 = self._write_file("# Paper Two\nThis is content for paper two.", suffix=".md")
+
+        # Mock LLM calls
+        self.llm_engine.extract_concepts_and_metadata_async = MagicMock()
+        self.llm_engine.extract_concepts_and_metadata_async.side_effect = lambda text: {
+            "authors": ["Alice"],
+            "concepts": [{"name": "Batch Ingestion", "description": "Processing in batches"}],
+            "tags": ["batch"]
+        }
+        self.llm_engine.generate_response = MagicMock(return_value="Mocked batch summary")
+        self.llm_engine.generate_response_async = MagicMock()
+        self.llm_engine.generate_response_async.side_effect = lambda prompt, **kwargs: "Mocked batch summary"
+
+        # Execute batch indexing
+        session_traces = self.indexer.index_batch([md1, md2], use_llm=True)
+        self.assertEqual(len(session_traces), 2)
+        self.assertTrue(all(trace["success"] for trace in session_traces))
+
+        # Check DB
+        p1 = self.graph_repo.get_paper(slugify("Paper One"))
+        p2 = self.graph_repo.get_paper(slugify("Paper Two"))
+        self.assertIsNotNone(p1)
+        self.assertIsNotNone(p2)
+        self.assertEqual(p1.properties.get("summary"), "Mocked batch summary")
+        self.assertEqual(p2.properties.get("summary"), "Mocked batch summary")
+
+    def test_index_batch_duplicate(self):
+        """Test index_batch skips duplicate files early."""
+        md1 = self._write_file("# Paper One\nThis is duplicate content.", suffix=".md")
+        md2 = self._write_file("# Paper Two\nThis is unique content.", suffix=".md")
+
+        # Mock LLM calls
+        self.llm_engine.extract_concepts_and_metadata_async = MagicMock()
+        self.llm_engine.extract_concepts_and_metadata_async.side_effect = lambda text: {
+            "authors": ["Alice"],
+            "concepts": [],
+            "tags": []
+        }
+        self.llm_engine.generate_response = MagicMock(return_value="Mocked summary")
+        self.llm_engine.generate_response_async = MagicMock()
+        self.llm_engine.generate_response_async.side_effect = lambda prompt, **kwargs: "Mocked summary"
+
+        # Index md1 first
+        self.indexer.index_batch([md1], use_llm=True)
+
+        # Index both. md1 should be skipped, md2 should succeed.
+        session_traces = self.indexer.index_batch([md1, md2], use_llm=True)
+        self.assertEqual(len(session_traces), 2)
+        
+        trace1 = next(t for t in session_traces if t["name"] == os.path.basename(md1))
+        trace2 = next(t for t in session_traces if t["name"] == os.path.basename(md2))
+
+        self.assertFalse(trace1["success"])
+        self.assertTrue(trace1.get("skipped_duplicate"))
+        self.assertTrue(trace2["success"])
+
+    def test_index_batch_chunk_pool_concurrency(self):
+        """Test index_batch sets and respects chunk pool semaphore size."""
+        self.indexer.index_batch([], use_llm=False, chunk_pool_size=5)
+        self.assertEqual(self.indexer._extractor.semaphore._value, 5)

@@ -16,6 +16,7 @@ DEFAULT_CONFIG = {
         "temp": 0.1,
         "request_delay": 1.0,
         "retry_backoff": 2.0,
+        "chunk_pool_size": 4,
         # Task-specific input token limits
         "extraction_input_limit": 5000,
         "clustering_input_limit": 6000,
@@ -105,6 +106,9 @@ llm:
 
   # Wait timeout (in seconds) before retrying a failed provider request
   retry_backoff: 2.0
+
+  # Number of concurrent chunks to process in parallel via LLM
+  chunk_pool_size: 4
 
   # Local model settings (used if provider is 'mlx')
   local:
@@ -274,6 +278,10 @@ pdf_compression:
     @property
     def llm_retry_backoff(self) -> float:
         return float(self.data["llm"].get("retry_backoff", 2.0))
+
+    @property
+    def llm_chunk_pool_size(self) -> int:
+        return int(self.data["llm"].get("chunk_pool_size", 4))
 
     @property
     def llm_extraction_input_limit(self) -> int:
