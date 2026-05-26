@@ -305,3 +305,20 @@ class TestLLMEngineIntegration(unittest.TestCase):
         # 7. Multiple thinking blocks
         multiple = "<think>first</think> hello <think>second</think> world"
         self.assertEqual(strip_thinking_tokens(multiple), "hello  world")
+
+        # 8. Technical tokens
+        self.assertEqual(strip_thinking_tokens("<|im_start|>hello <|im_end|>"), "hello")
+        self.assertEqual(strip_thinking_tokens("<|im_end|> <|im_start|> <|im_end|> <|im_start|> hello"), "hello")
+        self.assertEqual(strip_thinking_tokens("[INST] hello [/INST]"), "hello")
+        self.assertEqual(strip_thinking_tokens("<s>hello</s>"), "hello")
+        self.assertEqual(strip_thinking_tokens("hello <|eot_id|>"), "hello")
+
+        # 9. Leaked role prefixes
+        self.assertEqual(strip_thinking_tokens("assistant\nhello"), "hello")
+        self.assertEqual(strip_thinking_tokens("assistant: hello"), "hello")
+        self.assertEqual(strip_thinking_tokens("system\nhello"), "hello")
+        self.assertEqual(strip_thinking_tokens("user: hello"), "hello")
+
+        # 10. Legitimate words should be preserved
+        self.assertEqual(strip_thinking_tokens("The assistant helped the user."), "The assistant helped the user.")
+

@@ -17,6 +17,7 @@ from src import console as con
 def strip_thinking_tokens(text: str) -> str:
     """
     Strips thinking tokens (<think>...</think> and unclosed trailing <think>...)
+    and technical/special/formatting tokens (like <|im_start|>, <|im_end|>, etc.)
     from the LLM output.
     """
     if not text:
@@ -25,6 +26,42 @@ def strip_thinking_tokens(text: str) -> str:
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     # Remove unclosed think blocks at the end
     text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
+
+    # Patterns for technical formatting tokens.
+    # Note: we escape regex special characters.
+    technical_patterns = [
+        r"<\|im_start\|>",
+        r"<\|im_end\|>",
+        r"<\|im_sep\|>",
+        r"<\|start_header_id\|>",
+        r"<\|end_header_id\|>",
+        r"<\|eot_id\|>",
+        r"<\|eom_id\|>",
+        r"<\|endoftext\|>",
+        r"<\|assistant\|>",
+        r"<\|user\|>",
+        r"<\|system\|>",
+        r"<\|end\|>",
+        r"\[INST\]",
+        r"\[/INST\]",
+        r"<s>",
+        r"</s>",
+        r"<start_of_turn>",
+        r"<end_of_turn>",
+        r"<<SYS>>",
+        r"<</SYS>>",
+        r"<pad>",
+        r"<unk>",
+    ]
+    
+    # Remove these tokens
+    pattern = "|".join(technical_patterns)
+    text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    # Clean up role prefix headers (e.g. "assistant\n" or "assistant:") if they leak at the start
+    text = text.strip()
+    text = re.sub(r"^(?:assistant|user|system)(?:\n|:\s*)", "", text, flags=re.IGNORECASE)
+
     return text.strip()
 
 
