@@ -10,6 +10,7 @@ Also provides concept description lookup and LLM summary generation.
 
 from __future__ import annotations
 
+import os
 import re
 import asyncio
 from dataclasses import dataclass, field
@@ -69,9 +70,13 @@ class ExtractionService:
                         or self.llm_engine.__class__.__name__ == "OpenAILLMEngine"
                     )
                 if is_cloud:
-                    limit = getattr(config, "llm_chunk_pool_size", 50)
+                    cfg_val = getattr(config, "llm_chunk_pool_size", 50)
+                    limit = cfg_val if cfg_val > 4 else 50
                 else:
-                    limit = getattr(config, "llm_chunk_pool_size", 2)
+                    # For local models, default to 1 because Apple Silicon neural engine/GPU contends on concurrent generation.
+                    # If user has explicitly customized llm_chunk_pool_size to something other than 4, we respect it.
+                    cfg_val = getattr(config, "llm_chunk_pool_size", 4)
+                    limit = cfg_val if cfg_val != 4 else 1
             self._sem = asyncio.Semaphore(limit)
         return self._sem
 
@@ -79,10 +84,12 @@ class ExtractionService:
     def _tax(self) -> Dict[str, Any]:
         return config.taxonomy
 
-    async def _call_llm_extract_async(self, text: str) -> Optional[dict]:
+    async def _call_llm_extract_async(self, text: str, message: Optional[str] = None) -> Optional[dict]:
         if not self.llm_engine:
             return None
         async with self.semaphore:
+            if message:
+                con.dim(message)
             from unittest.mock import Mock
             func = getattr(self.llm_engine, "extract_concepts_and_metadata_async", None)
             sync_func = getattr(self.llm_engine, "extract_concepts_and_metadata", None)
@@ -99,10 +106,12 @@ class ExtractionService:
                 return res
             return None
 
-    async def _call_llm_generate_async(self, prompt: str, task: str = None) -> str:
+    async def _call_llm_generate_async(self, prompt: str, task: str = None, message: Optional[str] = None) -> str:
         if not self.llm_engine:
             return ""
         async with self.semaphore:
+            if message:
+                con.dim(message)
             from unittest.mock import Mock
             func = getattr(self.llm_engine, "generate_response_async", None)
             sync_func = getattr(self.llm_engine, "generate_response", None)
@@ -464,7 +473,6 @@ class ExtractionService:
         # Check if this is a video
         source_type = paper.properties.get("source_type", "paper")
         if source_type == "video":
-            con.dim(f"Generating structured summary for video [bold]{paper.title[:60]}[/bold] via LLM …")
             try:
                 from src.llm_schemas import LLMVideoSummaryResponse
                 import json
@@ -484,6 +492,7 @@ class ExtractionService:
                     tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
                 
                 async with self.semaphore:
+                    con.dim(f"Generating structured summary for video [bold]{paper.title[:60]}[/bold] via LLM …")
                     summary_raw = await self.llm_engine.generate_and_validate_json_async(
                         prompt=prompt,
                         schema_class=LLMVideoSummaryResponse,
@@ -519,7 +528,6 @@ class ExtractionService:
             except Exception as e:
                 con.warning(f"Failed to generate structured video summary: {e}. Falling back to standard summary.")
 
-        con.dim(f"Generating summary for [bold]{paper.title[:60]}[/bold] via LLM …")
         try:
             sample_text = full_text[:4000] if full_text else ""
             prompt = (
@@ -533,7 +541,8 @@ class ExtractionService:
             if trace_info is not None:
                 tokens_dict = trace_info.setdefault("tokens", {})
                 tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
-            summary = await self._call_llm_generate_async(prompt, task="synthesis")
+            msg = f"Generating summary for [bold]{paper.title[:60]}[/bold] via LLM …"
+            summary = await self._call_llm_generate_async(prompt, task="synthesis", message=msg)
             if summary:
                 paper.properties["summary"] = summary
                 if graph_repo is not None:
@@ -778,10 +787,10 @@ class ExtractionService:
             all_tags = []
             
             async def _extract_chunk(idx, chunk):
-                con.dim(f"Extracting concepts from chunk {idx + 1}/{len(chunks)}...")
                 chunk_text = f"{prefix}{chunk}"
                 tokens_count = _get_tokens(chunk_text)
-                llm_data = await self._call_llm_extract_async(chunk_text)
+                msg = f"Extracting concepts from chunk {idx + 1}/{len(chunks)}..."
+                llm_data = await self._call_llm_extract_async(chunk_text, message=msg)
                 return llm_data, tokens_count
                 
             tasks = [

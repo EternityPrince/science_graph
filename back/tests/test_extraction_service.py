@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 from src.services.extraction_service import ExtractionService
@@ -174,3 +175,44 @@ class TestExtractionService(unittest.TestCase):
         res = service.extract("Arbitrary title", "Random abstract", "Nothing related to the taxonomy.")
         self.assertEqual(res.concepts, [])
         self.assertEqual(res.tags, [])
+
+    @patch.dict(os.environ, {"SCIENCE_GRAPH_USE_CLOUD": "0"})
+    def test_default_semaphore_limit_local(self):
+        """Test default semaphore limit is 1 for local models when pool size is not set."""
+        class MockMlxEngine:
+            use_cloud = False
+        
+        with patch("src.services.extraction_service.config") as mock_config:
+            mock_config.llm_provider = "mlx"
+            mock_config.llm_chunk_pool_size = 4
+            service = ExtractionService(llm_engine=MockMlxEngine())
+            self.assertEqual(service.semaphore._value, 1)
+
+    def test_default_semaphore_limit_cloud(self):
+        """Test default semaphore limit is 50 for cloud models when pool size is not set."""
+        class OpenAILLMEngine:
+            use_cloud = True
+
+        with patch("src.services.extraction_service.config") as mock_config:
+            mock_config.llm_provider = "openai"
+            mock_config.llm_chunk_pool_size = 4
+            service = ExtractionService(llm_engine=OpenAILLMEngine())
+            self.assertEqual(service.semaphore._value, 50)
+
+    @patch("src.services.extraction_service.con")
+    def test_call_llm_extract_async_message_inside_semaphore(self, mock_con):
+        """Test that _call_llm_extract_async prints the message inside the semaphore."""
+        import asyncio
+        service = ExtractionService(llm_engine=self.llm_engine)
+        
+        async def mock_extract(text):
+            return {"concepts": []}
+        self.llm_engine.extract_concepts_and_metadata_async = mock_extract
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(service._call_llm_extract_async("some text", message="Hello World"))
+        finally:
+            loop.close()
+
+        mock_con.dim.assert_called_once_with("Hello World")
