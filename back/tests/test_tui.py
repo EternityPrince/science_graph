@@ -33,3 +33,17 @@ class TestTUI(unittest.TestCase):
         console_mock = MagicMock()
         handle_command("/index https://example.com", rag_mock, console_mock)
         mock_indexer_instance.index_url.assert_called_once_with("https://example.com")
+
+    @patch("src.tui.Indexer")
+    @patch("src.cli.get_services")
+    @patch("rich.console.Console.print")
+    def test_handle_command_index_multiple_urls(self, mock_print, mock_get_services, mock_indexer_cls):
+        rag_mock = MagicMock()
+        mock_indexer_instance = MagicMock()
+        mock_indexer_cls.return_value = mock_indexer_instance
+        
+        console_mock = MagicMock()
+        handle_command("/index https://example.com, https://google.com;https://github.com", rag_mock, console_mock)
+        self.assertEqual(mock_indexer_instance.index_url.call_count, 3)
+        calls = [args[0][0] for args in mock_indexer_instance.index_url.call_args_list]
+        self.assertEqual(calls, ["https://example.com", "https://google.com", "https://github.com"])

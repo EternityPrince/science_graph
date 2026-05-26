@@ -16,6 +16,18 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         mock_indexer_instance.index_url.assert_called_once()
         self.assertEqual(mock_indexer_instance.index_url.call_args[0][0], "https://example.com")
+
+    @patch("src.cli.Indexer")
+    @patch("src.cli.get_services")
+    def test_index_multiple_urls(self, mock_get_services, mock_indexer_cls):
+        mock_indexer_instance = MagicMock()
+        mock_indexer_cls.return_value = mock_indexer_instance
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        result = runner.invoke(app, ["index", "https://example.com, https://google.com;https://github.com"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(mock_indexer_instance.index_url.call_count, 3)
+        calls = [args[0][0] for args in mock_indexer_instance.index_url.call_args_list]
+        self.assertEqual(calls, ["https://example.com", "https://google.com", "https://github.com"])
     @patch("click.getchar")
     @patch("src.cli.get_services")
     def test_storage_documents(self, mock_get_services, mock_getchar):

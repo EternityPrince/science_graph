@@ -56,13 +56,11 @@ def handle_command(cmd_str: str, rag_pipeline: RAGPipeline, console: Console):
             console.print("[red]Usage: /index <path_or_url>[/red]")
             return
             
-        target = parts[1]
+        target = " ".join(parts[1:])
         
         # Determine target type and index
         # Use existing services to build an indexer
         indexer = Indexer(rag_pipeline.graph_repo, rag_pipeline.vector_repo, rag_pipeline.emb_engine, rag_pipeline.llm_engine)
-        
-        console.print(f"[bold cyan]Indexing {target}...[/bold cyan]")
         
         def _index_file(path: Path):
             t = path.suffix.lower().lstrip(".")
@@ -72,20 +70,30 @@ def handle_command(cmd_str: str, rag_pipeline: RAGPipeline, console: Console):
             else: console.print(f"[yellow]Unknown file type: {path.name}[/yellow]")
 
         try:
-            if target.startswith("http://") or target.startswith("https://"):
-                indexer.index_url(target)
-            else:
-                path = Path(target).resolve()
-                if not path.exists():
-                    console.print(f"[red]Path not found: {path}[/red]")
-                    return
-                if path.is_file():
-                    _index_file(path)
-                elif path.is_dir():
-                    allowed = {".pdf", ".md", ".epub"}
-                    files = [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in allowed]
-                    for f in files:
-                        _index_file(f)
+            import re
+            raw_targets = re.split(r'[,;]', target)
+            targets = [t.strip() for t in raw_targets if t.strip()]
+
+            if not targets:
+                console.print("[red]No targets provided to index.[/red]")
+                return
+
+            for tgt in targets:
+                if tgt.startswith("http://") or tgt.startswith("https://"):
+                    console.print(f"[bold cyan]Indexing {tgt}...[/bold cyan]")
+                    indexer.index_url(tgt)
+                else:
+                    path = Path(tgt).resolve()
+                    if not path.exists():
+                        console.print(f"[red]Path not found: {path}[/red]")
+                        return
+                    if path.is_file():
+                        _index_file(path)
+                    elif path.is_dir():
+                        allowed = {".pdf", ".md", ".epub"}
+                        files = [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in allowed]
+                        for f in files:
+                            _index_file(f)
             console.print("[bold green]Indexing complete![/bold green]")
         except Exception as e:
             console.print(f"[bold red]Failed to index:[/bold red] {e}")

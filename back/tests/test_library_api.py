@@ -1,8 +1,7 @@
-import json
 import pytest
 from fastapi.testclient import TestClient
 from src.web_app import app, get_graph_repo
-from src.models import Paper, Author, Concept
+from src.models import Concept
 from tests.factories import create_paper, create_author
 
 @pytest.fixture

@@ -814,14 +814,25 @@ async def index_url_route(
         from src.indexer import Indexer
         indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
         
-        # Use asyncio.to_thread since indexing can block on network/model execution
-        paper_id = await asyncio.to_thread(indexer.index_url, body.url)
+        import re
+        urls = [u.strip() for u in re.split(r'[,;]', body.url) if u.strip()]
+        if not urls:
+            raise HTTPException(status_code=400, detail="No URLs provided.")
+            
+        paper_ids = []
+        titles = []
         
-        # Fetch the paper details to return the title
-        paper = await asyncio.to_thread(graph_repo.get_paper, paper_id)
-        title = paper.title if paper else body.url
-        
-        return {"status": "ok", "id": paper_id, "title": title}
+        for url in urls:
+            # Use asyncio.to_thread since indexing can block on network/model execution
+            paper_id = await asyncio.to_thread(indexer.index_url, url)
+            
+            # Fetch the paper details to return the title
+            paper = await asyncio.to_thread(graph_repo.get_paper, paper_id)
+            title = paper.title if paper else url
+            paper_ids.append(paper_id)
+            titles.append(title)
+            
+        return {"status": "ok", "id": ", ".join(paper_ids), "title": ", ".join(titles)}
     except DuplicateDocumentError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:

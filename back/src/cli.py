@@ -246,45 +246,54 @@ def index_orchestrator(
             session_traces.append(trace_info)
             return False
 
-    if target.startswith("http://") or target.startswith("https://"):
-        trace_info = {"stages": {}, "tokens": {}, "success": False, "name": target}
-        try:
-            indexer.index_url(target, trace_info=trace_info)
-            trace_info["success"] = True
-            session_traces.append(trace_info)
-            if trace:
-                print_trace_table(target, trace_info)
-        except DuplicateDocumentError as e:
-            con.warning(f"Duplicate detected: {e}")
-            trace_info["skipped_duplicate"] = True
-            session_traces.append(trace_info)
-        except Exception as e:
-            con.error(f"Failed to index url {target}: {e}")
-            session_traces.append(trace_info)
-    else:
-        path = Path(target).resolve()
-        if not path.exists():
-            con.error(f"Path not found: {path}")
-            raise typer.Exit(1)
+    import re
+    raw_targets = re.split(r'[,;]', target)
+    targets = [t.strip() for t in raw_targets if t.strip()]
 
-        if path.is_file():
-            _index_file(path)
-        elif path.is_dir():
-            allowed = {".pdf", ".md", ".epub"}
-            files = [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in allowed]
-            if not files:
-                con.warning(f"No supported files found in {path}")
-                return
+    if not targets:
+        con.error("No targets provided to index.")
+        raise typer.Exit(1)
 
-            con.info(f"Found [bold]{len(files)}[/bold] files — starting indexing …")
-            ok = 0
-            for f in files:
-                if _index_file(f):
-                    ok += 1
-            if ok == len(files):
-                con.success(f"All {ok} files indexed successfully")
-            else:
-                con.warning(f"{ok}/{len(files)} files indexed ({len(files)-ok} failed)")
+    for tgt in targets:
+        if tgt.startswith("http://") or tgt.startswith("https://"):
+            trace_info = {"stages": {}, "tokens": {}, "success": False, "name": tgt}
+            try:
+                indexer.index_url(tgt, trace_info=trace_info)
+                trace_info["success"] = True
+                session_traces.append(trace_info)
+                if trace:
+                    print_trace_table(tgt, trace_info)
+            except DuplicateDocumentError as e:
+                con.warning(f"Duplicate detected: {e}")
+                trace_info["skipped_duplicate"] = True
+                session_traces.append(trace_info)
+            except Exception as e:
+                con.error(f"Failed to index url {tgt}: {e}")
+                session_traces.append(trace_info)
+        else:
+            path = Path(tgt).resolve()
+            if not path.exists():
+                con.error(f"Path not found: {path}")
+                raise typer.Exit(1)
+
+            if path.is_file():
+                _index_file(path)
+            elif path.is_dir():
+                allowed = {".pdf", ".md", ".epub"}
+                files = [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in allowed]
+                if not files:
+                    con.warning(f"No supported files found in {path}")
+                    continue
+
+                con.info(f"Found [bold]{len(files)}[/bold] files — starting indexing …")
+                ok = 0
+                for f in files:
+                    if _index_file(f):
+                        ok += 1
+                if ok == len(files):
+                    con.success(f"All {ok} files indexed successfully")
+                else:
+                    con.warning(f"{ok}/{len(files)} files indexed ({len(files)-ok} failed)")
 
     if session_traces:
         print_session_summary_table(session_traces)

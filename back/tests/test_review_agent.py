@@ -1,11 +1,8 @@
-import os
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 
-from src.models import Chunk, Paper
 from src.review_agent import ReviewAgent
 from tests.factories import create_paper, create_chunk
 
