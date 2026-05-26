@@ -131,7 +131,7 @@ class TestRefinements(unittest.TestCase):
 
     @patch("src.cli.get_services")
     def test_cli_reindex_meta(self, mock_get_services):
-        mock_indexer_instance = MagicMock()
+        from src.indexer import Indexer
         mock_graph_repo = MagicMock()
         mock_get_services.return_value = (mock_graph_repo, self.vector_repo, self.emb_engine, self.llm_engine)
         
@@ -139,27 +139,31 @@ class TestRefinements(unittest.TestCase):
         mock_paper = Paper(id="test_p", title="Test Paper", authors=[])
         mock_graph_repo.get_paper.return_value = mock_paper
         
-        with patch("src.cli.Indexer", return_value=mock_indexer_instance):
-            mock_indexer_instance.reindex_metadata.return_value = True
+        real_indexer = Indexer(mock_graph_repo, self.vector_repo, self.emb_engine, self.llm_engine)
+        real_indexer.reindex_metadata = MagicMock(return_value=True)
+        
+        with patch("src.cli.Indexer", return_value=real_indexer):
             result = runner.invoke(app, ["reindex", "meta", "--missing-authors"])
             self.assertEqual(result.exit_code, 0)
-            mock_indexer_instance.reindex_metadata.assert_called_once_with("test_p", use_llm=False)
+            real_indexer.reindex_metadata.assert_called_once_with("test_p", use_llm=False)
             self.assertIn("Re-indexed 1/1 papers successfully.", result.stdout)
 
     @patch("src.cli.get_services")
     def test_cli_reindex_full(self, mock_get_services):
-        mock_indexer_instance = MagicMock()
+        from src.indexer import Indexer
         mock_graph_repo = MagicMock()
         mock_get_services.return_value = (mock_graph_repo, self.vector_repo, self.emb_engine, self.llm_engine)
         
         mock_paper = Paper(id="test_p", title="Test Paper", authors=[])
         mock_graph_repo.get_paper.return_value = mock_paper
         
-        with patch("src.cli.Indexer", return_value=mock_indexer_instance):
-            mock_indexer_instance.reindex_full.return_value = True
+        real_indexer = Indexer(mock_graph_repo, self.vector_repo, self.emb_engine, self.llm_engine)
+        real_indexer.reindex_full = MagicMock(return_value=True)
+        
+        with patch("src.cli.Indexer", return_value=real_indexer):
             result = runner.invoke(app, ["reindex", "full", "--id", "test_p"])
             self.assertEqual(result.exit_code, 0)
-            mock_indexer_instance.reindex_full.assert_called_once_with("test_p")
+            real_indexer.reindex_full.assert_called_once_with("test_p")
             self.assertIn("Fully re-indexed 1/1 papers successfully.", result.stdout)
 
     def test_slugify_multilingual(self):

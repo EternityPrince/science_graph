@@ -303,44 +303,27 @@ class TestPipelineRefactoring(unittest.TestCase):
                 self.assertEqual(stdout_data["concepts"][0]["name"], "Transformer")
 
     # ── 8. Trace Timing and CLI Trace Flag Tests ──────────────────────────────
-    @patch("src.cli.Indexer")
-    @patch("src.cli.get_services")
-    def test_cli_index_trace(self, mock_get_services, mock_indexer_cls):
+    @patch("src.services.indexing_orchestrator.run_batch_index")
+    def test_cli_index_trace(self, mock_run_batch_index):
         """Verify the index CLI command runs with -t/--trace and prints a table."""
-        mock_graph_repo = MagicMock()
-        mock_vector_repo = MagicMock()
-        mock_emb_engine = MagicMock()
-        mock_llm_engine = MagicMock()
-        mock_get_services.return_value = (mock_graph_repo, mock_vector_repo, mock_emb_engine, mock_llm_engine)
-        
-        mock_indexer = MagicMock()
-        mock_indexer_cls.return_value = mock_indexer
-        
-        def mock_index_batch(targets, use_llm=True, trace=False, chunk_pool_size=None):
-            trace_info = {
-                "name": "test.pdf",
-                "success": True,
-                "stages": {
-                    "Document Parsing": 0.05,
-                    "Concept & Tag Extraction": 1.2,
-                },
-                "tokens": {
-                    "Concept & Tag Extraction": 500,
-                }
+        trace_info = {
+            "name": "test.pdf",
+            "success": True,
+            "stages": {
+                "Document Parsing": 0.05,
+                "Concept & Tag Extraction": 1.2,
+            },
+            "tokens": {
+                "Concept & Tag Extraction": 500,
             }
-            return [trace_info]
-            
-        mock_indexer.index_batch.side_effect = mock_index_batch
+        }
+        mock_run_batch_index.return_value = [trace_info]
         
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "test.pdf"
             file_path.write_text("dummy", encoding="utf-8")
             result = runner.invoke(app, ["index", str(file_path), "-t"])
-            print("EXIT CODE:", result.exit_code)
-            print("STDOUT IS:", repr(result.stdout))
-            if result.exception:
-                print("EXCEPTION:", repr(result.exception))
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Ingestion Trace", result.stdout)
             self.assertIn("Document Parsing", result.stdout)

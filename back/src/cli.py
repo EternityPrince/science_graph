@@ -16,11 +16,10 @@ from rich import box
 
 from src import console as con
 from src.config import config
-from src.indexer import Indexer, DuplicateDocumentError
+from src.indexer import Indexer
 from src.llm_engine import LLMEngine
 from src.rag import RAGPipeline
-from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
-from src.vector_search import EmbeddingEngine
+from src.services.container import container
 
 app = typer.Typer(
     help="Science Graph — local AI-powered knowledge base for papers, notes & books",
@@ -32,17 +31,17 @@ app = typer.Typer(
 
 def get_services(load_llm: bool = True, load_embeddings: bool = True, use_cloud: bool = False):
     """Initializes and returns database repositories and engines."""
-    graph_repo = SQLiteGraphRepository(config.db_path)
-    vector_repo = SQLiteVectorRepository(config.db_path)
+    graph_repo = container.get_graph_repo()
+    vector_repo = container.get_vector_repo()
 
     embedding_engine = None
     if load_embeddings:
-        embedding_engine = EmbeddingEngine()
+        embedding_engine = container.get_embedding_engine()
 
     llm_engine = None
     if load_llm:
         try:
-            llm_engine = LLMEngine(use_cloud=use_cloud)
+            llm_engine = container.get_llm_engine(use_cloud=use_cloud)
         except Exception as e:
             con.error(f"Could not load LLM engine: {e}")
 
@@ -206,30 +205,9 @@ def index_orchestrator(
     cloud: bool,
     chunk_pool_size: Optional[int] = None
 ):
-    if cloud:
-        os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
-    if trace:
-        con.SHOW_TIME = True
-    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=use_llm, use_cloud=cloud)
-    if use_llm and not llm_engine:
-        con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
-    indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
-
-    import re
-    raw_targets = re.split(r'[,;]', target)
-    targets = [t.strip() for t in raw_targets if t.strip()]
-
-    if not targets:
-        con.error("No targets provided to index.")
-        raise typer.Exit(1)
-
+    from src.services.indexing_orchestrator import run_batch_index
     try:
-        session_traces = indexer.index_batch(
-            targets=targets,
-            use_llm=use_llm,
-            trace=trace,
-            chunk_pool_size=chunk_pool_size
-        )
+        session_traces = run_batch_index(target, use_llm, trace, cloud, chunk_pool_size)
     except Exception as e:
         con.error(f"Failed during batch indexing: {e}")
         raise typer.Exit(1)
@@ -280,44 +258,12 @@ def reindex_meta(
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
-    # Find candidate paper IDs
-    non_placeholders = graph_repo.get_non_placeholder_paper_ids()
-
-    candidates = []
-    for pid in non_placeholders:
-        paper = graph_repo.get_paper(pid)
-        if not paper:
-            continue
-        props = paper.properties
-        if missing_authors:
-            if not paper.authors:
-                candidates.append(pid)
-        elif missing_tags:
-            tags = props.get("tags", [])
-            if not tags:
-                candidates.append(pid)
-        else:
-            candidates.append(pid)
-
-    if limit:
-        candidates = candidates[:limit]
-
-    if not candidates:
-        con.success("No papers found matching the re-indexing criteria.")
-        return
-
-    con.info(f"Starting metadata re-indexing for [bold]{len(candidates)}[/bold] papers …")
-    
-    success_count = 0
-    for paper_id in candidates:
-        try:
-            if indexer.reindex_metadata(paper_id, use_llm=use_llm):
-                success_count += 1
-        except Exception as e:
-            con.error(f"Failed to re-index {paper_id}: {e}")
-
-    con.blank()
-    con.success(f"Re-indexed {success_count}/{len(candidates)} papers successfully.")
+    indexer.reindex_metadata_batch(
+        missing_authors=missing_authors,
+        missing_tags=missing_tags,
+        limit=limit,
+        use_llm=use_llm,
+    )
 
 
 @reindex_app.command("full")
@@ -340,35 +286,15 @@ def reindex_full(
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
-    if paper_id:
-        # Check if exists
-        paper = graph_repo.get_paper(paper_id)
-        if not paper:
-            con.error(f"Paper not found: {paper_id}")
-            raise typer.Exit(1)
-        candidates = [paper_id]
-    else:
-        candidates = graph_repo.get_non_placeholder_paper_ids()
-
-    if limit:
-        candidates = candidates[:limit]
-
-    if not candidates:
-        con.success("No papers found matching the re-indexing criteria.")
-        return
-
-    con.info(f"Starting full re-indexing for [bold]{len(candidates)}[/bold] papers …")
-    
-    success_count = 0
-    for pid in candidates:
-        try:
-            if indexer.reindex_full(pid):
-                success_count += 1
-        except Exception as e:
-            con.error(f"Failed to fully re-index {pid}: {e}")
-
-    con.blank()
-    con.success(f"Fully re-indexed {success_count}/{len(candidates)} papers successfully.")
+    try:
+        indexer.reindex_full_batch(
+            all_papers=all_papers,
+            paper_id=paper_id,
+            limit=limit,
+        )
+    except ValueError as e:
+        con.error(str(e))
+        raise typer.Exit(1)
 
 
 
@@ -530,330 +456,12 @@ def storage(
     cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
 ):
     """Display indexed data with interactive pagination, deletion and editing."""
-    import click
-    import math
-
     if cloud:
         os.environ["SCIENCE_GRAPH_USE_CLOUD"] = "1"
 
-    TABLES = ["documents", "authors", "concepts"]
-    TABLE_LABELS = {"documents": "📚 Documents", "authors": "👥 Authors", "concepts": "🧠 Concepts"}
-
+    from src.services.storage_tui import run_storage_tui
     graph_repo, _, _, _ = get_services(load_llm=False, load_embeddings=False)
-
-    page = 1
-    active_table = "documents"   # currently focused table
-    selected_idx = None          # 1-based row number within the current page
-    status_msg = ""              # feedback line after actions
-    search_query = None          # search term
-    llm_engine = None            # lazy LLM engine reference
-
-    def _get_rows(tbl: str, pg: int):
-        return graph_repo.get_browse_rows(tbl, pg, limit, search_query)
-
-    def _count(tbl: str) -> int:
-        return graph_repo.get_browse_count(tbl, search_query)
-
-    def _delete_node(node_id: str) -> str:
-        try:
-            graph_repo.delete_node(node_id)
-            return f"[bold red]✗  Deleted[/bold red] node [dim]{node_id[:40]}[/dim]"
-        except Exception as exc:
-            return f"[red]Error deleting: {exc}[/red]"
-
-    def _edit_node(node_id: str, tbl: str) -> str:
-        """Interactive field editor — prompts for new values for key fields."""
-        node = graph_repo.get_node_by_id(node_id)
-        if not node:
-            return "[red]Record not found.[/red]"
-        label, props_str = node
-        props = json.loads(props_str)
-        con.console.print("\n[bold yellow]— Edit Record —[/bold yellow] (Enter = keep current, Ctrl+C = cancel)\n")
-        try:
-            if tbl == "documents":
-                new_title = input(f"  Title [{props.get('title', '')}]: ").strip()
-                if new_title:
-                    props["title"] = new_title
-                raw_authors = props.get("authors", [])
-                new_authors = input(f"  Authors [{', '.join(raw_authors)}]: ").strip()
-                if new_authors:
-                    props["authors"] = [a.strip() for a in new_authors.split(",") if a.strip()]
-            elif tbl == "authors":
-                new_name = input(f"  Name [{props.get('name', '')}]: ").strip()
-                if new_name:
-                    props["name"] = new_name
-            else:  # concepts
-                new_name = input(f"  Name [{props.get('name', '')}]: ").strip()
-                if new_name:
-                    props["name"] = new_name
-            graph_repo.update_node_properties(node_id, props)
-            return "[bold green]✓  Record updated[/bold green]"
-        except KeyboardInterrupt:
-            return "[yellow]Edit cancelled.[/yellow]"
-
-    while True:
-        con.console.clear()
-
-        total = _count(active_table)
-        total_pages = max(1, math.ceil(total / limit))
-        page = max(1, min(page, total_pages))
-
-        rows = _get_rows(active_table, page)
-
-        # ── Build the active table ───────────────────────────────────────────
-        tab_title = TABLE_LABELS[active_table]
-        border = {"documents": "blue", "authors": "yellow", "concepts": "magenta"}[active_table]
-        search_suffix = f" (filtered: '{search_query}')" if search_query else ""
-        table = Table(
-            title=f"{tab_title}  [dim](page {page}/{total_pages}, {total} total){search_suffix}[/dim]",
-            box=box.ROUNDED, border_style=border, expand=True, header_style="bold cyan",
-        )
-        table.add_column("#", style="dim", max_width=4, justify="right")
-
-        if active_table == "documents":
-            table.add_column("Type", style="cyan", max_width=10)
-            table.add_column("Title", style="bold white")
-            table.add_column("Authors", style="green", max_width=28)
-            table.add_column("Path / URL", style="dim")
-        elif active_table == "authors":
-            table.add_column("Author Name", style="bold yellow")
-            table.add_column("Papers", justify="right", style="cyan", max_width=8)
-        else:
-            table.add_column("Concept", style="bold magenta")
-            table.add_column("Mentions", justify="right", style="cyan", max_width=8)
-
-        for i, r in enumerate(rows, start=1):
-            num = f"[bold cyan]{i}[/bold cyan]" if selected_idx == i else str(i)
-            props = json.loads(r["properties"])
-
-            if active_table == "documents":
-                stype  = props.get("source_type", "paper")
-                title  = props.get("title", r["id"])
-                if len(title) > 60: title = title[:57] + "…"
-                authors = ", ".join(props.get("authors", [])) or "—"
-                path   = props.get("file_path") or props.get("url") or "—"
-                if len(path) > 55: path = "…" + path[-52:]
-                row_style = "on grey15" if selected_idx == i else ""
-                table.add_row(num, stype, title, authors, path, style=row_style)
-            elif active_table == "authors":
-                name = props.get("name", r["id"]).replace("_", " ").title()
-                cnt  = str(r["papers_count"])
-                row_style = "on grey15" if selected_idx == i else ""
-                table.add_row(num, name, cnt, style=row_style)
-            else:
-                raw  = props.get("name", r["id"])
-                name = raw.replace("_", " ").title()
-                if len(name) > 65: name = name[:62] + "…"
-                cnt  = str(r["degree"])
-                row_style = "on grey15" if selected_idx == i else ""
-                table.add_row(num, name, cnt, style=row_style)
-
-        con.console.print(table)
-
-        # ── Tab bar ──────────────────────────────────────────────────────────
-        tab_bar_parts = []
-        for t in TABLES:
-            label = TABLE_LABELS[t]
-            if t == active_table:
-                tab_bar_parts.append(f"[bold white on blue] {label} [/bold white on blue]")
-            else:
-                tab_bar_parts.append(f"[dim] {label} [/dim]")
-        con.console.print("  " + "  ".join(tab_bar_parts))
-        con.console.print()
-
-        # ── Status / help line ───────────────────────────────────────────────
-        if status_msg:
-            con.console.print(f"  {status_msg}")
-            status_msg = ""
-        else:
-            if selected_idx is not None:
-                row = rows[selected_idx - 1]
-                props = json.loads(row["properties"])
-                full_path = props.get("file_path") or props.get("url") or "—"
-                con.console.print(f"  [bold cyan]Full Path/URL:[/bold cyan] [dim]{full_path}[/dim]")
-                
-                doc_actions = ""
-                if active_table == "documents":
-                    doc_actions = "  [bold]A[/bold] Annotation  [bold]O[/bold] Open  [bold]S[/bold] Summary  "
-                con.console.print(
-                    f"  Row [bold cyan]{selected_idx}[/bold cyan] selected  │{doc_actions}"
-                    "[bold]E[/bold] Edit  [bold]X[/bold] Delete  [bold]Esc[/bold] Deselect"
-                )
-            else:
-                con.console.print(
-                    "  [bold]←/A[/bold] Prev  [bold]→/D[/bold] Next  "
-                    "[bold]Tab[/bold] Switch table  "
-                    "[bold]/[/bold] Search  "
-                    "[bold]Esc[/bold] Clear filter  "
-                    "[bold]1-9…[/bold] Select row  [bold]Q[/bold] Quit"
-                )
-
-        # ── Input ────────────────────────────────────────────────────────────
-        try:
-            c = click.getchar()
-        except Exception:
-            break
-
-        if c in ('q', 'Q', '\x03', '\x04'):
-            break
-        elif c in ('a', 'A', '\x1b[D'):           # left / previous page or Annotation if doc selected
-            if selected_idx is not None and active_table == "documents":
-                row = rows[selected_idx - 1]
-                props = json.loads(row["properties"])
-                abstract = props.get("abstract") or "No abstract/annotation available."
-                title = props.get("title") or row["id"]
-                con.console.clear()
-                con.console.print(Panel(
-                    abstract,
-                    title=f"[bold green]Annotation: {title[:60]}[/bold green]",
-                    border_style="green",
-                    padding=(1, 2),
-                ))
-                con.console.print("\n  Press any key to return...")
-                click.getchar()
-            else:
-                page = max(1, page - 1)
-                selected_idx = None
-        elif c in ('d', 'D', '\x1b[C'):           # right / next page
-            page = min(total_pages, page + 1)
-            selected_idx = None
-        elif c == '\t':                            # Tab — cycle tables
-            idx = TABLES.index(active_table)
-            active_table = TABLES[(idx + 1) % len(TABLES)]
-            page = 1
-            selected_idx = None
-        elif c == '\x1b':                          # Escape — deselect / clear search
-            if selected_idx is not None:
-                selected_idx = None
-            else:
-                search_query = None
-                page = 1
-        elif c == '/':                             # Slash — search query prompt
-            con.console.print("\n  [bold yellow]Search query:[/bold yellow] ", end="")
-            try:
-                # Get user input
-                query_str = input().strip()
-                if query_str:
-                    search_query = query_str
-                else:
-                    search_query = None
-                page = 1
-                selected_idx = None
-            except KeyboardInterrupt:
-                pass
-        elif c in ('o', 'O') and selected_idx is not None and active_table == "documents":
-            row = rows[selected_idx - 1]
-            props = json.loads(row["properties"])
-            path = props.get("file_path") or props.get("url")
-            if not path:
-                status_msg = "[red]No file path or URL associated with this document.[/red]"
-            else:
-                con.console.print(f"\n[green]Opening: {path}[/green]")
-                try:
-                    if path.startswith("http://") or path.startswith("https://"):
-                        webbrowser.open(path)
-                        status_msg = f"[green]Opened URL in browser: {path[:50]}[/green]"
-                    else:
-                        import subprocess
-                        import sys
-                        expanded_path = os.path.expanduser(path)
-                        if not os.path.exists(expanded_path):
-                            expanded_path = str(Path(path).resolve())
-                        
-                        if sys.platform == "win32":
-                            os.startfile(expanded_path)
-                        elif sys.platform == "darwin":
-                            subprocess.run(["open", expanded_path])
-                        else:
-                            subprocess.run(["xdg-open", expanded_path])
-                        status_msg = f"[green]Opened file locally: {os.path.basename(path)}[/green]"
-                except Exception as e:
-                    status_msg = f"[red]Failed to open file: {e}[/red]"
-        elif c in ('s', 'S') and selected_idx is not None and active_table == "documents":
-            row = rows[selected_idx - 1]
-            paper_id = row["id"]
-            props = json.loads(row["properties"])
-            summary = props.get("summary")
-            title = props.get("title") or paper_id
-            
-            if not summary:
-                con.console.print("\n[yellow]Generating LLM Summary... This might take a few seconds.[/yellow]")
-                try:
-                    # Retrieve chunks to construct content sample using vector repo
-                    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=True, load_embeddings=False)
-                    chunks = vector_repo.get_chunks_for_paper(paper_id)
-                    sample_text = "\n\n".join([ch.text_content for ch in chunks[:5]]) if chunks else ""
-                    abstract = props.get("abstract") or ""
-                    
-                    if not llm_engine:
-                        raise ValueError("LLM Engine could not be initialized. Please check your model path/provider config.")
-                    
-                    prompt = (
-                        f"Summarize the following document. Focus on key contributions, methodologies, and findings.\n\n"
-                        f"Title: {title}\n"
-                        f"Abstract: {abstract}\n\n"
-                        f"Content snippet:\n{sample_text[:3000]}\n\n"
-                        f"Provide a concise, professional markdown summary."
-                    )
-                    summary = llm_engine.generate_response(prompt)
-                    
-                    # Save to DB
-                    props["summary"] = summary
-                    graph_repo.update_node_properties(paper_id, props)
-                    con.success("Summary generated and saved to database.")
-                except Exception as e:
-                    summary = f"Error generating summary: {e}"
-            
-            con.console.clear()
-            con.console.print(Panel(
-                summary,
-                title=f"[bold cyan]LLM Summary: {title[:60]}[/bold cyan]",
-                border_style="cyan",
-                padding=(1, 2),
-                expand=True,
-            ))
-            con.console.print("\n  Press any key to return...")
-            click.getchar()
-        elif c.isdigit():                          # digit — start building row number
-            val = int(c)
-            total_rows = len(rows)
-            if val == 0:
-                status_msg = "[yellow]Row 0 is invalid.[/yellow]"
-            elif val * 10 > total_rows:
-                # Instant selection when unambiguous
-                if 1 <= val <= total_rows:
-                    selected_idx = val
-                else:
-                    status_msg = f"[yellow]Row {val} not on this page (1–{total_rows})[/yellow]"
-            else:
-                # Ambiguous (could be val or val*10 + next_digit <= total_rows)
-                con.console.print(f"\n  Row #: [bold cyan]{val}[/bold cyan]  (Enter to select {val}, or press second digit)", end="")
-                nc = click.getchar()
-                if nc in ('\r', '\n'):
-                    selected_idx = val
-                elif nc.isdigit():
-                    new_val = val * 10 + int(nc)
-                    if 1 <= new_val <= total_rows:
-                        selected_idx = new_val
-                    else:
-                        status_msg = f"[yellow]Row {new_val} not on this page (1–{total_rows})[/yellow]"
-                else:
-                    status_msg = "[yellow]Selection cancelled.[/yellow]"
-        elif c in ('e', 'E') and selected_idx is not None:
-            row = rows[selected_idx - 1]
-            status_msg = _edit_node(row["id"], active_table)
-        elif c in ('x', 'X') and selected_idx is not None:
-            row = rows[selected_idx - 1]
-            props = json.loads(row["properties"])
-            name = props.get("title") or props.get("name") or row["id"]
-            # Confirm
-            con.console.print(f"\n  [bold red]Delete[/bold red] [white]{name[:60]}[/white]?  Y/n  ", end="")
-            confirm = click.getchar()
-            if confirm in ('y', 'Y', '\r', '\n'):
-                status_msg = _delete_node(row["id"])
-                selected_idx = None
-            else:
-                status_msg = "[dim]Deletion cancelled.[/dim]"
+    run_storage_tui(graph_repo, container, limit=limit)
 
 
 # ── config ────────────────────────────────────────────────────────────────────
@@ -1008,285 +616,14 @@ def visualize(
     output_path: Path = typer.Option(Path.cwd() / "graph.html", "--output", "-o", help="Output HTML file path"),
 ):
     """Generate an interactive HTML knowledge graph and open it in the browser."""
+    from src.services.visualizer import generate_html_graph
     graph_repo, _, _, _ = get_services(load_llm=False, load_embeddings=False)
 
-    # Get node degrees
-    degrees = {}
-    edges_rows = graph_repo.get_all_edges()
-    for e in edges_rows:
-        src_id, tgt_id, etype, _ = e
-        degrees[src_id] = degrees.get(src_id, 0) + 1
-        degrees[tgt_id] = degrees.get(tgt_id, 0) + 1
-
-    nodes_rows = graph_repo.get_all_nodes()
-
-    if not nodes_rows:
-        con.warning("Knowledge graph is empty. Index some documents first.")
+    try:
+        generate_html_graph(graph_repo, output_path)
+    except ValueError as e:
+        con.warning(str(e))
         return
-
-    # Process nodes
-    vis_nodes = []
-    for r in nodes_rows:
-        node_id, label, props_str = r
-        props = json.loads(props_str)
-        source_type = props.get("source_type", "paper")
-        degree = degrees.get(node_id, 0)
-
-        if label == "Paper":
-            title = props.get("title", node_id)
-            node_label = title if len(title) < 25 else title[:22] + "..."
-            color_map = {"note": "#f03e3e", "book": "#7950f2", "paper": "#4c6ef5", "webpage": "#20c997"}
-            color = color_map.get(source_type, "#4c6ef5")
-            size = 25
-            shape = "dot"
-        elif label == "Author":
-            node_label = props.get("name", node_id).title()
-            color = "#fab005"
-            size = 20
-            shape = "dot"
-        elif label == "Concept":
-            raw_name = props.get("name", node_id)
-            node_label = raw_name.replace("_", " ").title()
-            is_tag = props.get("is_tag", False)
-            color = "#da77f2" if is_tag else "#12b886"
-            size = 18 if is_tag else 20
-            shape = "dot"
-        else:
-            node_label = node_id
-            color = "#868e96"
-            size = 15
-            shape = "dot"
-
-        vis_nodes.append({
-            "id": node_id,
-            "label": node_label,
-            "title": f"<b>{label}</b>: {props.get('title', props.get('name', node_id))}<br>ID: {node_id}<br>Degree: {degree}",
-            "color": color,
-            "size": size,
-            "shape": shape,
-            "group": label,
-            "degree": degree,
-            "created_at": props.get("created_at"),
-            "year": props.get("year"),
-        })
-
-    vis_edges = []
-    for e in edges_rows:
-        src_id, tgt_id, edge_type, _ = e
-        color = "#adb5bd"
-        dashes = False
-        width = 1
-
-        if edge_type == "AUTHORED":
-            color = "#ffd43b"
-            width = 2
-        elif edge_type == "MENTIONS_CONCEPT":
-            color = "#69db7c"
-            dashes = True
-        elif edge_type == "CITES":
-            color = "#748ffc"
-            width = 2
-        elif edge_type == "HAS_TAG":
-            color = "#da77f2"
-            dashes = True
-            width = 1
-
-
-        vis_edges.append({
-            "from": src_id,
-            "to": tgt_id,
-            "label": edge_type,
-            "arrows": "to",
-            "font": {"size": 8, "align": "top"},
-            "color": {"color": color, "highlight": "#495057"},
-            "dashes": dashes,
-            "width": width,
-        })
-
-    html_template = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Science Graph — Knowledge Network</title>
-    <script type="text/javascript">
-        // Dynamic loader fallback for vis-network.min.js
-        (function() {{
-            var urls = [
-                "https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js",
-                "https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js",
-                "https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"
-            ];
-            var index = 0;
-            function tryLoad() {{
-                if (index >= urls.length) {{
-                    console.error("Failed to load vis-network from all sources.");
-                    return;
-                }}
-                var script = document.createElement("script");
-                script.type = "text/javascript";
-                script.src = urls[index];
-                script.onload = function() {{
-                    console.log("Successfully loaded vis-network from: " + urls[index]);
-                    if (window.initGraph) {{
-                        window.initGraph();
-                    }}
-                }};
-                script.onerror = function() {{
-                    console.warn("Failed to load vis-network from: " + urls[index] + ". Trying next...");
-                    index++;
-                    tryLoad();
-                }};
-                document.head.appendChild(script);
-            }}
-            // Start loading when document is ready
-            if (document.readyState === "loading") {{
-                document.addEventListener("DOMContentLoaded", tryLoad);
-            }} else {{
-                tryLoad();
-            }}
-        }})();
-    </script>
-    <style type="text/css">
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-               margin: 0; background-color: #1a1b1e; color: #c1c2c5; display: flex; flex-direction: column; height: 100vh; }}
-        #header {{ padding: 15px 20px; background-color: #25262b; border-bottom: 1px solid #2c2e33; display: flex; justify-content: space-between; align-items: center; }}
-        h2 {{ margin: 0; color: #fff; font-size: 1.2rem; }}
-        #mynetwork {{ flex: 1; width: 100%; background-color: #1a1b1e; }}
-        .legend {{ display: inline-block; margin-right: 15px; font-size: 14px; }}
-        .legend-color {{ display: inline-block; width: 12px; height: 12px; border-radius: 50%;
-                         margin-right: 5px; vertical-align: middle; }}
-        .controls {{ display: flex; align-items: center; gap: 15px; }}
-        .slider-container {{ display: flex; align-items: center; gap: 10px; background: #2c2e33; padding: 5px 15px; border-radius: 6px; }}
-        input[type=range] {{ cursor: pointer; }}
-    </style>
-</head>
-<body>
-    <div id="header">
-        <div>
-            <h2>🔬 Science Graph — Knowledge Network</h2>
-            <div style="margin-top: 8px;">
-                <span class="legend"><span class="legend-color" style="background:#4c6ef5"></span>Paper</span>
-                <span class="legend"><span class="legend-color" style="background:#f03e3e"></span>Note</span>
-                <span class="legend"><span class="legend-color" style="background:#7950f2"></span>Book</span>
-                <span class="legend"><span class="legend-color" style="background:#20c997"></span>Webpage</span>
-                <span class="legend"><span class="legend-color" style="background:#fab005"></span>Author</span>
-                <span class="legend"><span class="legend-color" style="background:#12b886"></span>Concept</span>
-                <span class="legend"><span class="legend-color" style="background:#da77f2"></span>Tag</span>
-            </div>
-        </div>
-        <div class="controls">
-            <div class="slider-container">
-                <label for="yearFilter">Year:</label>
-                <select id="yearFilter" onchange="applyFilters()" style="background:#1a1b1e; color:#c1c2c5; border:1px solid #2c2e33; border-radius:4px; padding:3px 8px; outline:none; cursor:pointer;">
-                    <option value="all">All Years</option>
-                </select>
-            </div>
-            <div class="slider-container">
-                <label for="degreeSlider">Min Connections:</label>
-                <input type="range" id="degreeSlider" min="1" max="20" value="3" oninput="applyFilters()">
-                <span id="sliderValue" style="font-weight: bold; width: 20px;">3</span>
-            </div>
-        </div>
-    </div>
-    <div id="mynetwork"></div>
-    <script type="text/javascript">
-        var allNodes = {json.dumps(vis_nodes, ensure_ascii=False)};
-        var allEdges = {json.dumps(vis_edges, ensure_ascii=False)};
-        var nodesView, edgesView, network;
-
-        function initGraph() {{
-            nodesView = new vis.DataSet(allNodes);
-            edgesView = new vis.DataSet(allEdges);
-
-            network = new vis.Network(
-                document.getElementById('mynetwork'),
-                {{ nodes: nodesView, edges: edgesView }},
-                {{
-                    nodes: {{ font: {{ color: '#c1c2c5', size: 12 }} }},
-                    edges: {{ smooth: {{ type: 'continuous' }} }},
-                    physics: {{ 
-                        barnesHut: {{ 
-                            gravitationalConstant: -12000,
-                            centralGravity: 0.2,
-                            springLength: 250,
-                            springConstant: 0.04,
-                            damping: 0.09,
-                            avoidOverlap: 0.3
-                        }},
-                        stabilization: {{ iterations: 200 }}
-                    }}
-                }}
-            );
-
-            // Populate year options dynamically on init
-            var years = new Set();
-            allNodes.forEach(n => {{
-                if (n.year) {{
-                    years.add(n.year);
-                }} else if (n.created_at) {{
-                    var y = new Date(n.created_at).getFullYear();
-                    if (!isNaN(y)) {{
-                        years.add(y);
-                    }}
-                }}
-            }});
-            var sortedYears = Array.from(years).sort((a,b) => b-a);
-            var select = document.getElementById('yearFilter');
-            sortedYears.forEach(y => {{
-                var opt = document.createElement('option');
-                opt.value = y;
-                opt.innerText = y;
-                select.appendChild(opt);
-            }});
-
-            // Initial filter
-            var defaultFilter = allNodes.length < 150 ? 1 : 3;
-            document.getElementById('degreeSlider').value = defaultFilter;
-            applyFilters();
-        }}
-
-        function applyFilters() {{
-            var val = document.getElementById('degreeSlider').value;
-            document.getElementById('sliderValue').innerText = val;
-            var minDegree = parseInt(val, 10);
-            var yearVal = document.getElementById('yearFilter').value;
-            
-            // Filter nodes
-            var filteredNodes = allNodes.filter(n => {{
-                // Check degree
-                var degreeMatch = n.degree >= minDegree || n.group === 'Paper';
-                if (!degreeMatch) return false;
-                
-                // Check year
-                if (yearVal !== 'all') {{
-                    var targetYear = parseInt(yearVal, 10);
-                    var nodeYear = n.year;
-                    if (!nodeYear && n.created_at) {{
-                        var d = new Date(n.created_at);
-                        if (!isNaN(d)) nodeYear = d.getFullYear();
-                    }}
-                    if (nodeYear !== targetYear) return false;
-                }}
-                return true;
-            }});
-            
-            if (nodesView) {{
-                nodesView.clear();
-                nodesView.add(filteredNodes);
-            }}
-            
-            var validIds = new Set(filteredNodes.map(n => n.id));
-            var filteredEdges = allEdges.filter(e => validIds.has(e.from) && validIds.has(e.to));
-            if (edgesView) {{
-                edgesView.clear();
-                edgesView.add(filteredEdges);
-            }}
-        }}
-    </script>
-</body>
-</html>"""
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(html_template)
 
     con.success(f"Graph saved to [bold]{output_path}[/bold]")
     try:

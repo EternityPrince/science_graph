@@ -168,7 +168,7 @@ class TestLLMEngineIntegration(unittest.TestCase):
     def setUp(self):
         self.engine = DummyEngine()
 
-    @patch("src.llm_engine.con")
+    @patch("src.llm_engine.base.con")
     def test_engine_extract_success(self, mock_con):
         """Test extract_concepts_and_metadata with valid LLM output."""
         self.engine.response = json.dumps({
@@ -185,7 +185,7 @@ class TestLLMEngineIntegration(unittest.TestCase):
         mock_con.success.assert_called_with("LLM extraction output validated successfully.")
         mock_con.info.assert_called()
 
-    @patch("src.llm_engine.con")
+    @patch("src.llm_engine.base.con")
     def test_engine_extract_invalid_json(self, mock_con):
         """Test extract_concepts_and_metadata handles invalid JSON response gracefully."""
         self.engine.response = "invalid json {..."
@@ -194,7 +194,7 @@ class TestLLMEngineIntegration(unittest.TestCase):
         self.assertIsNone(res)
         mock_con.warning.assert_called()
 
-    @patch("src.llm_engine.con")
+    @patch("src.llm_engine.base.con")
     def test_engine_extract_validation_warnings(self, mock_con):
         """Test extraction triggers warning logs on low-quality output, but returns cleaned model."""
         self.engine.response = json.dumps({
@@ -217,7 +217,7 @@ class TestLLMEngineIntegration(unittest.TestCase):
         any_warning = any("noisy" in call.args[0] or "too long" in call.args[0] for call in mock_con.warning.call_args_list)
         self.assertTrue(any_warning)
 
-    @patch("src.llm_engine.con")
+    @patch("src.llm_engine.base.con")
     def test_engine_cluster_success(self, mock_con):
         """Test cluster_chunks_by_topic happy path validation."""
         self.engine.response = json.dumps({

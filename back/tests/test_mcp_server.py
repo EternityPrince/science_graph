@@ -1,6 +1,5 @@
-import pytest
 from unittest.mock import patch, MagicMock
-from src.mcp_server import get_stats, search_papers, query_rag, get_paper_details, get_notes
+from src.mcp_server import get_stats, search_papers, query_rag
 
 def test_mcp_get_stats():
     with patch("src.mcp_server.get_graph_repo") as mock_get_graph:

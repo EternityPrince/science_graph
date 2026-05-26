@@ -12,7 +12,6 @@ No direct sqlite3 access.
 """
 
 import os
-import re
 import shutil
 import time
 import contextlib
@@ -20,7 +19,7 @@ import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
-from src.models import Paper, Author, Concept, Chunk, slugify
+from src.models import Paper, Author, Concept, slugify
 from src.vector_search import EmbeddingEngine, split_text_to_chunks
 from src.repository.base import GraphRepository, VectorRepository
 from src.services.extraction_service import ExtractionService
@@ -30,47 +29,7 @@ from src.config import config
 from src import console as con
 
 
-def _split_text_to_chunks_raw(
-    paper_id: str, text: str, chunk_size: int = None, chunk_overlap: int = None
-) -> List[Chunk]:
-    """Splits a plain text string (not PDF) into overlapping Chunk objects."""
-    chunk_size = chunk_size or config.chunk_size
-    chunk_overlap = chunk_overlap or config.chunk_overlap
-
-    paragraphs = re.split(r'\n{2,}', text)
-    chunks: List[Chunk] = []
-    chunk_idx = 0
-    page_num = 1
-    buffer = ""
-
-    for para in paragraphs:
-        para_clean = re.sub(r'\s+', ' ', para).strip()
-        if not para_clean:
-            page_num += 1
-            continue
-        buffer += " " + para_clean
-        while len(buffer) >= chunk_size:
-            window = buffer[:chunk_size]
-            if len(window) > 50:
-                chunks.append(Chunk(
-                    id=f"{paper_id}#{chunk_idx}",
-                    paper_id=paper_id,
-                    text_content=window.strip(),
-                    page_number=page_num,
-                ))
-                chunk_idx += 1
-            buffer = buffer[chunk_size - chunk_overlap:]
-
-    remainder = buffer.strip()
-    if len(remainder) > 50:
-        chunks.append(Chunk(
-            id=f"{paper_id}#{chunk_idx}",
-            paper_id=paper_id,
-            text_content=remainder,
-            page_number=page_num,
-        ))
-
-    return chunks
+from src.services.duplicate_detector import DuplicateDetector, _split_text_to_chunks_raw
 
 
 class DuplicateDocumentError(ValueError):
@@ -95,6 +54,7 @@ class Indexer:
 
         self._extractor = ExtractionService(llm_engine=llm_engine)
         self._enricher = MetadataEnricher()
+        self._duplicate_detector = DuplicateDetector(graph_repo, vector_repo, embedding_engine)
 
     def detect_duplicate(self, paper: Paper, full_text: str) -> Optional[Tuple[str, str]]:
         """
@@ -103,153 +63,7 @@ class Indexer:
             Optional[Tuple[str, str]]: (duplicate_paper_id, matching_reason) if a duplicate is found,
                                        else None.
         """
-        import hashlib
-
-        # Helper to check if a paper is a placeholder
-        def is_placeholder(p: Paper) -> bool:
-            if not p:
-                return False
-            return bool(p.properties.get("placeholder") or p.properties.get("is_placeholder"))
-
-        # 1. Exact ID check
-        existing = self.graph_repo.get_paper(paper.id)
-        if existing and not is_placeholder(existing):
-            return existing.id, "exact_id"
-
-        # 2. DOI check
-        if paper.doi:
-            existing_doi = self.graph_repo.find_paper_by_doi(paper.doi)
-            if existing_doi and not is_placeholder(existing_doi):
-                return existing_doi.id, "doi"
-
-        # 3. Content Hash check (for incoming text)
-        content_hash = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
-        existing_hash = self.graph_repo.find_paper_by_content_hash(content_hash)
-        if existing_hash and not is_placeholder(existing_hash):
-            return existing_hash.id, "content_hash"
-
-        # Helper for Jaccard similarity of author lists
-        def author_jaccard_similarity(authors1: List[str], authors2: List[str]) -> float:
-            set1 = {slugify(a) for a in authors1 if slugify(a)}
-            set2 = {slugify(a) for a in authors2 if slugify(a)}
-            if not set1 and not set2:
-                return 1.0
-            if not set1 or not set2:
-                return 0.0
-            return len(set1.intersection(set2)) / len(set1.union(set2))
-
-        # Helper for 3-word shingles
-        def get_3_shingles(text: str) -> set:
-            words = re.findall(r'\b\w+\b', text.lower())
-            shingles = set()
-            for i in range(len(words) - 2):
-                shingles.add((words[i], words[i+1], words[i+2]))
-            return shingles
-
-        # Helper for word Jaccard similarity
-        def word_jaccard_similarity(text1: str, text2: str) -> float:
-            words1 = set(re.findall(r'\b\w+\b', text1.lower()))
-            words2 = set(re.findall(r'\b\w+\b', text2.lower()))
-            if not words1 and not words2:
-                return 1.0
-            if not words1 or not words2:
-                return 0.0
-            return len(words1.intersection(words2)) / len(words1.union(words2))
-
-        # Helper to reconstruct text from chunks
-        def reconstruct_text(paper_id: str) -> str:
-            chunks = self.vector_repo.get_chunks_for_paper(paper_id)
-            def get_idx(chunk):
-                try:
-                    return int(chunk.id.split('#')[-1])
-                except Exception:
-                    return chunk.id
-            chunks_sorted = sorted(chunks, key=get_idx)
-            return " ".join(c.text_content for c in chunks_sorted)
-
-        # Build candidate set of Papers to avoid database-wide scans
-        candidates = {}
-
-        def add_candidate(p: Paper):
-            if p and p.id != paper.id and not is_placeholder(p):
-                candidates[p.id] = p
-
-        # Check exact ID candidate
-        # Check DOI candidate
-        if paper.doi:
-            add_candidate(self.graph_repo.find_paper_by_doi(paper.doi))
-
-        # Check content hash candidate
-        add_candidate(self.graph_repo.find_paper_by_content_hash(content_hash))
-
-        # Check case-insensitive title candidate
-        if paper.title:
-            add_candidate(self.graph_repo.find_paper_by_title(paper.title))
-
-        # Check shared author candidates
-        for author_name in paper.authors:
-            author_id = slugify(author_name)
-            if author_id:
-                for p in self.graph_repo.get_papers_by_author(author_id):
-                    add_candidate(p)
-
-        # Check vector similarity candidate & embedding similarity check
-        chunks = _split_text_to_chunks_raw(paper.id, full_text)
-        first_chunk_text = ""
-        if chunks:
-            first_chunk_text = chunks[0].text_content
-        elif full_text.strip():
-            first_chunk_text = full_text.strip()
-        elif paper.title.strip():
-            first_chunk_text = paper.title.strip()
-
-        if first_chunk_text:
-            emb = self.emb_engine.get_embeddings([first_chunk_text])[0]
-            similar_chunks = self.vector_repo.search_similar_chunks(emb, limit=10)
-            for c, sim in similar_chunks:
-                if sim >= 0.95:
-                    cand_paper = self.graph_repo.get_paper(c.paper_id)
-                    if cand_paper and not is_placeholder(cand_paper):
-                        add_candidate(cand_paper)
-                        if word_jaccard_similarity(first_chunk_text, c.text_content) >= 0.80:
-                            return cand_paper.id, "embedding_similarity"
-
-        # Now detailed checking on all candidates
-        shingles_new = get_3_shingles(full_text)
-
-        for cand_id, cand in candidates.items():
-            # A. Exact Title and Author similarity > 0.3 or both empty
-            if paper.title and cand.title:
-                if paper.title.strip().lower() == cand.title.strip().lower():
-                    author_sim = author_jaccard_similarity(paper.authors, cand.authors)
-                    if author_sim > 0.3 or (not paper.authors and not cand.authors):
-                        return cand_id, "title_author_similarity"
-
-            # B. Legacy content hash comparison
-            cand_hash = cand.properties.get("content_hash")
-            cand_text = None
-            if not cand_hash:
-                cand_text = reconstruct_text(cand_id)
-                cand_hash = hashlib.sha256(cand_text.encode('utf-8')).hexdigest()
-                updated_props = {**cand.properties, "content_hash": cand_hash}
-                self.graph_repo.update_node_properties(cand_id, updated_props)
-
-            if cand_hash == content_hash:
-                return cand_id, "content_hash"
-
-            # C. 3-word shingles check (threshold >= 0.70)
-            if shingles_new:
-                if cand_text is None:
-                    cand_text = reconstruct_text(cand_id)
-                shingles_cand = get_3_shingles(cand_text)
-                if shingles_cand:
-                    intersection = len(shingles_new.intersection(shingles_cand))
-                    union = len(shingles_new.union(shingles_cand))
-                    jaccard = intersection / union if union > 0 else 0.0
-                    if jaccard >= 0.70:
-                        return cand_id, "shingle_similarity"
-
-        return None
+        return self._duplicate_detector.detect_duplicate(paper, full_text)
 
     @contextlib.contextmanager
     def _trace_stage(self, stage_name: str, trace_info: Optional[dict]):
@@ -827,6 +641,98 @@ class Indexer:
 
         con.success(f"Successfully performed full re-index for {paper_id}")
         return True
+
+    def reindex_metadata_batch(
+        self,
+        missing_authors: bool = False,
+        missing_tags: bool = False,
+        limit: Optional[int] = None,
+        use_llm: bool = False,
+    ) -> Tuple[int, int]:
+        """
+        Batch re-indexes paper metadata (authors, tags, etc.) based on filters.
+        Returns:
+            Tuple[int, int]: (success_count, total_count)
+        """
+        non_placeholders = self.graph_repo.get_non_placeholder_paper_ids()
+
+        candidates = []
+        for pid in non_placeholders:
+            paper = self.graph_repo.get_paper(pid)
+            if not paper:
+                continue
+            props = paper.properties
+            if missing_authors:
+                if not paper.authors:
+                    candidates.append(pid)
+            elif missing_tags:
+                tags = props.get("tags", [])
+                if not tags:
+                    candidates.append(pid)
+            else:
+                candidates.append(pid)
+
+        if limit:
+            candidates = candidates[:limit]
+
+        if not candidates:
+            con.success("No papers found matching the re-indexing criteria.")
+            return 0, 0
+
+        con.info(f"Starting metadata re-indexing for [bold]{len(candidates)}[/bold] papers …")
+        
+        success_count = 0
+        for paper_id in candidates:
+            try:
+                if self.reindex_metadata(paper_id, use_llm=use_llm):
+                    success_count += 1
+            except Exception as e:
+                con.error(f"Failed to re-index {paper_id}: {e}")
+
+        con.blank()
+        con.success(f"Re-indexed {success_count}/{len(candidates)} papers successfully.")
+        return success_count, len(candidates)
+
+    def reindex_full_batch(
+        self,
+        all_papers: bool = False,
+        paper_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Tuple[int, int]:
+        """
+        Batch fully re-indexes papers by re-ingesting original files/URLs.
+        Returns:
+            Tuple[int, int]: (success_count, total_count)
+        """
+        if paper_id:
+            paper = self.graph_repo.get_paper(paper_id)
+            if not paper:
+                con.error(f"Paper not found: {paper_id}")
+                raise ValueError(f"Paper not found: {paper_id}")
+            candidates = [paper_id]
+        else:
+            candidates = self.graph_repo.get_non_placeholder_paper_ids()
+
+        if limit:
+            candidates = candidates[:limit]
+
+        if not candidates:
+            con.success("No papers found matching the re-indexing criteria.")
+            return 0, 0
+
+        con.info(f"Starting full re-indexing for [bold]{len(candidates)}[/bold] papers …")
+        
+        success_count = 0
+        for pid in candidates:
+            try:
+                if self.reindex_full(pid):
+                    success_count += 1
+            except Exception as e:
+                con.error(f"Failed to fully re-index {pid}: {e}")
+
+        con.blank()
+        con.success(f"Fully re-indexed {success_count}/{len(candidates)} papers successfully.")
+        return success_count, len(candidates)
 
     def _ner_fallback_authors(self, existing_authors: List[str], file_path: str) -> List[str]:
         """Runs NER on the first PDF page to extract author names when few are known."""

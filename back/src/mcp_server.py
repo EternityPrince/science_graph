@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import logging
-from typing import Optional, List, Union
+from typing import List
 from pathlib import Path
 
 from fastmcp import FastMCP

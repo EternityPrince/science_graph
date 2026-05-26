@@ -1,24 +1,17 @@
 """
-LLM Engine — abstracts generation to support both local MLX models and OpenAI-compatible APIs.
-All output goes through src.console for consistent styled formatting.
+Base classes and helpers for LLM Engines.
 """
 
-import os
 import json
 import re
 import functools
-import logging
-from pathlib import Path
-from typing import Optional, Type, List, Any
+import inspect
 import asyncio
+from typing import Optional, Type
 
 from pydantic import BaseModel, ValidationError
-import mlx.core as mx
-
 from src.config import config
 from src import console as con
-
-logger = logging.getLogger(__name__)
 
 
 def strip_thinking_tokens(text: str) -> str:
@@ -101,7 +94,6 @@ def retry_with_temp_decay(max_retries: int = 3):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            import inspect
             sig = inspect.signature(func)
             bound = sig.bind_partial(*args, **kwargs)
             bound.apply_defaults()
@@ -132,92 +124,6 @@ def retry_with_temp_decay(max_retries: int = 3):
     return decorator
 
 
-def build_mlx_tokenizer_data(tokenizer) -> Any:
-    """Builds TokenEnforcerTokenizerData for mlx-lm tokenization wrapper."""
-    from lmformatenforcer import TokenEnforcerTokenizerData
-    
-    hf_tokenizer = getattr(tokenizer, "_tokenizer", tokenizer)
-    vocab_size = len(hf_tokenizer)
-    
-    all_special_ids = set(getattr(hf_tokenizer, "all_special_ids", []))
-    eos_token_id = getattr(hf_tokenizer, "eos_token_id", None)
-    if eos_token_id is None:
-        eos_token_id = []
-    elif isinstance(eos_token_id, int):
-        eos_token_id = [eos_token_id]
-    else:
-        eos_token_id = list(eos_token_id)
-        
-    try:
-        token_0 = hf_tokenizer.encode("0", add_special_tokens=False)[-1]
-    except Exception:
-        token_0 = hf_tokenizer.encode("0")[-1]
-        
-    regular_tokens = []
-    for token_idx in range(vocab_size):
-        if token_idx in all_special_ids:
-            continue
-        try:
-            decoded_after_0 = hf_tokenizer.decode([token_0, token_idx])[1:]
-            decoded_regular = hf_tokenizer.decode([token_idx])
-            is_word_start_token = len(decoded_after_0) > len(decoded_regular)
-            regular_tokens.append((token_idx, decoded_after_0, is_word_start_token))
-        except Exception:
-            continue
-            
-    def decode_fn(tokens: List[int]) -> str:
-        return hf_tokenizer.decode(tokens).rstrip('')
-        
-    return TokenEnforcerTokenizerData(
-        regular_tokens=regular_tokens,
-        decoder=decode_fn,
-        eos_token_id=eos_token_id,
-        use_bitmask=False,
-        vocab_size=vocab_size
-    )
-
-
-class ConstrainedLogitsProcessor:
-    """Logits processor that filters tokens to match a given TokenEnforcer schema."""
-    def __init__(self, token_enforcer: Any):
-        self.token_enforcer = token_enforcer
-
-    def __call__(self, tokens: mx.array, logits: mx.array) -> mx.array:
-        # tokens[1:] are the generated tokens (skipping the last prompt token)
-        generated_tokens = tokens.tolist()[1:]
-        allowed_tokens = self.token_enforcer.get_allowed_tokens(generated_tokens).allowed_tokens
-        
-        if not allowed_tokens:
-            return logits
-            
-        import numpy as np
-        vocab_size = logits.shape[-1]
-        mask = np.full(vocab_size, -np.inf, dtype=np.float32)
-        mask[allowed_tokens] = 0.0
-        
-        return logits + mx.array(mask)
-
-
-class AsyncRateLimiter:
-    """Enforces a minimum interval between requests to avoid overloading providers."""
-    def __init__(self, delay: float):
-        self.delay = delay
-        self.last_request_time = 0.0
-        self.lock = asyncio.Lock()
-
-    async def wait(self):
-        if self.delay <= 0:
-            return
-        async with self.lock:
-            import time
-            now = time.monotonic()
-            elapsed = now - self.last_request_time
-            if elapsed < self.delay:
-                sleep_time = self.delay - elapsed
-                await asyncio.sleep(sleep_time)
-            self.last_request_time = time.monotonic()
-
-
 def retry_with_temp_decay_async(max_retries: int = 3):
     """
     Decorator to retry LLM JSON extraction asynchronously on failure, decaying the temperature
@@ -226,7 +132,6 @@ def retry_with_temp_decay_async(max_retries: int = 3):
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            import inspect
             sig = inspect.signature(func)
             bound = sig.bind_partial(*args, **kwargs)
             bound.apply_defaults()
@@ -301,18 +206,13 @@ class BaseLLMEngine:
         temp: float = 0.0,
         max_tokens: Optional[int] = None,
     ) -> BaseModel:
-        # Generate JSON text using the configured LLM engine
         response = self.generate_json(
             prompt=prompt,
             schema_class=schema_class,
             temp=temp,
             max_tokens=max_tokens,
         )
-        
-        # Extract the JSON block
         clean_json = ResilientParser.extract_json(response)
-        
-        # Parse and validate the JSON
         try:
             parsed = json.loads(clean_json)
         except Exception as e:
@@ -335,18 +235,13 @@ class BaseLLMEngine:
         temp: float = 0.0,
         max_tokens: Optional[int] = None,
     ) -> BaseModel:
-        # Generate JSON text using the configured LLM engine
         response = await self.generate_json_async(
             prompt=prompt,
             schema_class=schema_class,
             temp=temp,
             max_tokens=max_tokens,
         )
-        
-        # Extract the JSON block
         clean_json = ResilientParser.extract_json(response)
-        
-        # Parse and validate the JSON
         try:
             parsed = json.loads(clean_json)
         except Exception as e:
@@ -362,7 +257,6 @@ class BaseLLMEngine:
             raise ValueError(f"Schema validation failed: {e}") from e
 
     def _clean_json_response(self, response: str) -> str:
-        # Kept for compatibility
         return ResilientParser.extract_json(response)
 
     def _truncate_to_context(self, text: str, max_input_tokens: int) -> str:
@@ -545,375 +439,3 @@ class BaseLLMEngine:
             import logging
             logging.getLogger(__name__).warning(f"Section synthesis failed for '{section_name}': {e}")
             return f"*[Generation failed for this section: {e}]*"
-
-
-class MlxLLMEngine(BaseLLMEngine):
-    def __init__(self, model_path: str = None):
-        self.model_path = model_path or config.llm_local_model_path
-        self._tokenizer_data = None
-        self.model = None
-        self.tokenizer = None
-
-        if not os.path.isdir(self.model_path):
-            raise FileNotFoundError(
-                f"Local MLX model path not found: {self.model_path}\n"
-                f"  Run: python3 main.py config  to see configured paths."
-            )
-
-    def _ensure_model_loaded(self):
-        if self.model is None:
-            model_name = Path(self.model_path).name
-            con.model_msg(f"Loading MLX LLM [bold]{model_name}[/bold] …")
-
-            from mlx_lm import load
-            with con.suppress_stderr(), con.suppress_stdout():
-                self.model, self.tokenizer = load(self.model_path, tokenizer_config={"fix_mistral_regex": True})
-
-            con.success(f"MLX LLM ready: [bold]{model_name}[/bold]")
-
-    def count_tokens(self, text: str) -> int:
-        self._ensure_model_loaded()
-        return super().count_tokens(text)
-
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
-        self._ensure_model_loaded()
-        resolved_max_tokens = max_tokens
-        if resolved_max_tokens is None:
-            if task == "extraction":
-                resolved_max_tokens = config.llm_extraction_output_limit
-            elif task == "clustering":
-                resolved_max_tokens = config.llm_clustering_output_limit
-            elif task == "synthesis":
-                resolved_max_tokens = config.llm_synthesis_output_limit
-            
-        if resolved_max_tokens is None:
-            resolved_max_tokens = config.llm_max_tokens
-
-        temp = temp if temp is not None else config.llm_temp
-
-        formatted_prompt = prompt
-        is_formatted = any(
-            tag in prompt
-            for tag in [
-                "<|im_start|>",
-                "<|start_header_id|>",
-                "[INST]",
-                "<start_of_turn>",
-                "<|im_end|>"
-            ]
-        )
-
-        if not is_formatted and hasattr(self.tokenizer, "apply_chat_template"):
-            try:
-                messages = [{"role": "user", "content": prompt}]
-                formatted_prompt = self.tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-            except Exception:
-                pass
-
-        from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
-        sampler = make_sampler(temp=temp)
-
-        response = generate(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            prompt=formatted_prompt,
-            max_tokens=resolved_max_tokens,
-            sampler=sampler,
-            verbose=False,
-        )
-        return strip_thinking_tokens(response)
-
-    def generate_json(
-        self,
-        prompt: str,
-        schema_class: Type[BaseModel],
-        temp: float = 0.0,
-        max_tokens: Optional[int] = None,
-    ) -> str:
-        self._ensure_model_loaded()
-        resolved_max_tokens = max_tokens
-        if resolved_max_tokens is None:
-            resolved_max_tokens = config.llm_max_tokens
-
-        temp = temp if temp is not None else config.llm_temp
-
-        if self._tokenizer_data is None:
-            self._tokenizer_data = build_mlx_tokenizer_data(self.tokenizer)
-
-        from lmformatenforcer import TokenEnforcer, JsonSchemaParser
-        parser = JsonSchemaParser(schema_class.model_json_schema())
-        enforcer = TokenEnforcer(self._tokenizer_data, parser)
-        logits_processor = ConstrainedLogitsProcessor(enforcer)
-
-        formatted_prompt = prompt
-        is_formatted = any(
-            tag in prompt
-            for tag in [
-                "<|im_start|>",
-                "<|start_header_id|>",
-                "[INST]",
-                "<start_of_turn>",
-                "<|im_end|>"
-            ]
-        )
-
-        if not is_formatted and hasattr(self.tokenizer, "apply_chat_template"):
-            try:
-                messages = [
-                    {
-                        "role": "system",
-                        "content": f"You are a strict JSON extractor. Output ONLY valid JSON matching this schema: {schema_class.model_json_schema()}"
-                    },
-                    {"role": "user", "content": prompt}
-                ]
-                formatted_prompt = self.tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-            except Exception:
-                pass
-
-        from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
-        sampler = make_sampler(temp=temp)
-
-        response = generate(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            prompt=formatted_prompt,
-            max_tokens=resolved_max_tokens,
-            sampler=sampler,
-            verbose=False,
-            logits_processors=[logits_processor],
-        )
-        return strip_thinking_tokens(response)
-
-
-class OpenAILLMEngine(BaseLLMEngine):
-    def __init__(self):
-        import openai
-        api_key = config.llm_cloud_api_key
-        base_url = config.llm_cloud_base_url
-        self.model_name = config.llm_cloud_model_name
-
-        if not api_key:
-            con.error("API key is not configured for OpenAI/OpenRouter.")
-            raise ValueError("Missing API key for OpenAI provider")
-
-        client_args = {"api_key": api_key}
-        if base_url:
-            client_args["base_url"] = base_url
-
-        self.client = openai.OpenAI(**client_args)
-        self.rate_limiter = AsyncRateLimiter(config.llm_request_delay)
-
-        try:
-            import tiktoken
-            self.tokenizer = tiktoken.encoding_for_model(self.model_name)
-        except Exception:
-            self.tokenizer = None
-
-        con.success(f"OpenAI API LLM ready: [bold]{self.model_name}[/bold]")
-
-    def _truncate_to_context(self, text: str, max_input_tokens: int) -> str:
-        if self.tokenizer is None:
-            return text[:max_input_tokens * 4]
-        try:
-            token_ids = self.tokenizer.encode(text)
-            if len(token_ids) <= max_input_tokens:
-                return text
-            return self.tokenizer.decode(token_ids[:max_input_tokens])
-        except Exception:
-            return text[:max_input_tokens * 4]
-
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
-        resolved_max_tokens = max_tokens
-        if resolved_max_tokens is None:
-            if task == "extraction":
-                resolved_max_tokens = config.llm_extraction_output_limit
-            elif task == "clustering":
-                resolved_max_tokens = config.llm_clustering_output_limit
-            elif task == "synthesis":
-                resolved_max_tokens = config.llm_synthesis_output_limit
-            
-        if resolved_max_tokens is None:
-            resolved_max_tokens = config.llm_max_tokens
-
-        temp = temp if temp is not None else config.llm_temp
-
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=resolved_max_tokens,
-            temperature=temp,
-        )
-        return strip_thinking_tokens(response.choices[0].message.content)
-
-    async def generate_response_async(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
-        resolved_max_tokens = max_tokens
-        if resolved_max_tokens is None:
-            if task == "extraction":
-                resolved_max_tokens = config.llm_extraction_output_limit
-            elif task == "clustering":
-                resolved_max_tokens = config.llm_clustering_output_limit
-            elif task == "synthesis":
-                resolved_max_tokens = config.llm_synthesis_output_limit
-            
-        if resolved_max_tokens is None:
-            resolved_max_tokens = config.llm_max_tokens
-
-        temp = temp if temp is not None else config.llm_temp
-
-        max_retries = 3
-        backoff = config.llm_retry_backoff
-        last_err = None
-
-        for attempt in range(max_retries):
-            await self.rate_limiter.wait()
-            try:
-                response = await asyncio.to_thread(
-                    self.client.chat.completions.create,
-                    model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=resolved_max_tokens,
-                    temperature=temp,
-                )
-                return strip_thinking_tokens(response.choices[0].message.content)
-            except Exception as e:
-                last_err = e
-                if attempt == max_retries - 1:
-                    raise e
-                sleep_time = backoff * (2 ** attempt)
-                con.warning(f"LLM API request failed: {e}. Retrying in {sleep_time}s...")
-                await asyncio.sleep(sleep_time)
-        raise last_err
-
-    def generate_json(
-        self,
-        prompt: str,
-        schema_class: Type[BaseModel],
-        temp: float = 0.0,
-        max_tokens: Optional[int] = None,
-    ) -> str:
-        resolved_max_tokens = max_tokens
-        if resolved_max_tokens is None:
-            resolved_max_tokens = config.llm_max_tokens
-
-        temp = temp if temp is not None else config.llm_temp
-
-        messages = [
-            {
-                "role": "system",
-                "content": f"You are a strict JSON extractor. Output ONLY valid JSON matching this schema: {schema_class.model_json_schema()}"
-            },
-            {"role": "user", "content": prompt}
-        ]
-
-        # Try structured outputs
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                max_tokens=resolved_max_tokens,
-                temperature=temp,
-                response_format=schema_class,
-            )
-            return strip_thinking_tokens(response.choices[0].message.content)
-        except Exception:
-            # Fallback to JSON mode
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    max_tokens=resolved_max_tokens,
-                    temperature=temp,
-                    response_format={"type": "json_object"},
-                )
-                return strip_thinking_tokens(response.choices[0].message.content)
-            except Exception:
-                # Basic fallback
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    max_tokens=resolved_max_tokens,
-                    temperature=temp,
-                )
-                return strip_thinking_tokens(response.choices[0].message.content)
-
-    async def generate_json_async(
-        self,
-        prompt: str,
-        schema_class: Type[BaseModel],
-        temp: float = 0.0,
-        max_tokens: Optional[int] = None,
-    ) -> str:
-        resolved_max_tokens = max_tokens
-        if resolved_max_tokens is None:
-            resolved_max_tokens = config.llm_max_tokens
-
-        temp = temp if temp is not None else config.llm_temp
-
-        messages = [
-            {
-                "role": "system",
-                "content": f"You are a strict JSON extractor. Output ONLY valid JSON matching this schema: {schema_class.model_json_schema()}"
-            },
-            {"role": "user", "content": prompt}
-        ]
-
-        async def _call_with_format(response_format):
-            max_retries = 3
-            backoff = config.llm_retry_backoff
-            last_err = None
-            for attempt in range(max_retries):
-                await self.rate_limiter.wait()
-                try:
-                    kwargs = {
-                        "model": self.model_name,
-                        "messages": messages,
-                        "max_tokens": resolved_max_tokens,
-                        "temperature": temp,
-                    }
-                    if response_format is not None:
-                        kwargs["response_format"] = response_format
-                    response = await asyncio.to_thread(self.client.chat.completions.create, **kwargs)
-                    return strip_thinking_tokens(response.choices[0].message.content)
-                except Exception as e:
-                    last_err = e
-                    if attempt == max_retries - 1:
-                        raise e
-                    sleep_time = backoff * (2 ** attempt)
-                    con.warning(f"LLM API JSON request failed: {e}. Retrying in {sleep_time}s...")
-                    await asyncio.sleep(sleep_time)
-            raise last_err
-
-        # Try structured outputs
-        try:
-            return await _call_with_format(schema_class)
-        except Exception:
-            # Fallback to JSON mode
-            try:
-                return await _call_with_format({"type": "json_object"})
-            except Exception:
-                # Basic fallback
-                return await _call_with_format(None)
-
-
-_local_engine_singleton = None
-_cloud_engine_singleton = None
-
-
-def LLMEngine(use_cloud: bool = False, *args, **kwargs) -> BaseLLMEngine:
-    """Factory for returning the correct LLM Engine based on config/parameters."""
-    global _local_engine_singleton, _cloud_engine_singleton
-    is_cloud = use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1" or config.llm_provider == "openai"
-    if is_cloud:
-        if _cloud_engine_singleton is None:
-            _cloud_engine_singleton = OpenAILLMEngine()
-        return _cloud_engine_singleton
-    else:
-        if _local_engine_singleton is None:
-            _local_engine_singleton = MlxLLMEngine(*args, **kwargs)
-        return _local_engine_singleton

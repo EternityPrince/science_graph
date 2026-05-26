@@ -132,9 +132,28 @@ class ExtractionService:
                 return res
             return ""
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Public API
-    # ──────────────────────────────────────────────────────────────────────────
+    def extract_from_text_file(
+        self,
+        content: str,
+        filename_stem: str,
+        use_llm: bool = True,
+    ) -> ExtractionResult:
+        """
+        Parses raw text content (extracting title, abstract, and full text)
+        and extracts authors, concepts, and tags.
+        """
+        first_line = content.split('\n')[0].strip() if content else ""
+        if first_line.startswith("# "):
+            title = first_line.lstrip("# ").strip()
+            full_text = content[len(first_line):].strip()
+        else:
+            title = filename_stem
+            full_text = content
+
+        paragraphs = [p.strip() for p in re.split(r'\n\n+', full_text) if p.strip()]
+        abstract = paragraphs[0][:800] if paragraphs else ""
+
+        return self.extract(title, abstract, full_text, use_llm=use_llm)
 
     def extract(
         self,

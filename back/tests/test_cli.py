@@ -6,31 +6,26 @@ from src.cli import app
 runner = CliRunner()
 
 class TestCLI(unittest.TestCase):
-    @patch("src.cli.Indexer")
-    @patch("src.cli.get_services")
-    def test_index_url(self, mock_get_services, mock_indexer_cls):
-        mock_indexer_instance = MagicMock()
-        mock_indexer_cls.return_value = mock_indexer_instance
-        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+    @patch("src.services.indexing_orchestrator.run_batch_index")
+    def test_index_url(self, mock_run_batch_index):
+        mock_run_batch_index.return_value = [{"name": "example.com", "success": True}]
         result = runner.invoke(app, ["index", "https://example.com"])
         self.assertEqual(result.exit_code, 0)
-        mock_indexer_instance.index_batch.assert_called_once()
-        self.assertEqual(mock_indexer_instance.index_batch.call_args[1]["targets"], ["https://example.com"])
+        mock_run_batch_index.assert_called_once_with(
+            "https://example.com", True, False, False, 1
+        )
 
-    @patch("src.cli.Indexer")
-    @patch("src.cli.get_services")
-    def test_index_multiple_urls(self, mock_get_services, mock_indexer_cls):
-        mock_indexer_instance = MagicMock()
-        mock_indexer_cls.return_value = mock_indexer_instance
-        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+    @patch("src.services.indexing_orchestrator.run_batch_index")
+    def test_index_multiple_urls(self, mock_run_batch_index):
+        mock_run_batch_index.return_value = [{"name": "example.com", "success": True}]
         result = runner.invoke(app, ["index", "https://example.com, https://google.com;https://github.com"])
         self.assertEqual(result.exit_code, 0)
-        mock_indexer_instance.index_batch.assert_called_once()
-        self.assertEqual(
-            mock_indexer_instance.index_batch.call_args[1]["targets"],
-            ["https://example.com", "https://google.com", "https://github.com"]
+        mock_run_batch_index.assert_called_once_with(
+            "https://example.com, https://google.com;https://github.com",
+            True, False, False, 1
         )
-    @patch("click.getchar")
+
+    @patch("src.services.storage_tui.click.getchar")
     @patch("src.cli.get_services")
     def test_storage_documents(self, mock_get_services, mock_getchar):
         """Storage shows document table by default and quits on 'q'."""
@@ -47,7 +42,7 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Test Paper", result.stdout)
 
-    @patch("click.getchar")
+    @patch("src.services.storage_tui.click.getchar")
     @patch("src.cli.get_services")
     def test_storage_tab_switch(self, mock_get_services, mock_getchar):
         """Tab key switches between tables."""
@@ -77,11 +72,14 @@ class TestCLI(unittest.TestCase):
     def test_reindex_with_filter(self, mock_get_services, mock_indexer_cls):
         """Reindex with --missing-authors filters papers and calls reindex_metadata."""
         from src.models import Paper
-        mock_indexer_instance = MagicMock()
-        mock_indexer_cls.return_value = mock_indexer_instance
+        from src.indexer import Indexer
         
         mock_graph_repo = MagicMock()
         mock_get_services.return_value = (mock_graph_repo, MagicMock(), MagicMock(), MagicMock())
+        
+        real_indexer = Indexer(mock_graph_repo, MagicMock(), MagicMock(), MagicMock())
+        real_indexer.reindex_metadata = MagicMock(return_value=True)
+        mock_indexer_cls.return_value = real_indexer
         
         mock_graph_repo.get_non_placeholder_paper_ids.return_value = ["p1", "p2", "p3"]
         
@@ -90,14 +88,12 @@ class TestCLI(unittest.TestCase):
         p3 = None
         mock_graph_repo.get_paper.side_effect = lambda pid: {"p1": p1, "p2": p2, "p3": p3}.get(pid)
         
-        mock_indexer_instance.reindex_metadata.return_value = True
-        
         result = runner.invoke(app, ["reindex", "meta", "--missing-authors"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Re-indexed 1/1 papers successfully.", result.stdout)
-        mock_indexer_instance.reindex_metadata.assert_called_once_with("p2", use_llm=False)
+        real_indexer.reindex_metadata.assert_called_once_with("p2", use_llm=False)
 
-    @patch("click.getchar")
+    @patch("src.services.storage_tui.click.getchar")
     @patch("src.cli.get_services")
     def test_storage_multi_digit_selection(self, mock_get_services, mock_getchar):
         """Typing a multi-digit number in storage selects that row index."""

@@ -54,79 +54,40 @@ from src.schemas import (
 
 # ── Dependency Injection Providers (with caching for performance) ──
 
-_graph_repo_inst: Optional[SQLiteGraphRepository] = None
-_vector_repo_inst: Optional[SQLiteVectorRepository] = None
-_embedding_engine_inst: Optional[EmbeddingEngine] = None
-_llm_engine_inst: Optional[LLMEngine] = None
-_rag_service_inst: Optional[RAGService] = None
-_note_service_inst: Optional[NoteService] = None
-
+from src.services.container import container
 
 def get_graph_repo() -> SQLiteGraphRepository:
-    global _graph_repo_inst
-    if _graph_repo_inst is None:
-        _graph_repo_inst = SQLiteGraphRepository(config.db_path)
-    return _graph_repo_inst
+    return container.get_graph_repo()
 
 
 def get_vector_repo() -> SQLiteVectorRepository:
-    global _vector_repo_inst
-    if _vector_repo_inst is None:
-        _vector_repo_inst = SQLiteVectorRepository(config.db_path)
-    return _vector_repo_inst
+    return container.get_vector_repo()
 
 
 def get_embedding_engine() -> EmbeddingEngine:
-    global _embedding_engine_inst
-    if _embedding_engine_inst is None:
-        _embedding_engine_inst = EmbeddingEngine()
-    return _embedding_engine_inst
+    return container.get_embedding_engine()
 
-
-_llm_engine_local: Optional[LLMEngine] = None
-_llm_engine_cloud: Optional[LLMEngine] = None
 
 def get_llm_engine(use_cloud: bool = False) -> Optional[LLMEngine]:
-    global _llm_engine_local, _llm_engine_cloud
-    if use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1":
-        if _llm_engine_cloud is None:
-            try:
-                _llm_engine_cloud = LLMEngine(use_cloud=True)
-            except Exception as e:
-                print(f"[!] Cloud LLM engine unavailable: {e}")
-        return _llm_engine_cloud
-    else:
-        if _llm_engine_local is None:
-            try:
-                _llm_engine_local = LLMEngine(use_cloud=False)
-            except Exception as e:
-                print(f"[!] Local LLM engine unavailable: {e}")
-        return _llm_engine_local
+    cloud = use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1"
+    try:
+        return container.get_llm_engine(use_cloud=cloud)
+    except Exception as e:
+        print(f"[!] LLMEngine unavailable (cloud={cloud}): {e}")
+        return None
 
-# Helper dependency wrapper for endpoint injection
+
 def get_default_llm_engine() -> Optional[LLMEngine]:
     return get_llm_engine(use_cloud=False)
 
 
-_rag_service_local: Optional[RAGService] = None
-_rag_service_cloud: Optional[RAGService] = None
-
 def get_rag_service(use_cloud: bool = False) -> Optional[RAGService]:
-    global _rag_service_local, _rag_service_cloud
-    if use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1":
-        if _rag_service_cloud is None:
-            llm = get_llm_engine(use_cloud=True)
-            if llm is None:
-                return None
-            _rag_service_cloud = RAGService(get_graph_repo(), get_vector_repo(), get_embedding_engine(), llm)
-        return _rag_service_cloud
-    else:
-        if _rag_service_local is None:
-            llm = get_llm_engine(use_cloud=False)
-            if llm is None:
-                return None
-            _rag_service_local = RAGService(get_graph_repo(), get_vector_repo(), get_embedding_engine(), llm)
-        return _rag_service_local
+    cloud = use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1"
+    try:
+        return container.get_rag_service(use_cloud=cloud)
+    except Exception as e:
+        print(f"[!] RAGService unavailable (cloud={cloud}): {e}")
+        return None
 
 
 def get_note_service(
@@ -135,10 +96,7 @@ def get_note_service(
     embedding_engine: EmbeddingEngine = Depends(get_embedding_engine),
     llm_engine: Optional[LLMEngine] = Depends(get_default_llm_engine)
 ) -> NoteService:
-    global _note_service_inst
-    if _note_service_inst is None:
-        _note_service_inst = NoteService(graph_repo, vector_repo, embedding_engine, llm_engine)
-    return _note_service_inst
+    return container.get_note_service()
 
 
 # ── App Setup ──
