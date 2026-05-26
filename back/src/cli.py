@@ -1401,6 +1401,29 @@ def serve(
     )
 
 
+# ── serve-mcp ─────────────────────────────────────────────────────────────────
+
+@app.command("serve-mcp")
+def serve_mcp(
+    sse: bool = typer.Option(False, "--sse", help="Run in SSE/HTTP mode instead of stdio"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to in SSE mode"),
+    port: int = typer.Option(8010, "--port", "-p", help="Port to listen on in SSE mode"),
+):
+    """Start the Science Graph MCP (Model Context Protocol) Server."""
+    # Ensure MCP mode is active to redirect logs to stderr
+    os.environ["SCIENCE_GRAPH_MCP_MODE"] = "1"
+    
+    # Import inside to prevent early loading of engines before environment is set up
+    from src.mcp_server import mcp
+    
+    if sse:
+        # Run over SSE transport (which is backed by FastAPI under the hood in fastmcp)
+        mcp.run(transport="sse", host=host, port=port)
+    else:
+        # Run over standard stdio transport (perfect for local agents)
+        mcp.run(transport="stdio")
+
+
 @app.command("extract-file")
 def extract_file(
     target: str = typer.Argument(..., help="Path to text document"),

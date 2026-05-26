@@ -46,6 +46,7 @@ dependencies = [
     # Video Ingestion & local Whisper
     "yt-dlp>=2024.3.10",
     "faster-whisper>=1.0.1",
+    "fastmcp>=0.4.1",
 ]
 
 [project.scripts]

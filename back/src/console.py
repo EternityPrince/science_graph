@@ -41,7 +41,11 @@ _THEME = Theme(
     inherit=True,
 )
 
-console = Console(theme=_THEME, highlight=False)
+# In MCP mode, redirect standard console output to stderr to prevent corrupting the stdio transport channel
+if os.environ.get("SCIENCE_GRAPH_MCP_MODE") == "1":
+    console = Console(theme=_THEME, highlight=False, stderr=True)
+else:
+    console = Console(theme=_THEME, highlight=False)
 err_console = Console(theme=_THEME, highlight=False, stderr=True)
 
 import time
