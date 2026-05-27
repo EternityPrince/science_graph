@@ -12,6 +12,7 @@ from src.models import Chunk, Paper
 from src.repository.base import GraphRepository, VectorRepository
 from src.llm_engine import BaseLLMEngine
 from src.llm_schemas import EvidenceListResponse
+from src.prompts import prompts
 
 class ExperimentalGraphExpander:
     def __init__(
@@ -572,26 +573,10 @@ class ExperimentalGraphExpander:
             return "No enrichment facts gathered."
 
         # Final request to main LLM
-        prompt = (
-            f"You are a strict scientific reviewer. Evaluate the following pieces of knowledge (facts) gathered from the research graph and paper chunks.\n"
-            f"Determine which facts are essential/critical to answer the user query.\n\n"
-            f"User Query: {query}\n\n"
-            f"List of facts:\n"
-        )
+        facts_block = ""
         for sid, text in short_to_text.items():
-            prompt += f"- ID: {sid}\n  Content: {text}\n\n"
-            
-        prompt += (
-            "Evaluate each fact. You must return a valid JSON object matching the following structure:\n"
-            "{\n"
-            "  \"evidence_list\": [\n"
-            "    {\"id\": \"fact_1\", \"score\": 0.9, \"is_essential\": true},\n"
-            "    {\"id\": \"fact_2\", \"score\": 0.3, \"is_essential\": false}\n"
-            "  ]\n"
-            "}\n\n"
-            "Only mark \"is_essential\" as true if the fact contains critical, non-trivial information directly addressing the user's question.\n"
-            "Do NOT include any conversational text or markdown formatting except the raw JSON.\n"
-        )
+            facts_block += f"- ID: {sid}\n  Content: {text}\n\n"
+        prompt = prompts.get_prompt("evaluation", "evaluate_evidence", query=query, facts=facts_block)
         
         essential_items = []
         try:

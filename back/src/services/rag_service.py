@@ -7,6 +7,7 @@ from src.vector_search import EmbeddingEngine
 from src.llm_engine import BaseLLMEngine
 from src.config import config
 from src import console as con
+from src.prompts import prompts
 
 class RAGService:
     def __init__(
@@ -158,43 +159,11 @@ class RAGService:
             if self.expander.reranker is None:
                 self.expander.reranker = self._get_reranker()
             enrichment_block = self.expander.expand(query, final_chunks)
-            prompt = f"""<|im_start|>system
-You are a research assistant. Synthesize an answer to the user's question using the retrieved text blocks and the knowledge graph connections.
-Always mention the titles of the papers, years, authors, and page numbers when citation is needed.
-If the graph contains citing relationships, use them to explain the context (e.g., "A cited B").
-
-Here is the retrieved context:
-
-### KNOWLEDGE GRAPH ENRICHMENT:
-{enrichment_block}
-<|im_end|>
-{history_str}<|im_start|>user
-Question: {query}
-Answer in Russian:
-<|im_end|>
-<|im_start|>assistant
-"""
+            prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str=history_str, query=query)
         else:
             context_text, context_graph = self.build_context(final_chunks)
-            prompt = f"""<|im_start|>system
-You are a research assistant. Synthesize an answer to the user's question using the retrieved text blocks and the knowledge graph connections.
-Always mention the titles of the papers, years, authors, and page numbers when citation is needed.
-If the graph contains citing relationships, use them to explain the context (e.g., "A cited B").
+            prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=context_text, context_graph=context_graph, history_str=history_str, query=query)
 
-Here is the retrieved context:
-
-### RELEVANT TEXT FRAGMENTS:
-{context_text}
-
-### KNOWLEDGE GRAPH CONNECTIONS:
-{context_graph}
-<|im_end|>
-{history_str}<|im_start|>user
-Question: {query}
-Answer in Russian:
-<|im_end|>
-<|im_start|>assistant
-"""
         con.search_msg("Generating answer …")
         return self.llm_engine.generate_response(prompt)
 
@@ -217,27 +186,11 @@ Answer in Russian:
                 if self.expander.reranker is None:
                     self.expander.reranker = await asyncio.to_thread(self._get_reranker)
                 enrichment_block = await asyncio.to_thread(self.expander.expand, question, final_chunks)
-                prompt = (
-                    "<|im_start|>system\n"
-                    "You are a research assistant. Synthesize an answer using the retrieved context.\n"
-                    "Always cite paper titles, years, and authors. Use the graph connections if relevant.\n\n"
-                    f"### KNOWLEDGE GRAPH ENRICHMENT:\n{enrichment_block}\n"
-                    "<|im_end|>\n"
-                    f"<|im_start|>user\nQuestion: {question}\nAnswer in Russian:\n<|im_end|>\n"
-                    "<|im_start|>assistant\n"
-                )
+                prompt = prompts.get_prompt("rag", "stream_expander", enrichment_block=enrichment_block, question=question)
             else:
                 context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks)
-                prompt = (
-                    "<|im_start|>system\n"
-                    "You are a research assistant. Synthesize an answer using the retrieved context.\n"
-                    "Always cite paper titles, years, and authors. Use the graph connections if relevant.\n\n"
-                    f"### RELEVANT TEXT FRAGMENTS:\n{context_text}\n\n"
-                    f"### KNOWLEDGE GRAPH CONNECTIONS:\n{context_graph}\n"
-                    "<|im_end|>\n"
-                    f"<|im_start|>user\nQuestion: {question}\nAnswer in Russian:\n<|im_end|>\n"
-                    "<|im_start|>assistant\n"
-                )
+                prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=question)
+
         except Exception as e:
             yield {"type": "error", "text": f"Context building failed: {e}"}
             return

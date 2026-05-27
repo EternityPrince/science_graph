@@ -1,0 +1,9 @@
+Summarize the following document. Focus on key contributions, methodologies, and findings.
+
+Title: {{title}}
+Abstract: {{abstract}}
+
+Content snippet:
+{{sample_text}}
+
+Provide a concise, professional markdown summary.

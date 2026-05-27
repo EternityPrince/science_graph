@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich import box
 
 from src import console as con
+from src.prompts import prompts
 
 
 def run_storage_tui(graph_repo: Any, container: Any, limit: int = 20) -> None:
@@ -268,13 +269,8 @@ def run_storage_tui(graph_repo: Any, container: Any, limit: int = 20) -> None:
                     if not llm_engine:
                         raise ValueError("LLM Engine could not be initialized. Please check your model path/provider config.")
                     
-                    prompt = (
-                        f"Summarize the following document. Focus on key contributions, methodologies, and findings.\n\n"
-                        f"Title: {title}\n"
-                        f"Abstract: {abstract}\n\n"
-                        f"Content snippet:\n{sample_text[:3000]}\n\n"
-                        f"Provide a concise, professional markdown summary."
-                    )
+                    prompt = prompts.get_prompt("synthesis", "paper_summary", title=title, abstract=abstract, sample_text=sample_text[:3000])
+
                     summary = llm_engine.generate_response(prompt)
                     
                     # Save to DB

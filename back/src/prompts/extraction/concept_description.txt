@@ -1,0 +1,1 @@
+Provide a brief, one-sentence definition of the AI/ML concept or term: '{{name}}'. Do not write anything else. Keep it under 20 words.

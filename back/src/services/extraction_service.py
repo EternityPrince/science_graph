@@ -20,6 +20,7 @@ from src.config import config
 from src.models import Paper, slugify, Institution, Dataset, CodeRepository, JournalConference, UserNote
 from src import console as con
 from src.services.normalization_pipeline import NormalizationPipeline
+from src.prompts import prompts
 
 
 @dataclass
@@ -287,10 +288,7 @@ class ExtractionService:
 
         if self.llm_engine:
             try:
-                prompt = (
-                    f"Provide a brief, one-sentence definition of the AI/ML concept "
-                    f"or term: '{name}'. Do not write anything else. Keep it under 20 words."
-                )
+                prompt = prompts.get_prompt("extraction", "concept_description", name=name)
                 if trace_info is not None:
                     tokens_dict = trace_info.setdefault("tokens", {})
                     tokens_dict["Concept description LLM calls"] = tokens_dict.get("Concept description LLM calls", 0) + self.llm_engine.count_tokens(prompt)
@@ -314,10 +312,7 @@ class ExtractionService:
 
         if self.llm_engine:
             try:
-                prompt = (
-                    f"Provide a brief, one-sentence definition of the AI/ML concept "
-                    f"or term: '{name}'. Do not write anything else. Keep it under 20 words."
-                )
+                prompt = prompts.get_prompt("extraction", "concept_description", name=name)
                 if trace_info is not None:
                     tokens_dict = trace_info.setdefault("tokens", {})
                     tokens_dict["Concept description LLM calls"] = tokens_dict.get("Concept description LLM calls", 0) + self.llm_engine.count_tokens(prompt)
@@ -368,15 +363,7 @@ class ExtractionService:
             from src.llm_schemas import LLMVerificationResponse
             import json
             
-            prompt = (
-                f"You are a validation assistant for a scientific and technical knowledge database.\n"
-                f"Your task is to analyze the following video transcript chunk (from video: '{doc_title}')\n"
-                f"and decide if it contains relevant educational, informational, or scientific concepts/details,\n"
-                f"or if it is primarily an advertisement, sponsor plug, self-promotion (asking to subscribe, like, support on Patreon),\n"
-                f"or irrelevant filler/intro/outro greetings.\n\n"
-                f"Transcript chunk:\n\"{chunk_text}\"\n\n"
-                f"Return relevant=true if it contains actual content, or relevant=false if it is promotional or filler."
-            )
+            prompt = prompts.get_prompt("evaluation", "is_chunk_relevant", doc_title=doc_title, chunk_text=chunk_text)
             response_raw = self.llm_engine.generate_json(prompt, schema_class=LLMVerificationResponse)
             response_json = json.loads(response_raw)
             relevant = response_json.get("relevant", True)
@@ -422,15 +409,7 @@ class ExtractionService:
                 import json
                 
                 sample_text = full_text[:6000] if full_text else ""
-                prompt = (
-                    f"Analyze the following video transcription text.\n"
-                    f"Generate a detailed structured summary containing:\n"
-                    f"1. A high-level overview/summary of the video (2-3 paragraphs).\n"
-                    f"2. A list of key themes or topics discussed, with brief explanations.\n"
-                    f"3. A detailed outline/notes structure of the video (chronological or logical breakdown).\n\n"
-                    f"Video Title: {paper.title or paper.id}\n\n"
-                    f"Transcript Content:\n{sample_text}\n"
-                )
+                prompt = prompts.get_prompt("synthesis", "video_summary", title=(paper.title or paper.id), sample_text=sample_text)
                 if trace_info is not None:
                     tokens_dict = trace_info.setdefault("tokens", {})
                     tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
@@ -470,14 +449,7 @@ class ExtractionService:
         con.dim(f"Generating summary for [bold]{paper.title[:60]}[/bold] via LLM …")
         try:
             sample_text = full_text[:4000] if full_text else ""
-            prompt = (
-                f"Summarize the following document. Focus on key contributions, "
-                f"methodologies, and findings.\n\n"
-                f"Title: {paper.title or paper.id}\n"
-                f"Abstract: {paper.abstract or ''}\n\n"
-                f"Content snippet:\n{sample_text}\n\n"
-                f"Provide a concise, professional markdown summary."
-            )
+            prompt = prompts.get_prompt("synthesis", "paper_summary", title=(paper.title or paper.id), abstract=(paper.abstract or ""), sample_text=sample_text)
             if trace_info is not None:
                 tokens_dict = trace_info.setdefault("tokens", {})
                 tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
@@ -514,15 +486,7 @@ class ExtractionService:
                 import json
                 
                 sample_text = full_text[:6000] if full_text else ""
-                prompt = (
-                    f"Analyze the following video transcription text.\n"
-                    f"Generate a detailed structured summary containing:\n"
-                    f"1. A high-level overview/summary of the video (2-3 paragraphs).\n"
-                    f"2. A list of key themes or topics discussed, with brief explanations.\n"
-                    f"3. A detailed outline/notes structure of the video (chronological or logical breakdown).\n\n"
-                    f"Video Title: {paper.title or paper.id}\n\n"
-                    f"Transcript Content:\n{sample_text}\n"
-                )
+                prompt = prompts.get_prompt("synthesis", "video_summary", title=(paper.title or paper.id), sample_text=sample_text)
                 if trace_info is not None:
                     tokens_dict = trace_info.setdefault("tokens", {})
                     tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
@@ -566,14 +530,7 @@ class ExtractionService:
 
         try:
             sample_text = full_text[:4000] if full_text else ""
-            prompt = (
-                f"Summarize the following document. Focus on key contributions, "
-                f"methodologies, and findings.\n\n"
-                f"Title: {paper.title or paper.id}\n"
-                f"Abstract: {paper.abstract or ''}\n\n"
-                f"Content snippet:\n{sample_text}\n\n"
-                f"Provide a concise, professional markdown summary."
-            )
+            prompt = prompts.get_prompt("synthesis", "paper_summary", title=(paper.title or paper.id), abstract=(paper.abstract or ""), sample_text=sample_text)
             if trace_info is not None:
                 tokens_dict = trace_info.setdefault("tokens", {})
                 tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
@@ -1049,18 +1006,7 @@ class ExtractionService:
         if not self.llm_engine:
             return "BACKGROUND"
         try:
-            prompt = (
-                "Classify the citation intent of a scientific paper citing another paper based on the following context snippet.\n"
-                f"Cited Paper Title: {ref_title}\n"
-                f"Context Snippet:\n\"\"\"\n{context}\n\"\"\"\n\n"
-                "Choose exactly one of the following category codes that best describes how the citing paper relates to the cited paper in this context:\n"
-                "- USES_METHOD: Citing paper uses a method, algorithm, formula, or tool proposed in the cited paper.\n"
-                "- EXTENDS: Citing paper extends, improves, or builds upon the approach in the cited paper.\n"
-                "- COMPARES_WITH: Citing paper conducts a benchmark or comparison against the cited paper's results/method.\n"
-                "- DISPUTES: Citing paper disputes, criticizes, or disagrees with the hypotheses/conclusions in the cited paper.\n"
-                "- BACKGROUND: Any other general citation or background reference.\n\n"
-                "Output ONLY the category code (e.g., USES_METHOD, EXTENDS, COMPARES_WITH, DISPUTES, or BACKGROUND). Do not include any explanation or other text."
-            )
+            prompt = prompts.get_prompt("extraction", "citation_intent", ref_title=ref_title, context=context)
             cheap_model = getattr(config, "llm_cheap_model_name", "google/gemini-2.5-flash")
             resp = await self._call_llm_generate_async(prompt, task="extraction", message=f"Classifying citation intent for '{ref_title[:40]}'", model=cheap_model)
             resp = resp.strip().upper()
