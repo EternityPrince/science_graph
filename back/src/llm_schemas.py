@@ -186,3 +186,13 @@ class LLMVideoSummaryResponse(BaseModel):
     themes: List[str] = Field(description="List of key themes or topics discussed in the video, with brief explanations.")
     outline: List[str] = Field(description="Detailed lecture outline or chronological/structured breakdown of the video's content.")
 
+
+class EvidenceItem(BaseModel):
+    id: str
+    score: float
+    is_essential: bool
+
+
+class EvidenceListResponse(BaseModel):
+    evidence_list: List[EvidenceItem]
+
