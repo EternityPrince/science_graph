@@ -1038,12 +1038,17 @@ class Indexer:
         missing_tags: bool = False,
         limit: Optional[int] = None,
         use_llm: bool = False,
+        chunk_pool_size: Optional[int] = None,
     ) -> Tuple[int, int]:
         """
         Batch re-indexes paper metadata (authors, tags, etc.) based on filters.
         Returns:
             Tuple[int, int]: (success_count, total_count)
         """
+        if chunk_pool_size is not None:
+            self._extractor._chunk_pool_size = chunk_pool_size
+            self._extractor._sem = None  # Force semaphore re-creation
+
         non_placeholders = self.graph_repo.get_non_placeholder_paper_ids()
 
         candidates = []
@@ -1088,12 +1093,16 @@ class Indexer:
         all_papers: bool = False,
         paper_id: Optional[str] = None,
         limit: Optional[int] = None,
+        chunk_pool_size: Optional[int] = None,
     ) -> Tuple[int, int]:
         """
         Batch fully re-indexes papers by re-ingesting original files/URLs.
         Returns:
             Tuple[int, int]: (success_count, total_count)
         """
+        if chunk_pool_size is not None:
+            self._extractor._chunk_pool_size = chunk_pool_size
+            self._extractor._sem = None  # Force semaphore re-creation
         if paper_id:
             paper = self.graph_repo.get_paper(paper_id)
             if not paper:

@@ -66,7 +66,12 @@ class ExtractionService:
 
     @property
     def semaphore(self) -> asyncio.Semaphore:
-        if self._sem is None:
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if self._sem is None or getattr(self, "_sem_loop", None) != current_loop:
             if self._chunk_pool_size is not None:
                 limit = self._chunk_pool_size
             else:
@@ -87,6 +92,7 @@ class ExtractionService:
                     cfg_val = getattr(config, "llm_chunk_pool_size", 4)
                     limit = cfg_val if cfg_val != 4 else 1
             self._sem = asyncio.Semaphore(limit)
+            self._sem_loop = current_loop
         return self._sem
 
     @property

@@ -216,3 +216,26 @@ class TestExtractionService(unittest.TestCase):
             loop.close()
 
         mock_con.dim.assert_called_once_with("Hello World")
+
+    def test_semaphore_recreated_on_loop_change(self):
+        """Test that the semaphore is recreated when the event loop changes."""
+        import asyncio
+        service = ExtractionService(llm_engine=self.llm_engine, chunk_pool_size=3)
+        
+        loop1 = asyncio.new_event_loop()
+        try:
+            async def get_sem1():
+                return service.semaphore
+            sem1 = loop1.run_until_complete(get_sem1())
+        finally:
+            loop1.close()
+
+        loop2 = asyncio.new_event_loop()
+        try:
+            async def get_sem2():
+                return service.semaphore
+            sem2 = loop2.run_until_complete(get_sem2())
+        finally:
+            loop2.close()
+
+        self.assertIsNot(sem1, sem2)

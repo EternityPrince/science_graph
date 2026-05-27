@@ -245,6 +245,7 @@ def reindex_meta(
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit the number of papers to reindex"),
     use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM for extracting concepts/tags (slower)"),
     cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
+    chunk_pool: Optional[int] = typer.Option(1, "--chunk-pool", help="Number of concurrent chunks to process in parallel via LLM"),
 ):
     """Partially re-index paper metadata (authors, year, tags, citations) without regenerating embeddings."""
     if cloud:
@@ -263,6 +264,7 @@ def reindex_meta(
         missing_tags=missing_tags,
         limit=limit,
         use_llm=use_llm,
+        chunk_pool_size=chunk_pool,
     )
 
 
@@ -273,6 +275,7 @@ def reindex_full(
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit the number of papers to reindex"),
     use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM for extracting concepts/tags (slower)"),
     cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
+    chunk_pool: Optional[int] = typer.Option(1, "--chunk-pool", help="Number of concurrent chunks to process in parallel via LLM"),
 ):
     """Fully re-index papers (re-chunk and recreate embeddings) by re-ingesting original files/URLs."""
     if cloud:
@@ -291,6 +294,7 @@ def reindex_full(
             all_papers=all_papers,
             paper_id=paper_id,
             limit=limit,
+            chunk_pool_size=chunk_pool,
         )
     except ValueError as e:
         con.error(str(e))
