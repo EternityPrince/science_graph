@@ -3,7 +3,7 @@ from unittest.mock import patch
 from src.services.metadata_enricher import MetadataEnricher
 from src.models import Paper
 
-class TestMetadataEnricher(unittest.TestCase):
+class TestMetadataEnricher(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.enricher = MetadataEnricher()
 
@@ -104,3 +104,34 @@ class TestMetadataEnricher(unittest.TestCase):
         self.assertEqual(enriched_paper.doi, "10.1234/existing")
         self.assertEqual(refs, [])
         self.assertEqual(cits, [])
+
+    async def test_enrich_async_no_metadata_fields(self):
+        paper = Paper(id="p1", title="", authors=[], year=None, doi=None)
+        res = await self.enricher.enrich_async(paper)
+        self.assertIsNone(res)
+
+    @patch("src.external_api.fetch_paper_metadata_async")
+    async def test_enrich_async_with_doi(self, mock_fetch_async):
+        mock_fetch_async.return_value = {"title": "Enriched DOI Async"}
+        paper = Paper(id="p1", title="Title", authors=[], year=None, doi="10.1234/5678")
+        
+        res = await self.enricher.enrich_async(paper)
+        self.assertEqual(res, {"title": "Enriched DOI Async"})
+        mock_fetch_async.assert_called_once_with(doi="10.1234/5678", arxiv_id=None, title="Title")
+
+    @patch("src.external_api.fetch_paper_metadata_async")
+    async def test_enrich_async_exception_handling(self, mock_fetch_async):
+        mock_fetch_async.side_effect = Exception("API error")
+        paper = Paper(id="p1", title="Title", authors=[], year=None, doi="10.1234/5678")
+        
+        res = await self.enricher.enrich_async(paper)
+        self.assertIsNone(res)
+
+    async def test_enrich_async_fallback_to_sync_if_mocked(self):
+        from unittest.mock import MagicMock
+        self.enricher.enrich = MagicMock(return_value={"title": "Mocked Sync Enriched"})
+        
+        paper = Paper(id="p1", title="Title", authors=[], year=None, doi="10.1234/5678")
+        res = await self.enricher.enrich_async(paper)
+        self.assertEqual(res, {"title": "Mocked Sync Enriched"})
+        self.enricher.enrich.assert_called_once_with(paper)

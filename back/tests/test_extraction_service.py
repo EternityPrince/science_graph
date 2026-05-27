@@ -239,3 +239,306 @@ class TestExtractionService(unittest.TestCase):
             loop2.close()
 
         self.assertIsNot(sem1, sem2)
+
+    def test_is_chunk_relevant_no_match(self):
+        """If no sponsor/promo pattern matches, should return True immediately."""
+        service = ExtractionService(llm_engine=None)
+        res = service.is_chunk_relevant("This is a purely scientific discussion about transformers.", "Doc Title")
+        self.assertTrue(res)
+
+    @patch("src.services.extraction_service.con")
+    def test_is_chunk_relevant_match_no_llm(self, mock_con):
+        """If pattern matches but LLM is not available, warn and return False."""
+        service = ExtractionService(llm_engine=None)
+        res = service.is_chunk_relevant("Subscribe to my channel for more content!", "Doc Title")
+        self.assertFalse(res)
+        mock_con.warning.assert_called_once()
+
+    @patch("src.services.extraction_service.con")
+    def test_is_chunk_relevant_match_llm_relevant(self, mock_con):
+        """If pattern matches and LLM says it is relevant, return True."""
+        llm = MagicMock()
+        llm.generate_json.return_value = '{"relevant": true, "reason": "Mentions subscribe in relevant context"}'
+        service = ExtractionService(llm_engine=llm)
+        res = service.is_chunk_relevant("Subscribe to my newsletter at link.", "Doc Title")
+        self.assertTrue(res)
+
+    @patch("src.services.extraction_service.con")
+    def test_is_chunk_relevant_match_llm_irrelevant(self, mock_con):
+        """If pattern matches and LLM says it is irrelevant, warn and return False."""
+        llm = MagicMock()
+        llm.generate_json.return_value = '{"relevant": false, "reason": "Sponsor plug"}'
+        service = ExtractionService(llm_engine=llm)
+        res = service.is_chunk_relevant("This video is sponsored by Squarespace.", "Doc Title")
+        self.assertFalse(res)
+        mock_con.warning.assert_called_once()
+
+    @patch("src.services.extraction_service.con")
+    def test_is_chunk_relevant_llm_exception(self, mock_con):
+        """If LLM raises an exception, return True defensively."""
+        llm = MagicMock()
+        llm.generate_json.side_effect = Exception("LLM Error")
+        service = ExtractionService(llm_engine=llm)
+        res = service.is_chunk_relevant("Sponsored by Surfshark.", "Doc Title")
+        self.assertTrue(res)
+        mock_con.warning.assert_called_once()
+
+    def test_extract_from_text_file_markdown(self):
+        service = ExtractionService(llm_engine=None)
+        content = "# My Markdown Paper\n\nAbstract of the markdown paper.\n\nMore details."
+        res = service.extract_from_text_file(content, "my_file")
+        self.assertEqual(res.concepts, [])
+        # By default, title is extracted from first line starts with "# "
+        # Check abstract limit slicing
+        
+    def test_extract_from_text_file_no_markdown(self):
+        service = ExtractionService(llm_engine=None)
+        content = "Line one without markdown.\n\nLine two."
+        res = service.extract_from_text_file(content, "stem_name")
+        self.assertEqual(res.concepts, [])
+
+    def test_split_text_semantically_empty(self):
+        service = ExtractionService(llm_engine=None)
+        self.assertEqual(service.split_text_semantically("", 100, 10), [])
+
+    def test_split_text_semantically_basic(self):
+        service = ExtractionService(llm_engine=None)
+        text = "Paragraph 1\n\nParagraph 2\n\nParagraph 3"
+        # Since no llm_engine, it uses len(t) // 4 for tokens.
+        # "Paragraph 1" is 11 chars => 2 tokens.
+        chunks = service.split_text_semantically(text, max_chunk_tokens=5, overlap_tokens=1)
+        self.assertEqual(len(chunks), 2)  # Should split paragraphs
+
+    def test_split_text_semantically_long_paragraph(self):
+        service = ExtractionService(llm_engine=None)
+        text = "A" * 100  # 25 tokens in one paragraph
+        chunks = service.split_text_semantically(text, max_chunk_tokens=10, overlap_tokens=2)
+        # Should split on single newlines
+        self.assertTrue(len(chunks) > 0)
+
+    @patch("src.services.extraction_service.config")
+    def test_extract_map_reduce_sync(self, mock_config):
+        mock_config.llm_extraction_input_limit = 100
+        mock_config.taxonomy = self.dummy_tax
+        mock_config.llm_chunk_pool_size = 50
+        mock_config.llm_provider = "openai"
+        
+        llm = MagicMock()
+        llm.count_tokens.return_value = 120
+        llm.extract_concepts_and_metadata.return_value = {
+            "authors": ["Alice"],
+            "concepts": [{"name": "Transformer Architecture", "description": "Desc"}],
+            "tags": ["AI"]
+        }
+        
+        service = ExtractionService(llm_engine=llm)
+        res = service.extract("Title", "Abstract", "A long full text that exceeds threshold limit", use_llm=True)
+        self.assertTrue(res.via_llm)
+        self.assertIn("Alice", res.authors)
+        self.assertTrue(llm.count_tokens.called)
+        self.assertTrue(llm.extract_concepts_and_metadata.called)
+
+    def test_generate_summary_sync_video(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_json.return_value = '{"overview": "Sync Video Overview", "themes": ["theme1"], "outline": ["outline1"]}'
+        
+        paper = Paper(id="p1", title="Video 1")
+        paper.properties["source_type"] = "video"
+        graph_repo = MagicMock()
+        
+        summary = service.generate_summary(paper, "Video Transcript", graph_repo=graph_repo)
+        self.assertIn("🎥 Обзор ролика", summary)
+        self.assertEqual(paper.properties["video_overview"], "Sync Video Overview")
+        graph_repo.save_paper.assert_called_once_with(paper)
+
+    def test_generate_summary_sync_video_exception(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_json.side_effect = Exception("JSON error")
+        self.llm_engine.generate_response.return_value = "Sync Standard Summary"
+        
+        paper = Paper(id="p1", title="Video 1")
+        paper.properties["source_type"] = "video"
+        graph_repo = MagicMock()
+        
+        summary = service.generate_summary(paper, "Video Transcript", graph_repo=graph_repo)
+        self.assertEqual(summary, "Sync Standard Summary")
+
+
+class TestExtractionServiceAsync(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.llm_engine = MagicMock()
+
+    async def test_classify_citation_intent_async_success(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_response_async = MagicMock()
+        
+        async def mock_gen(prompt, **kwargs):
+            return "background"
+        self.llm_engine.generate_response.return_value = "BACKGROUND"
+        
+        intent = await service.classify_citation_intent_async("context", "title")
+        self.assertEqual(intent, "BACKGROUND")
+
+    async def test_classify_citation_intent_async_no_llm(self):
+        service = ExtractionService(llm_engine=None)
+        intent = await service.classify_citation_intent_async("context", "title")
+        self.assertEqual(intent, "BACKGROUND")
+
+    async def test_classify_citation_intent_async_exception(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_response.side_effect = Exception("Timeout")
+        intent = await service.classify_citation_intent_async("context", "title")
+        self.assertEqual(intent, "BACKGROUND")
+
+    async def test_generate_summary_async_success(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_response.return_value = "Summary response"
+        
+        paper = Paper(id="p1", title="Paper 1")
+        graph_repo = MagicMock()
+        
+        summary = await service.generate_summary_async(paper, "Full text", graph_repo=graph_repo)
+        self.assertEqual(summary, "Summary response")
+        self.assertEqual(paper.properties["summary"], "Summary response")
+        graph_repo.save_paper.assert_called_once_with(paper)
+
+    async def test_generate_summary_async_no_llm(self):
+        service = ExtractionService(llm_engine=None)
+        paper = Paper(id="p1", title="Paper 1")
+        summary = await service.generate_summary_async(paper, "Full text")
+        self.assertIsNone(summary)
+
+    async def test_generate_summary_async_exception(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_response.side_effect = Exception("Error")
+        paper = Paper(id="p1", title="Paper 1")
+        summary = await service.generate_summary_async(paper, "Full text")
+        self.assertIsNone(summary)
+
+    async def test_call_llm_extract_async_sync_mock(self):
+        from unittest.mock import Mock
+        sync_func = Mock()
+        sync_func.return_value = {"concepts": []}
+        
+        llm = MagicMock()
+        del llm.extract_concepts_and_metadata_async  # Ensure only sync is present
+        llm.extract_concepts_and_metadata = sync_func
+        
+        service = ExtractionService(llm_engine=llm)
+        res = await service._call_llm_extract_async("some text")
+        self.assertEqual(res, {"concepts": []})
+
+    async def test_call_llm_generate_async_sync_mock(self):
+        from unittest.mock import Mock
+        sync_func = Mock()
+        sync_func.return_value = "Generated text"
+        
+        llm = MagicMock()
+        del llm.generate_response_async
+        llm.generate_response = sync_func
+        
+        service = ExtractionService(llm_engine=llm)
+        res = await service._call_llm_generate_async("prompt")
+        self.assertEqual(res, "Generated text")
+
+    @patch("src.services.extraction_service.config")
+    async def test_extract_map_reduce_async(self, mock_config):
+        mock_config.llm_extraction_input_limit = 100
+        mock_config.llm_chunk_pool_size = 50
+        mock_config.llm_provider = "openai"
+        mock_config.taxonomy = {
+            "concepts": {"transformer": "Transformer Architecture"},
+            "topics": {"nlp": "Natural Language Processing"}
+        }
+        
+        llm = MagicMock()
+        llm.count_tokens.return_value = 120
+        
+        async def mock_extract_async(text, **kwargs):
+            return {
+                "authors": ["Bob"],
+                "concepts": [{"name": "Attention Mechanism", "description": "Desc"}],
+                "tags": ["DL"]
+            }
+        llm.extract_concepts_and_metadata_async = mock_extract_async
+        
+        service = ExtractionService(llm_engine=llm)
+        res = await service.extract_async("Title", "Abstract", "A long full text that exceeds threshold limit", use_llm=True)
+        self.assertTrue(res.via_llm)
+        self.assertIn("Bob", res.authors)
+
+    async def test_generate_summary_async_video(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_and_validate_json_async = MagicMock()
+        
+        async def mock_json(prompt, schema_class):
+            return '{"overview": "Video Overview", "themes": ["theme1"], "outline": ["outline1"]}'
+        self.llm_engine.generate_and_validate_json_async.side_effect = mock_json
+        
+        paper = Paper(id="p1", title="Video 1")
+        paper.properties["source_type"] = "video"
+        graph_repo = MagicMock()
+        
+        summary = await service.generate_summary_async(paper, "Video Transcript", graph_repo=graph_repo)
+        self.assertIn("🎥 Обзор ролика", summary)
+        self.assertEqual(paper.properties["video_overview"], "Video Overview")
+        graph_repo.save_paper.assert_called_once_with(paper)
+
+    async def test_generate_summary_async_video_exception(self):
+        service = ExtractionService(llm_engine=self.llm_engine)
+        self.llm_engine.generate_and_validate_json_async = MagicMock(side_effect=Exception("JSON error"))
+        self.llm_engine.generate_response.return_value = "Standard Summary"
+        
+        paper = Paper(id="p1", title="Video 1")
+        paper.properties["source_type"] = "video"
+        graph_repo = MagicMock()
+        
+        summary = await service.generate_summary_async(paper, "Video Transcript", graph_repo=graph_repo)
+        self.assertEqual(summary, "Standard Summary")
+
+    async def test_extract_async_single_success(self):
+        llm = MagicMock()
+        del llm.extract_concepts_and_metadata
+        llm.count_tokens.return_value = 10
+        
+        async def mock_extract_async(text, **kwargs):
+            return {
+                "authors": ["Charlie"],
+                "concepts": [{"name": "Linear Layer", "description": "Desc"}],
+                "tags": ["NN"]
+            }
+        llm.extract_concepts_and_metadata_async = mock_extract_async
+        
+        service = ExtractionService(llm_engine=llm)
+        res = await service.extract_async("Title", "Abstract", "Short text", use_llm=True)
+        self.assertTrue(res.via_llm)
+        self.assertIn("Charlie", res.authors)
+
+    async def test_extract_async_single_no_data(self):
+        llm = MagicMock()
+        del llm.extract_concepts_and_metadata
+        llm.count_tokens.return_value = 10
+        
+        async def mock_extract_async(text, **kwargs):
+            return None
+        llm.extract_concepts_and_metadata_async = mock_extract_async
+        
+        service = ExtractionService(llm_engine=llm)
+        res = await service.extract_async("Title", "Abstract", "Short text", use_llm=True)
+        # Should fallback to regex and not crash
+        self.assertFalse(res.via_llm)
+
+    async def test_extract_async_single_exception(self):
+        llm = MagicMock()
+        del llm.extract_concepts_and_metadata
+        llm.count_tokens.return_value = 10
+        llm.extract_concepts_and_metadata_async = MagicMock(side_effect=Exception("LLM Error"))
+        
+        service = ExtractionService(llm_engine=llm)
+        res = await service.extract_async("Title", "Abstract", "Short text", use_llm=True)
+        self.assertFalse(res.via_llm)
+
+
+
+
+

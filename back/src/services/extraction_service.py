@@ -1048,27 +1048,31 @@ class ExtractionService:
     async def classify_citation_intent_async(self, context: str, ref_title: str) -> str:
         if not self.llm_engine:
             return "BACKGROUND"
-        prompt = (
-            "Classify the citation intent of a scientific paper citing another paper based on the following context snippet.\n"
-            f"Cited Paper Title: {ref_title}\n"
-            f"Context Snippet:\n\"\"\"\n{context}\n\"\"\"\n\n"
-            "Choose exactly one of the following category codes that best describes how the citing paper relates to the cited paper in this context:\n"
-            "- USES_METHOD: Citing paper uses a method, algorithm, formula, or tool proposed in the cited paper.\n"
-            "- EXTENDS: Citing paper extends, improves, or builds upon the approach in the cited paper.\n"
-            "- COMPARES_WITH: Citing paper conducts a benchmark or comparison against the cited paper's results/method.\n"
-            "- DISPUTES: Citing paper disputes, criticizes, or disagrees with the hypotheses/conclusions in the cited paper.\n"
-            "- BACKGROUND: Any other general citation or background reference.\n\n"
-            "Output ONLY the category code (e.g., USES_METHOD, EXTENDS, COMPARES_WITH, DISPUTES, or BACKGROUND). Do not include any explanation or other text."
-        )
-        cheap_model = getattr(config, "llm_cheap_model_name", "google/gemini-2.5-flash")
-        resp = await self._call_llm_generate_async(prompt, task="extraction", message=f"Classifying citation intent for '{ref_title[:40]}'", model=cheap_model)
-        resp = resp.strip().upper()
-        for code in ["USES_METHOD", "EXTENDS", "COMPARES_WITH", "DISPUTES", "CRITICIZES", "BACKGROUND", "CITES"]:
-            if code in resp:
-                if code == "CRITICIZES":
-                    return "DISPUTES"
-                if code == "CITES":
-                    return "BACKGROUND"
-                return code
+        try:
+            prompt = (
+                "Classify the citation intent of a scientific paper citing another paper based on the following context snippet.\n"
+                f"Cited Paper Title: {ref_title}\n"
+                f"Context Snippet:\n\"\"\"\n{context}\n\"\"\"\n\n"
+                "Choose exactly one of the following category codes that best describes how the citing paper relates to the cited paper in this context:\n"
+                "- USES_METHOD: Citing paper uses a method, algorithm, formula, or tool proposed in the cited paper.\n"
+                "- EXTENDS: Citing paper extends, improves, or builds upon the approach in the cited paper.\n"
+                "- COMPARES_WITH: Citing paper conducts a benchmark or comparison against the cited paper's results/method.\n"
+                "- DISPUTES: Citing paper disputes, criticizes, or disagrees with the hypotheses/conclusions in the cited paper.\n"
+                "- BACKGROUND: Any other general citation or background reference.\n\n"
+                "Output ONLY the category code (e.g., USES_METHOD, EXTENDS, COMPARES_WITH, DISPUTES, or BACKGROUND). Do not include any explanation or other text."
+            )
+            cheap_model = getattr(config, "llm_cheap_model_name", "google/gemini-2.5-flash")
+            resp = await self._call_llm_generate_async(prompt, task="extraction", message=f"Classifying citation intent for '{ref_title[:40]}'", model=cheap_model)
+            resp = resp.strip().upper()
+            for code in ["USES_METHOD", "EXTENDS", "COMPARES_WITH", "DISPUTES", "CRITICIZES", "BACKGROUND", "CITES"]:
+                if code in resp:
+                    if code == "CRITICIZES":
+                        return "DISPUTES"
+                    if code == "CITES":
+                        return "BACKGROUND"
+                    return code
+        except Exception as e:
+            con.warning(f"Failed to classify citation intent: {e}")
         return "BACKGROUND"
+
 

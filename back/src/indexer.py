@@ -1297,8 +1297,8 @@ class Indexer:
                         paper.authors = await asyncio.to_thread(self._ner_fallback_authors, paper.authors, tgt)
                         trace_info["stages"]["NER Author Fallback"] = time.perf_counter() - t0_ner
 
-                    def _archive():
-                        self._archive_pdf(tgt, archive_path)
+                    def _archive(t_path=tgt, a_path=archive_path):
+                        self._archive_pdf(t_path, a_path)
 
                     parsed_items.append({
                         "item": item,

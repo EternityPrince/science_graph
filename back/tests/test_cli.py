@@ -228,6 +228,254 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(os.environ.get("SCIENCE_GRAPH_USE_CLOUD"), "1")
 
+    @patch("src.cli.get_services")
+    @patch("src.cli.config")
+    @patch("src.cli.Path")
+    def test_stats_command(self, mock_path, mock_config, mock_get_services):
+        mock_graph_repo = MagicMock()
+        mock_get_services.return_value = (mock_graph_repo, MagicMock(), MagicMock(), MagicMock())
+        mock_graph_repo.get_stats.return_value = {
+            "papers": 10,
+            "authors": 20,
+            "concepts": 30,
+            "edges": 40
+        }
+        mock_config.db_path = "/mock/db.db"
+        mock_config.get_storage_stats.return_value = {
+            "storage_dir": "/mock/storage",
+            "total_size": 1024 * 1024 * 15,
+            "extensions": [
+                {"extension": ".pdf", "count": 5, "size": 1024 * 1024 * 10},
+                {"extension": ".epub", "count": 2, "size": 1024 * 1024 * 5}
+            ],
+            "sources": [
+                {"source": "paper", "count": 5, "size": 1024 * 1024 * 10},
+                {"source": "book", "count": 2, "size": 1024 * 1024 * 5}
+            ]
+        }
+        
+        mock_db_file = MagicMock()
+        mock_db_file.exists.return_value = True
+        mock_db_file.stat.return_value.st_size = 1024 * 1024 * 2
+        mock_path.return_value = mock_db_file
+        
+        result = runner.invoke(app, ["stats"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Knowledge Base Statistics", result.stdout)
+        self.assertIn("Papers / Books / Notes", result.stdout)
+        self.assertIn("10", result.stdout)
+        self.assertIn("2.0 MB", result.stdout)
+        self.assertIn("15.00 MB", result.stdout)
+        self.assertIn("10.00 MB", result.stdout)
+
+    @patch("src.cli.config")
+    @patch("src.cli.Path")
+    def test_config_command(self, mock_path, mock_config):
+        mock_config.db_path = "/mock/db.db"
+        mock_config.archive_dir = "/mock/archive"
+        mock_config.llm_provider = "openai"
+        mock_config.llm_local_model_path = "/mock/gemma"
+        mock_config.llm_cloud_model_name = "gpt-4"
+        mock_config.llm_cloud_base_url = "https://api.openai.com/v1"
+        mock_config.llm_cloud_api_key = "sk-key"
+        mock_config.llm_max_tokens = 512
+        mock_config.llm_temp = 0.5
+        mock_config.embedding_model_name = "all-mpnet"
+        mock_config.chunk_size = 1000
+        mock_config.chunk_overlap = 200
+        mock_config.spacy_model_name = "en_core_web_sm"
+        mock_config.ner_model_name = "ner-model"
+        mock_config.data = {"llm": {"cloud": {"provider": "openai"}}}
+        
+        mock_file = MagicMock()
+        mock_file.exists.return_value = True
+        mock_path.return_value = mock_file
+        
+        import os
+        with patch.dict("os.environ", {"HF_TOKEN": "mock-token", "HF_HUB_VERBOSITY": "debug", "TOKENIZERS_PARALLELISM": "true"}):
+            result = runner.invoke(app, ["config"])
+            
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Science Graph", result.stdout)
+        self.assertIn("Paths", result.stdout)
+        self.assertIn("LLM Model", result.stdout)
+        self.assertIn("Embedding Model", result.stdout)
+
+    @patch("src.cli.get_services")
+    @patch("src.services.visualizer.generate_html_graph")
+    @patch("src.cli.webbrowser.open")
+    @patch("src.cli.con.warning")
+    def test_visualize_command(self, mock_con_warning, mock_browser_open, mock_generate_html_graph, mock_get_services):
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        
+        # Success path
+        result = runner.invoke(app, ["visualize", "-o", "/mock/graph.html"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Graph saved to", result.stdout)
+        mock_generate_html_graph.assert_called_once()
+        mock_browser_open.assert_called_once()
+        
+        # Error path: generate_html_graph raises ValueError
+        mock_generate_html_graph.reset_mock()
+        mock_browser_open.reset_mock()
+        mock_generate_html_graph.side_effect = ValueError("No nodes in graph")
+        
+        result = runner.invoke(app, ["visualize", "-o", "/mock/graph.html"])
+        self.assertEqual(result.exit_code, 0)
+        mock_con_warning.assert_called_once_with("No nodes in graph")
+        mock_generate_html_graph.assert_called_once()
+        mock_browser_open.assert_not_called()
+        
+        # Browser open throws an exception
+        mock_generate_html_graph.reset_mock()
+        mock_generate_html_graph.side_effect = None
+        mock_browser_open.side_effect = Exception("Browser error")
+        mock_con_warning.reset_mock()
+        
+        result = runner.invoke(app, ["visualize", "-o", "/mock/graph.html"])
+        self.assertEqual(result.exit_code, 0)
+        mock_con_warning.assert_called_once_with("Could not open browser: Browser error")
+
+    @patch("src.cli.get_services")
+    @patch("src.cli.RAGPipeline")
+    @patch("src.tui.run_tui_chat")
+    @patch("src.cli.con.error")
+    def test_chat_command(self, mock_con_error, mock_run_tui_chat, mock_rag_pipeline_cls, mock_get_services):
+        # Case 1: LLM Engine not available
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), None)
+        
+        result = runner.invoke(app, ["chat"])
+        self.assertEqual(result.exit_code, 1)
+        mock_con_error.assert_called_once_with("LLM engine is not available. Run: graph config")
+        
+        # Case 2: LLM Engine available, starts TUI
+        mock_llm_engine = MagicMock()
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), mock_llm_engine)
+        mock_pipeline_instance = MagicMock()
+        mock_rag_pipeline_cls.return_value = mock_pipeline_instance
+        
+        result = runner.invoke(app, ["chat", "--cloud"])
+        self.assertEqual(result.exit_code, 0)
+        mock_run_tui_chat.assert_called_once_with(mock_pipeline_instance)
+
+    @patch("src.cli.get_services")
+    @patch("src.review_agent.ReviewAgent")
+    @patch("src.cli.con.error")
+    def test_review_command(self, mock_con_error, mock_review_agent_cls, mock_get_services):
+        # Case 1: LLM Engine not available
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), None)
+        
+        result = runner.invoke(app, ["review", "Deep Learning"])
+        self.assertEqual(result.exit_code, 1)
+        mock_con_error.assert_called_once_with("LLM engine is required for review generation. Run: graph config")
+        
+        # Case 2: LLM Engine available, generates review
+        mock_llm_engine = MagicMock()
+        mock_get_services.return_value = (MagicMock(), MagicMock(), MagicMock(), mock_llm_engine)
+        
+        mock_agent_instance = MagicMock()
+        mock_review_agent_cls.return_value = mock_agent_instance
+        mock_agent_instance.run.return_value = "This is a detailed markdown literature review of Deep Learning."
+        
+        result = runner.invoke(app, ["review", "Deep Learning", "--fast", "--cloud"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Preview", result.stdout)
+        self.assertIn("This is a detailed markdown literature review", result.stdout)
+        mock_agent_instance.run.assert_called_once()
+
+    @patch("src.cli.get_services")
+    @patch("src.cli.con.error")
+    def test_serve_command_missing_uvicorn(self, mock_con_error, mock_get_services):
+        with patch.dict("sys.modules", {"uvicorn": None}):
+            result = runner.invoke(app, ["serve"])
+            self.assertEqual(result.exit_code, 1)
+            mock_con_error.assert_called_once_with("uvicorn is not installed. Run: uv add uvicorn")
+
+    @patch("src.cli.get_services")
+    @patch("uvicorn.run")
+    @patch("src.cli.webbrowser.open")
+    @patch("threading.Thread")
+    @patch("time.sleep")
+    def test_serve_command_success(self, mock_sleep, mock_thread, mock_browser_open, mock_uvicorn_run, mock_get_services):
+        mock_thread.side_effect = lambda target, daemon: MagicMock(start=target)
+        
+        result = runner.invoke(app, ["serve", "--open"])
+        self.assertEqual(result.exit_code, 0)
+        mock_uvicorn_run.assert_called_once_with(
+            "src.web_app:app",
+            host="127.0.0.1",
+            port=8000,
+            reload=False,
+            log_level="warning",
+        )
+        mock_browser_open.assert_called_once_with("http://127.0.0.1:8000")
+        mock_sleep.assert_called_once_with(1.5)
+
+    @patch("src.mcp_server.mcp")
+    def test_serve_mcp_command(self, mock_mcp):
+        # Case 1: stdio transport
+        result = runner.invoke(app, ["serve-mcp"])
+        self.assertEqual(result.exit_code, 0)
+        mock_mcp.run.assert_called_once_with(transport="stdio")
+        
+        # Case 2: SSE transport
+        mock_mcp.run.reset_mock()
+        result = runner.invoke(app, ["serve-mcp", "--sse", "--host", "0.0.0.0", "-p", "9000"])
+        self.assertEqual(result.exit_code, 0)
+        mock_mcp.run.assert_called_once_with(transport="sse", host="0.0.0.0", port=9000)
+
+    @patch("src.cli.LLMEngine")
+    @patch("src.services.extraction_service.ExtractionService")
+    @patch("src.cli.Path")
+    def test_extract_file_command(self, mock_path, mock_extraction_service_cls, mock_llm_engine_cls):
+        # Mock file content
+        mock_file = MagicMock()
+        mock_file.exists.return_value = True
+        mock_file.read_text.return_value = "# Test Title\n\nThis is abstract.\n\nThis is body text."
+        mock_path.return_value = mock_file
+        
+        # Mock LLMEngine and ExtractionService
+        mock_llm_instance = MagicMock()
+        mock_llm_engine_cls.return_value = mock_llm_instance
+        
+        mock_extractor_instance = MagicMock()
+        mock_extraction_service_cls.return_value = mock_extractor_instance
+        
+        mock_extraction_result = MagicMock()
+        mock_extraction_result.authors = ["John Doe"]
+        mock_extraction_result.concepts = [{"name": "ML", "description": "machine learning"}]
+        mock_extraction_result.tags = ["tag1"]
+        mock_extractor_instance.extract.return_value = mock_extraction_result
+        
+        # Run command
+        result = runner.invoke(app, ["extract-file", "test.txt", "--no-llm"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("John Doe", result.stdout)
+        
+        # Extract title from path.stem when no markdown headers
+        mock_file.read_text.return_value = "No headers here.\n\nAbstract here."
+        mock_file.stem = "test_stem"
+        result = runner.invoke(app, ["extract-file", "test.txt"])
+        self.assertEqual(result.exit_code, 0)
+        
+        # Case 3: File not found
+        mock_file.exists.return_value = False
+        result = runner.invoke(app, ["extract-file", "nonexistent.txt"])
+        self.assertEqual(result.exit_code, 1)
+        
+        # Case 4: Read error
+        mock_file.exists.return_value = True
+        mock_file.read_text.side_effect = Exception("Read failed")
+        result = runner.invoke(app, ["extract-file", "test.txt"])
+        self.assertEqual(result.exit_code, 1)
+        
+        # Case 5: Extraction fails
+        mock_file.read_text.side_effect = None
+        mock_file.read_text.return_value = "content"
+        mock_extractor_instance.extract.side_effect = Exception("Extraction error")
+        result = runner.invoke(app, ["extract-file", "test.txt"])
+        self.assertEqual(result.exit_code, 1)
+
 
 
 
