@@ -108,7 +108,7 @@ class MlxLLMEngine(BaseLLMEngine):
         self._ensure_model_loaded()
         return super().count_tokens(text)
 
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
+    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         self._ensure_model_loaded()
         resolved_max_tokens = max_tokens
         if resolved_max_tokens is None:

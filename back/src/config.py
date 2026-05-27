@@ -32,6 +32,7 @@ DEFAULT_CONFIG = {
         "cloud": {
             "provider": "openai",
             "model_name": "google/gemini-2.5-flash",
+            "cheap_model_name": "google/gemini-2.5-flash",
             "api_key": "",
             "base_url": "https://openrouter.ai/api/v1",
         }
@@ -262,6 +263,13 @@ pdf_compression:
         if isinstance(cloud_cfg, dict):
             return cloud_cfg.get("base_url", self.data["llm"].get("base_url", ""))
         return self.data["llm"].get("base_url", "")
+
+    @property
+    def llm_cheap_model_name(self) -> str:
+        cloud_cfg = self.data["llm"].get("cloud", {})
+        if isinstance(cloud_cfg, dict):
+            return cloud_cfg.get("cheap_model_name", "google/gemini-2.5-flash")
+        return "google/gemini-2.5-flash"
 
     @property
     def llm_max_tokens(self) -> int:

@@ -200,11 +200,11 @@ def retry_with_temp_decay_async(max_retries: int = 3):
 
 
 class BaseLLMEngine:
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
+    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         raise NotImplementedError
 
-    async def generate_response_async(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
-        return await asyncio.to_thread(self.generate_response, prompt, max_tokens, temp, task)
+    async def generate_response_async(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
+        return await asyncio.to_thread(self.generate_response, prompt, max_tokens, temp, task, model=model)
 
     def generate_json(
         self,
@@ -313,17 +313,33 @@ class BaseLLMEngine:
         safe_text = self._truncate_to_context(text, max_input)
         prompt = (
             "You are a strict scientific text analyzer. Analyze the following paper text (abstract and introduction).\n"
-            "Extract:\n"
+            "Extract the following scientific entities, properties, and relationships:\n"
             "1. Authors: A list of ONLY actual human names (e.g. \"Jane Doe\", \"John Smith\"). Do NOT include paper titles or citations here.\n"
-            "2. Concepts: A list of scientific concepts, algorithms, frameworks, and key formulas. These MUST be short noun phrases (1-3 words max, e.g. \"Self-Attention\", \"Transformer\"). Do NOT extract full sentences or citations as concepts.\n"
-            "3. Tags: A list of 3-7 high-level topic tags/keywords (e.g., \"statistics\", \"probability theory\", \"gradient descent\", \"optimization methods\", \"deep learning\"). These should represent the main fields and tools used in the paper.\n\n"
+            "2. Concepts: A list of scientific concepts, algorithms, frameworks, and key formulas. These MUST be short noun phrases (1-3 words max, e.g. \"Self-Attention\", \"Transformer\"). For each concept, extract a list of synonyms and abbreviations as 'aliases' (e.g., [\"LLM\", \"Large Language Model\"]).\n"
+            "3. Tags: A list of 3-7 high-level topic tags/keywords (e.g., \"statistics\", \"deep learning\").\n"
+            "4. Institutions: A list of organizations, universities, or companies mentioned in the text (e.g., \"MIT\", \"Google DeepMind\").\n"
+            "5. Author Institutions: Mapping of extracted authors to their affiliated institutions, formatted as a list of {\"author\": \"Author Name\", \"institution\": \"Institution Name\"}.\n"
+            "6. Sponsored By: List of institutions or companies that sponsored, funded, or supported the paper.\n"
+            "7. Datasets: List of benchmarks or datasets mentioned in the text, formatted as a list of {\"name\": \"Dataset Name\", \"relation\": \"USED_DATASET\" or \"INTRODUCED_DATASET\"}.\n"
+            "8. Code Repositories: List of code repository URLs (like GitHub links) implementing the paper.\n"
+            "9. Journal or Conference: The name of the journal or conference where the paper was published (e.g., \"NeurIPS\", \"ICML\", \"Nature\").\n"
+            "10. Citation Intents: List of referenced papers/authors mentioned in the text, and classify their citation intent, formatted as a list of {\"target_title\": \"Cited Paper Title\", \"intent\": \"USES_METHOD\" or \"EXTENDS\" or \"COMPARES_WITH\" or \"DISPUTES\" or \"BACKGROUND\"}.\n"
+            "11. Concept Relations: List of relationships between extracted concepts, formatted as a list of {\"source\": \"Concept A\", \"target\": \"Concept B\", \"relation_type\": \"SUBCLASS_OF\" or \"IS_A\" or \"PREREQUISITE_FOR\"}.\n\n"
             "You MUST format the output as a valid JSON object with the following schema:\n"
             "{\n"
             "  \"authors\": [\"Author Name 1\", \"Author Name 2\"],\n"
             "  \"concepts\": [\n"
-            "    {\"name\": \"Concept Name\", \"description\": \"1 concise sentence description\"}\n"
+            "    {\"name\": \"Concept Name\", \"description\": \"1 concise sentence description\", \"aliases\": [\"alias1\", \"alias2\"]}\n"
             "  ],\n"
-            "  \"tags\": [\"tag1\", \"tag2\", \"tag3\"]\n"
+            "  \"tags\": [\"tag1\", \"tag2\"],\n"
+            "  \"institutions\": [\"MIT\", \"Google DeepMind\"],\n"
+            "  \"author_institutions\": [{\"author\": \"John Doe\", \"institution\": \"MIT\"}],\n"
+            "  \"sponsored_by\": [\"Google DeepMind\"],\n"
+            "  \"datasets\": [{\"name\": \"GSM8k\", \"relation\": \"USED_DATASET\"}],\n"
+            "  \"code_repositories\": [\"https://github.com/...\"],\n"
+            "  \"journal_or_conference\": \"NeurIPS\",\n"
+            "  \"citation_intents\": [{\"target_title\": \"Attention Is All You Need\", \"intent\": \"USES_METHOD\"}],\n"
+            "  \"concept_relations\": [{\"source\": \"Self-Attention\", \"target\": \"Transformer\", \"relation_type\": \"PREREQUISITE_FOR\"}]\n"
             "}\n\n"
             "Do NOT include any markdown code blocks, text outside JSON, or conversational filler. Output ONLY the raw JSON string.\n\n"
             f"Paper text:\n{safe_text}"
@@ -364,17 +380,33 @@ class BaseLLMEngine:
         safe_text = self._truncate_to_context(text, max_input)
         prompt = (
             "You are a strict scientific text analyzer. Analyze the following paper text (abstract and introduction).\n"
-            "Extract:\n"
+            "Extract the following scientific entities, properties, and relationships:\n"
             "1. Authors: A list of ONLY actual human names (e.g. \"Jane Doe\", \"John Smith\"). Do NOT include paper titles or citations here.\n"
-            "2. Concepts: A list of scientific concepts, algorithms, frameworks, and key formulas. These MUST be short noun phrases (1-3 words max, e.g. \"Self-Attention\", \"Transformer\"). Do NOT extract full sentences or citations as concepts.\n"
-            "3. Tags: A list of 3-7 high-level topic tags/keywords (e.g., \"statistics\", \"probability theory\", \"gradient descent\", \"optimization methods\", \"deep learning\"). These should represent the main fields and tools used in the paper.\n\n"
+            "2. Concepts: A list of scientific concepts, algorithms, frameworks, and key formulas. These MUST be short noun phrases (1-3 words max, e.g. \"Self-Attention\", \"Transformer\"). For each concept, extract a list of synonyms and abbreviations as 'aliases' (e.g., [\"LLM\", \"Large Language Model\"]).\n"
+            "3. Tags: A list of 3-7 high-level topic tags/keywords (e.g., \"statistics\", \"deep learning\").\n"
+            "4. Institutions: A list of organizations, universities, or companies mentioned in the text (e.g., \"MIT\", \"Google DeepMind\").\n"
+            "5. Author Institutions: Mapping of extracted authors to their affiliated institutions, formatted as a list of {\"author\": \"Author Name\", \"institution\": \"Institution Name\"}.\n"
+            "6. Sponsored By: List of institutions or companies that sponsored, funded, or supported the paper.\n"
+            "7. Datasets: List of benchmarks or datasets mentioned in the text, formatted as a list of {\"name\": \"Dataset Name\", \"relation\": \"USED_DATASET\" or \"INTRODUCED_DATASET\"}.\n"
+            "8. Code Repositories: List of code repository URLs (like GitHub links) implementing the paper.\n"
+            "9. Journal or Conference: The name of the journal or conference where the paper was published (e.g., \"NeurIPS\", \"ICML\", \"Nature\").\n"
+            "10. Citation Intents: List of referenced papers/authors mentioned in the text, and classify their citation intent, formatted as a list of {\"target_title\": \"Cited Paper Title\", \"intent\": \"USES_METHOD\" or \"EXTENDS\" or \"COMPARES_WITH\" or \"DISPUTES\" or \"BACKGROUND\"}.\n"
+            "11. Concept Relations: List of relationships between extracted concepts, formatted as a list of {\"source\": \"Concept A\", \"target\": \"Concept B\", \"relation_type\": \"SUBCLASS_OF\" or \"IS_A\" or \"PREREQUISITE_FOR\"}.\n\n"
             "You MUST format the output as a valid JSON object with the following schema:\n"
             "{\n"
             "  \"authors\": [\"Author Name 1\", \"Author Name 2\"],\n"
             "  \"concepts\": [\n"
-            "    {\"name\": \"Concept Name\", \"description\": \"1 concise sentence description\"}\n"
+            "    {\"name\": \"Concept Name\", \"description\": \"1 concise sentence description\", \"aliases\": [\"alias1\", \"alias2\"]}\n"
             "  ],\n"
-            "  \"tags\": [\"tag1\", \"tag2\", \"tag3\"]\n"
+            "  \"tags\": [\"tag1\", \"tag2\"],\n"
+            "  \"institutions\": [\"MIT\", \"Google DeepMind\"],\n"
+            "  \"author_institutions\": [{\"author\": \"John Doe\", \"institution\": \"MIT\"}],\n"
+            "  \"sponsored_by\": [\"Google DeepMind\"],\n"
+            "  \"datasets\": [{\"name\": \"GSM8k\", \"relation\": \"USED_DATASET\"}],\n"
+            "  \"code_repositories\": [\"https://github.com/...\"],\n"
+            "  \"journal_or_conference\": \"NeurIPS\",\n"
+            "  \"citation_intents\": [{\"target_title\": \"Attention Is All You Need\", \"intent\": \"USES_METHOD\"}],\n"
+            "  \"concept_relations\": [{\"source\": \"Self-Attention\", \"target\": \"Transformer\", \"relation_type\": \"PREREQUISITE_FOR\"}]\n"
             "}\n\n"
             "Do NOT include any markdown code blocks, text outside JSON, or conversational filler. Output ONLY the raw JSON string.\n\n"
             f"Paper text:\n{safe_text}"

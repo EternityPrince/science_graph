@@ -157,15 +157,35 @@ class SQLiteGraphRepository(GraphRepository):
                 paper.created_at = datetime.datetime.now().isoformat()
 
         props = {**paper.properties, "title": paper.title, "authors": paper.authors, "year": paper.year, "doi": paper.doi, "abstract": paper.abstract, "file_path": paper.file_path, "created_at": paper.created_at}
+        label = "UserNote" if paper.properties.get("source_type") == "note" else "Paper"
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    label = excluded.label,
-                    properties = excluded.properties
+                    label = CASE
+                        WHEN label = 'UserNote' THEN 'UserNote'
+                        WHEN label = 'Paper' AND is_placeholder = 0 THEN
+                            CASE 
+                                WHEN excluded.label = 'UserNote' THEN 'UserNote'
+                                WHEN excluded.label = 'Paper' AND coalesce(json_extract(excluded.properties, '$.is_placeholder'), 0) != 1 AND coalesce(json_extract(excluded.properties, '$.placeholder'), 0) != 1 THEN 'Paper'
+                                ELSE 'Paper'
+                            END
+                        ELSE excluded.label
+                    END,
+                    properties = CASE
+                        WHEN label = 'UserNote' THEN
+                            CASE WHEN excluded.label = 'UserNote' THEN excluded.properties ELSE properties END
+                        WHEN label = 'Paper' AND is_placeholder = 0 THEN
+                            CASE
+                                WHEN excluded.label = 'UserNote' THEN excluded.properties
+                                WHEN excluded.label = 'Paper' AND coalesce(json_extract(excluded.properties, '$.is_placeholder'), 0) != 1 AND coalesce(json_extract(excluded.properties, '$.placeholder'), 0) != 1 THEN excluded.properties
+                                ELSE properties
+                            END
+                        ELSE excluded.properties
+                    END
                 """,
-                (paper.id, "Paper", json.dumps(props, ensure_ascii=False))
+                (paper.id, label, json.dumps(props, ensure_ascii=False))
             )
             conn.commit()
 
@@ -181,8 +201,27 @@ class SQLiteGraphRepository(GraphRepository):
                 """
                 INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    label = excluded.label,
-                    properties = excluded.properties
+                    label = CASE
+                        WHEN label = 'UserNote' THEN 'UserNote'
+                        WHEN label = 'Paper' AND is_placeholder = 0 THEN
+                            CASE 
+                                WHEN excluded.label = 'UserNote' THEN 'UserNote'
+                                WHEN excluded.label = 'Paper' AND coalesce(json_extract(excluded.properties, '$.is_placeholder'), 0) != 1 AND coalesce(json_extract(excluded.properties, '$.placeholder'), 0) != 1 THEN 'Paper'
+                                ELSE 'Paper'
+                            END
+                        ELSE excluded.label
+                    END,
+                    properties = CASE
+                        WHEN label = 'UserNote' THEN
+                            CASE WHEN excluded.label = 'UserNote' THEN excluded.properties ELSE properties END
+                        WHEN label = 'Paper' AND is_placeholder = 0 THEN
+                            CASE
+                                WHEN excluded.label = 'UserNote' THEN excluded.properties
+                                WHEN excluded.label = 'Paper' AND coalesce(json_extract(excluded.properties, '$.is_placeholder'), 0) != 1 AND coalesce(json_extract(excluded.properties, '$.placeholder'), 0) != 1 THEN excluded.properties
+                                ELSE properties
+                            END
+                        ELSE excluded.properties
+                    END
                 """,
                 params
             )
@@ -221,7 +260,7 @@ class SQLiteGraphRepository(GraphRepository):
 
     def get_paper(self, paper_id: str) -> Optional[Paper]:
         with self._get_connection() as conn:
-            row = conn.execute("SELECT id, properties FROM nodes WHERE id = ? AND label = 'Paper'", (paper_id,)).fetchone()
+            row = conn.execute("SELECT id, properties FROM nodes WHERE id = ? AND label IN ('Paper', 'UserNote')", (paper_id,)).fetchone()
             if not row:
                 return None
             props = json.loads(row["properties"])
@@ -242,7 +281,7 @@ class SQLiteGraphRepository(GraphRepository):
             return {}
         unique_ids = list(set(paper_ids))
         placeholders = ",".join("?" for _ in unique_ids)
-        query = f"SELECT id, properties FROM nodes WHERE id IN ({placeholders}) AND label = 'Paper'"
+        query = f"SELECT id, properties FROM nodes WHERE id IN ({placeholders}) AND label IN ('Paper', 'UserNote')"
         with self._get_connection() as conn:
             rows = conn.execute(query, unique_ids).fetchall()
             
@@ -265,7 +304,7 @@ class SQLiteGraphRepository(GraphRepository):
     def find_paper_by_title(self, title: str) -> Optional[Paper]:
         with self._get_connection() as conn:
             # Check if matching exact ID first
-            row = conn.execute("SELECT id, properties FROM nodes WHERE id = ? AND label = 'Paper'", (title,)).fetchone()
+            row = conn.execute("SELECT id, properties FROM nodes WHERE id = ? AND label IN ('Paper', 'UserNote')", (title,)).fetchone()
             if row:
                 props = json.loads(row["properties"])
                 return Paper(
@@ -283,14 +322,14 @@ class SQLiteGraphRepository(GraphRepository):
             # Case-insensitive title match using indexed title column
             clean_title = title.strip()
             row = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND title = ? COLLATE NOCASE",
+                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND title = ? COLLATE NOCASE",
                 (clean_title,)
             ).fetchone()
             
             if not row:
                 # Fallback to TRIM in case there is trailing/leading whitespace in legacy properties
                 row = conn.execute(
-                    "SELECT id, properties FROM nodes WHERE label = 'Paper' AND TRIM(title) = ? COLLATE NOCASE",
+                    "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND TRIM(title) = ? COLLATE NOCASE",
                     (clean_title,)
                 ).fetchone()
 
@@ -314,7 +353,7 @@ class SQLiteGraphRepository(GraphRepository):
             return None
         with self._get_connection() as conn:
             row = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND json_extract(properties, '$.doi') = ?",
+                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND json_extract(properties, '$.doi') = ?",
                 (doi.strip(),)
             ).fetchone()
             if row:
@@ -337,7 +376,7 @@ class SQLiteGraphRepository(GraphRepository):
             return None
         with self._get_connection() as conn:
             row = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND json_extract(properties, '$.content_hash') = ?",
+                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND json_extract(properties, '$.content_hash') = ?",
                 (content_hash,)
             ).fetchone()
             if row:
@@ -506,12 +545,12 @@ class SQLiteGraphRepository(GraphRepository):
 
     def get_stats(self) -> Dict[str, int]:
         with self._get_connection() as conn:
-            paper_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Paper'").fetchone()[0]
+            paper_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label IN ('Paper', 'UserNote')").fetchone()[0]
             author_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Author'").fetchone()[0]
             concept_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Concept'").fetchone()[0]
             edge_count = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-            indexed_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Paper' AND is_placeholder = 0").fetchone()[0]
-            mentioned_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label = 'Paper' AND is_placeholder = 1").fetchone()[0]
+            indexed_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label IN ('Paper', 'UserNote') AND is_placeholder = 0").fetchone()[0]
+            mentioned_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label IN ('Paper', 'UserNote') AND is_placeholder = 1").fetchone()[0]
             return {
                 "papers": paper_count,
                 "authors": author_count,
@@ -630,7 +669,7 @@ class SQLiteGraphRepository(GraphRepository):
     def get_notes(self) -> List[Paper]:
         with self._get_connection() as conn:
             rows = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label = 'Paper' AND json_extract(properties, '$.source_type') = 'note'"
+                "SELECT id, properties FROM nodes WHERE label = 'UserNote' OR (label = 'Paper' AND json_extract(properties, '$.source_type') = 'note')"
             ).fetchall()
             papers = []
             for r in rows:
@@ -672,17 +711,17 @@ class SQLiteGraphRepository(GraphRepository):
 
     def get_paper_ids(self) -> List[str]:
         with self._get_connection() as conn:
-            rows = conn.execute("SELECT id FROM nodes WHERE label = 'Paper'").fetchall()
+            rows = conn.execute("SELECT id FROM nodes WHERE label IN ('Paper', 'UserNote')").fetchall()
             return [r["id"] for r in rows]
 
     def get_non_placeholder_paper_ids(self) -> List[str]:
         with self._get_connection() as conn:
-            rows = conn.execute("SELECT id FROM nodes WHERE label = 'Paper' AND is_placeholder = 0").fetchall()
+            rows = conn.execute("SELECT id FROM nodes WHERE label IN ('Paper', 'UserNote') AND is_placeholder = 0").fetchall()
             return [r["id"] for r in rows]
 
     def get_paper_source_types(self) -> Dict[str, str]:
         with self._get_connection() as conn:
-            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Paper'").fetchall()
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote')").fetchall()
             res = {}
             for r in rows:
                 try:
@@ -700,7 +739,7 @@ class SQLiteGraphRepository(GraphRepository):
             if not search_query:
                 if table == "documents":
                     rows = conn.execute(
-                        "SELECT id, properties FROM nodes WHERE label='Paper' LIMIT ? OFFSET ?",
+                        "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') LIMIT ? OFFSET ?",
                         (limit, off)
                     ).fetchall()
                 elif table == "authors":
@@ -722,7 +761,7 @@ class SQLiteGraphRepository(GraphRepository):
                 if table == "documents":
                     rows = conn.execute(
                         """SELECT id, properties FROM nodes
-                           WHERE label='Paper'
+                           WHERE label IN ('Paper', 'UserNote')
                            AND (
                                id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
                                OR properties LIKE ?
@@ -750,9 +789,11 @@ class SQLiteGraphRepository(GraphRepository):
             return [dict(r) for r in rows]
 
     def get_browse_count(self, table: str, search_query: Optional[str] = None) -> int:
-        label = {"documents": "Paper", "authors": "Author", "concepts": "Concept"}[table]
         with self._get_connection() as conn:
             if not search_query:
+                if table == "documents":
+                    return conn.execute("SELECT count(*) FROM nodes WHERE label IN ('Paper', 'UserNote')").fetchone()[0]
+                label = {"authors": "Author", "concepts": "Concept"}[table]
                 return conn.execute("SELECT count(*) FROM nodes WHERE label=?", (label,)).fetchone()[0]
             
             like_pat = f"%{search_query}%"
@@ -760,7 +801,7 @@ class SQLiteGraphRepository(GraphRepository):
                 return conn.execute(
                     """
                     SELECT count(*) FROM nodes
-                    WHERE label='Paper'
+                    WHERE label IN ('Paper', 'UserNote')
                     AND (
                         id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
                         OR properties LIKE ?
@@ -786,6 +827,33 @@ class SQLiteGraphRepository(GraphRepository):
                 (json.dumps(properties, ensure_ascii=False), node_id)
             )
             conn.commit()
+
+    def get_concept_aliases(self) -> Dict[str, str]:
+        aliases_map = {}
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = 'Concept'").fetchall()
+            for r in rows:
+                try:
+                    props = json.loads(r["properties"])
+                    canonical_name = props.get("name", r["id"])
+                    aliases = props.get("aliases") or []
+                    for alias in aliases:
+                        aliases_map[alias.lower().strip()] = canonical_name
+                except Exception:
+                    pass
+        return aliases_map
+
+    def get_nodes_by_label(self, label: str) -> List[tuple[str, Dict[str, Any]]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label = ?", (label,)).fetchall()
+            return [(r["id"], json.loads(r["properties"])) for r in rows]
+
+    def get_node_properties(self, node_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT properties FROM nodes WHERE id = ?", (node_id,)).fetchone()
+            if row:
+                return json.loads(row["properties"])
+            return None
 
 
 class SQLiteVectorRepository(VectorRepository):

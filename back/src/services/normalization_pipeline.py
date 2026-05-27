@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import spacy
 import spacy.cli
 from src.models import slugify
-from src.llm_schemas import LLMExtractionResponse, LLMConcept
+from src.llm_schemas import LLMExtractionResponse, LLMConcept, LLMCitationIntent, LLMConceptRelation, LLMDataset
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +242,8 @@ class NormalizationPipeline:
         # 1. Normalize authors (deduplicating case variations)
         normalized_authors: List[str] = []
         seen_authors = set()
-        for author in response.authors:
+        authors_raw = getattr(response, "authors", []) or []
+        for author in authors_raw:
             norm_author = self.normalize_author_name(author)
             if norm_author and norm_author.lower() not in seen_authors:
                 seen_authors.add(norm_author.lower())
@@ -251,7 +252,8 @@ class NormalizationPipeline:
         # 2. Normalize and deduplicate concepts
         normalized_concepts: List[LLMConcept] = []
         seen_concepts = set()
-        for concept in response.concepts:
+        concepts_raw = getattr(response, "concepts", []) or []
+        for concept in concepts_raw:
             if not concept.name:
                 continue
             norm_name = self.normalize_concept_name(concept.name)
@@ -259,17 +261,20 @@ class NormalizationPipeline:
             
             if concept_slug and concept_slug not in seen_concepts:
                 seen_concepts.add(concept_slug)
+                aliases = getattr(concept, "aliases", []) or []
                 normalized_concepts.append(
                     LLMConcept(
                         name=norm_name,
-                        description=self.normalize_description(concept.description)
+                        description=self.normalize_description(concept.description),
+                        aliases=[self.normalize_concept_name(al) for al in aliases if al.strip()]
                     )
                 )
 
         # 3. Normalize and deduplicate tags
         normalized_tags: List[str] = []
         seen_tags = set()
-        for tag in response.tags:
+        tags_raw = getattr(response, "tags", []) or []
+        for tag in tags_raw:
             norm_tag = self.normalize_tag(tag)
             tag_slug = slugify(norm_tag)
             
@@ -277,8 +282,85 @@ class NormalizationPipeline:
                 seen_tags.add(tag_slug)
                 normalized_tags.append(norm_tag)
 
+        # 4. Normalize institutions
+        normalized_institutions = []
+        seen_insts = set()
+        insts_raw = getattr(response, "institutions", []) or []
+        for inst in insts_raw:
+            norm_inst = self._title_case(inst.strip())
+            if norm_inst and norm_inst.lower() not in seen_insts:
+                seen_insts.add(norm_inst.lower())
+                normalized_institutions.append(norm_inst)
+
+        # 5. Normalize author_institutions
+        normalized_author_insts = []
+        ai_raw = getattr(response, "author_institutions", []) or []
+        for ai in ai_raw:
+            norm_auth = self.normalize_author_name(ai.get("author", ""))
+            norm_inst = self._title_case(ai.get("institution", "").strip())
+            if norm_auth and norm_inst:
+                normalized_author_insts.append({"author": norm_auth, "institution": norm_inst})
+
+        # 6. sponsored_by
+        normalized_sponsored = []
+        seen_sp = set()
+        sp_raw = getattr(response, "sponsored_by", []) or []
+        for sp in sp_raw:
+            norm_sp = self._title_case(sp.strip())
+            if norm_sp and norm_sp.lower() not in seen_sp:
+                seen_sp.add(norm_sp.lower())
+                normalized_sponsored.append(norm_sp)
+
+        # 7. datasets
+        normalized_datasets = []
+        seen_ds = set()
+        ds_raw = getattr(response, "datasets", []) or []
+        for ds in ds_raw:
+            norm_ds_name = self._title_case(ds.name.strip())
+            if norm_ds_name and norm_ds_name.lower() not in seen_ds:
+                seen_ds.add(norm_ds_name.lower())
+                normalized_datasets.append(LLMDataset(name=norm_ds_name, relation=ds.relation))
+
+        # 8. code_repositories
+        normalized_code = []
+        seen_code = set()
+        code_raw = getattr(response, "code_repositories", []) or []
+        for cr in code_raw:
+            cleaned = cr.strip()
+            if cleaned and cleaned.lower() not in seen_code:
+                seen_code.add(cleaned.lower())
+                normalized_code.append(cleaned)
+
+        # 9. journal_or_conference
+        jc_val = getattr(response, "journal_or_conference", None)
+        normalized_jc = jc_val.strip() if jc_val else None
+
+        # 10. citation_intents
+        normalized_citations = []
+        cit_raw = getattr(response, "citation_intents", []) or []
+        for ci in cit_raw:
+            if ci.target_title:
+                normalized_citations.append(LLMCitationIntent(target_title=ci.target_title.strip(), intent=ci.intent))
+
+        # 11. concept_relations
+        normalized_concept_rels = []
+        cr_raw = getattr(response, "concept_relations", []) or []
+        for cr in cr_raw:
+            norm_src = self.normalize_concept_name(cr.source)
+            norm_tgt = self.normalize_concept_name(cr.target)
+            if norm_src and norm_tgt:
+                normalized_concept_rels.append(LLMConceptRelation(source=norm_src, target=norm_tgt, relation_type=cr.relation_type))
+
         return LLMExtractionResponse(
             authors=normalized_authors,
             concepts=normalized_concepts,
-            tags=normalized_tags
+            tags=normalized_tags,
+            institutions=normalized_institutions,
+            author_institutions=normalized_author_insts,
+            sponsored_by=normalized_sponsored,
+            datasets=normalized_datasets,
+            code_repositories=normalized_code,
+            journal_or_conference=normalized_jc,
+            citation_intents=normalized_citations,
+            concept_relations=normalized_concept_rels
         )

@@ -162,6 +162,21 @@ class GraphRepository(ABC):
         """Updates specific properties of a node in the graph."""
         pass
 
+    @abstractmethod
+    def get_concept_aliases(self) -> Dict[str, str]:
+        """Retrieves a mapping of lowercased alias name to canonical concept name."""
+        pass
+
+    @abstractmethod
+    def get_nodes_by_label(self, label: str) -> List[tuple[str, Dict[str, Any]]]:
+        """Retrieves all nodes with a given label as list of (node_id, properties)."""
+        pass
+
+    @abstractmethod
+    def get_node_properties(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves properties for any node by its ID."""
+        pass
+
     def save_nodes_bulk(self, nodes: List[tuple[str, str, Dict[str, Any]]]) -> None:
         """Saves multiple nodes in bulk."""
         pass

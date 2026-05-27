@@ -305,6 +305,11 @@ def query(
     text: str = typer.Argument(..., help="Your question about the indexed documents"),
     limit: int = typer.Option(5, "--limit", "-l", help="Number of context chunks to retrieve"),
     cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
+    trace: bool = typer.Option(
+        False,
+        "--t", "-t", "--trace",
+        help="Show detailed graph expansion steps, timing metrics, and retrieved neighbors"
+    ),
 ):
     """Answer a question using hybrid RAG over all indexed documents."""
     if cloud:
@@ -315,6 +320,19 @@ def query(
         raise typer.Exit(1)
 
     pipeline = RAGPipeline(graph_repo, vector_repo, embedding_engine, llm_engine)
+
+    if trace:
+        con.SHOW_TIME = True
+        
+        # Enable and configure Advanced Context Expansion
+        from src.services.graph_expander import ExperimentalGraphExpander
+        reranker = pipeline._get_reranker()
+        pipeline.service.expander = ExperimentalGraphExpander(
+            graph_repo=graph_repo,
+            vector_repo=vector_repo,
+            llm_engine=llm_engine,
+            reranker=reranker
+        )
 
     con.blank()
     con.search_msg(f"{text}")

@@ -77,7 +77,7 @@ class TestIndexerWikilinks(unittest.TestCase):
                         neighbor_id = src_id
                         neighbor_label = src_label
                         
-                    if neighbor_label == "Paper":
+                    if neighbor_label in ("Paper", "UserNote"):
                         direct_paper_links.append(neighbor_id)
 
             self.assertIn(target_id, direct_paper_links)

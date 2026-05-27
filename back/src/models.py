@@ -48,3 +48,34 @@ class Edge:
     target_id: str
     type: str  # CITES, AUTHORED, MENTIONS_CONCEPT, RELATED_TO
     properties: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class Institution:
+    id: str
+    name: str
+    properties: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class Dataset:
+    id: str
+    name: str
+    properties: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class CodeRepository:
+    id: str
+    name: str
+    url: str
+    properties: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class JournalConference:
+    id: str
+    name: str
+    properties: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class UserNote:
+    id: str
+    title: str
+    properties: Dict[str, Any] = field(default_factory=dict)

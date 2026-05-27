@@ -485,7 +485,7 @@ async def get_documents(
     graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
 ):
     """Paginated list of papers/notes/books with search and concepts."""
-    conditions = ["label = 'Paper'"]
+    conditions = ["label IN ('Paper', 'UserNote')"]
     params = []
 
     if q:

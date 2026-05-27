@@ -155,3 +155,4 @@ Thumbs.db
 .aider*
 .antigravitycli/
 .ruff_cache/
+.codegraph/

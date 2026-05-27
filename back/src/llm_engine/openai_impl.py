@@ -68,7 +68,7 @@ class OpenAILLMEngine(BaseLLMEngine):
         except Exception:
             return text[:max_input_tokens * 4]
 
-    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
+    def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         resolved_max_tokens = max_tokens
         if resolved_max_tokens is None:
             if task == "extraction":
@@ -82,16 +82,17 @@ class OpenAILLMEngine(BaseLLMEngine):
             resolved_max_tokens = config.llm_max_tokens
 
         temp = temp if temp is not None else config.llm_temp
+        model_to_use = model if model else self.model_name
 
         response = self.client.chat.completions.create(
-            model=self.model_name,
+            model=model_to_use,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=resolved_max_tokens,
             temperature=temp,
         )
         return strip_thinking_tokens(response.choices[0].message.content)
 
-    async def generate_response_async(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None) -> str:
+    async def generate_response_async(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         resolved_max_tokens = max_tokens
         if resolved_max_tokens is None:
             if task == "extraction":
@@ -105,6 +106,7 @@ class OpenAILLMEngine(BaseLLMEngine):
             resolved_max_tokens = config.llm_max_tokens
 
         temp = temp if temp is not None else config.llm_temp
+        model_to_use = model if model else self.model_name
 
         max_retries = 3
         backoff = config.llm_retry_backoff
@@ -115,7 +117,7 @@ class OpenAILLMEngine(BaseLLMEngine):
             try:
                 response = await asyncio.to_thread(
                     self.client.chat.completions.create,
-                    model=self.model_name,
+                    model=model_to_use,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=resolved_max_tokens,
                     temperature=temp,

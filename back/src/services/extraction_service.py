@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.config import config
-from src.models import Paper, slugify
+from src.models import Paper, slugify, Institution, Dataset, CodeRepository, JournalConference, UserNote
 from src import console as con
 from src.services.normalization_pipeline import NormalizationPipeline
 
@@ -29,14 +29,23 @@ class ExtractionResult:
     authors: List[str] = field(default_factory=list)
     """Author names discovered by LLM (not from parsers or Semantic Scholar)."""
 
-    concepts: List[Dict[str, str]] = field(default_factory=list)
-    """List of {name, description} dicts for MENTIONS_CONCEPT edges."""
+    concepts: List[Dict[str, Any]] = field(default_factory=list)
+    """List of {name, description, aliases} dicts for MENTIONS_CONCEPT edges."""
 
     tags: List[str] = field(default_factory=list)
     """High-level topic/tag names for HAS_TAG edges."""
 
     via_llm: bool = False
     """True if concepts/tags were extracted by LLM; False if via regex fallback."""
+
+    institutions: List[str] = field(default_factory=list)
+    author_institutions: List[Dict[str, str]] = field(default_factory=list)
+    sponsored_by: List[str] = field(default_factory=list)
+    datasets: List[Dict[str, str]] = field(default_factory=list)
+    code_repositories: List[str] = field(default_factory=list)
+    journal_or_conference: Optional[str] = None
+    citation_intents: List[Dict[str, str]] = field(default_factory=list)
+    concept_relations: List[Dict[str, str]] = field(default_factory=list)
 
 
 class ExtractionService:
@@ -106,7 +115,7 @@ class ExtractionService:
                 return res
             return None
 
-    async def _call_llm_generate_async(self, prompt: str, task: str = None, message: Optional[str] = None) -> str:
+    async def _call_llm_generate_async(self, prompt: str, task: str = None, message: Optional[str] = None, model: Optional[str] = None) -> str:
         if not self.llm_engine:
             return ""
         async with self.semaphore:
@@ -121,6 +130,8 @@ class ExtractionService:
             kwargs = {}
             if task:
                 kwargs["task"] = task
+            if model:
+                kwargs["model"] = model
                 
             if (is_sync_mocked and is_async_mocked) or (sync_func and not func):
                 return await asyncio.to_thread(sync_func, prompt, **kwargs)
@@ -804,6 +815,14 @@ class ExtractionService:
             all_authors = []
             all_concepts = {}
             all_tags = []
+            all_institutions = []
+            all_author_insts = []
+            all_sponsored = []
+            all_datasets = []
+            all_code_repos = []
+            all_journals_confs = []
+            all_citations = []
+            all_concept_rels = []
             
             async def _extract_chunk(idx, chunk):
                 chunk_text = f"{prefix}{chunk}"
@@ -830,17 +849,32 @@ class ExtractionService:
                     if not c_name:
                         continue
                     c_desc = item.get("description", "").strip()
+                    c_aliases = item.get("aliases") or []
                     slug = slugify(c_name)
                     if slug:
                         if slug in all_concepts:
                             if len(c_desc) > len(all_concepts[slug]["description"]):
-                                all_concepts[slug] = {"name": c_name, "description": c_desc}
+                                all_concepts[slug] = {"name": c_name, "description": c_desc, "aliases": c_aliases}
+                            all_concepts[slug]["aliases"] = list(set(all_concepts[slug]["aliases"] + c_aliases))
                         else:
-                            all_concepts[slug] = {"name": c_name, "description": c_desc}
+                            all_concepts[slug] = {"name": c_name, "description": c_desc, "aliases": c_aliases}
                             
                 all_tags.extend(llm_data.get("tags", []))
+                all_institutions.extend(llm_data.get("institutions", []))
+                all_author_insts.extend(llm_data.get("author_institutions", []))
+                all_sponsored.extend(llm_data.get("sponsored_by", []))
+                all_datasets.extend(llm_data.get("datasets", []))
+                all_code_repos.extend(llm_data.get("code_repositories", []))
+                jc = llm_data.get("journal_or_conference")
+                if jc:
+                    all_journals_confs.append(jc)
+                all_citations.extend(llm_data.get("citation_intents", []))
+                all_concept_rels.extend(llm_data.get("concept_relations", []))
                 
             concepts = list(all_concepts.values())
+            journal_or_conf = None
+            if all_journals_confs:
+                journal_or_conf = max(set(all_journals_confs), key=all_journals_confs.count)
             
             if trace_info is not None:
                 tokens_dict = trace_info.setdefault("tokens", {})
@@ -850,7 +884,15 @@ class ExtractionService:
                 authors=list(set(all_authors)),
                 concepts=concepts,
                 tags=list(set(all_tags)),
-                via_llm=True
+                via_llm=True,
+                institutions=list(set(all_institutions)),
+                author_institutions=all_author_insts,
+                sponsored_by=list(set(all_sponsored)),
+                datasets=all_datasets,
+                code_repositories=list(set(all_code_repos)),
+                journal_or_conference=journal_or_conf,
+                citation_intents=all_citations,
+                concept_relations=all_concept_rels
             )
             
         else:
@@ -872,7 +914,7 @@ class ExtractionService:
                         item.get("description", "").strip()
                         or await self.get_concept_description_async(c_name, trace_info=trace_info)
                     )
-                    concepts.append({"name": c_name, "description": c_desc})
+                    concepts.append({"name": c_name, "description": c_desc, "aliases": item.get("aliases") or []})
 
                 if trace_info is not None:
                     tokens_dict = trace_info.setdefault("tokens", {})
@@ -883,6 +925,14 @@ class ExtractionService:
                     concepts=concepts,
                     tags=llm_data.get("tags", []),
                     via_llm=True,
+                    institutions=llm_data.get("institutions", []),
+                    author_institutions=llm_data.get("author_institutions", []),
+                    sponsored_by=llm_data.get("sponsored_by", []),
+                    datasets=llm_data.get("datasets", []),
+                    code_repositories=llm_data.get("code_repositories", []),
+                    journal_or_conference=llm_data.get("journal_or_conference"),
+                    citation_intents=llm_data.get("citation_intents", []),
+                    concept_relations=llm_data.get("concept_relations", [])
                 )
             except Exception as e:
                 con.warning(f"Async LLM extraction failed, falling back to regex: {e}")
@@ -912,30 +962,107 @@ class ExtractionService:
         return ExtractionResult(concepts=concepts, tags=tags, via_llm=False)
 
     def _normalize_extraction_result(self, result: ExtractionResult) -> ExtractionResult:
-        from src.llm_schemas import LLMExtractionResponse, LLMConcept
+        from src.llm_schemas import LLMExtractionResponse, LLMConcept, LLMCitationIntent, LLMConceptRelation, LLMDataset
         
         concepts = [
-            LLMConcept(name=c["name"], description=c.get("description", ""))
+            LLMConcept(
+                name=c["name"],
+                description=c.get("description", ""),
+                aliases=c.get("aliases") or []
+            )
             for c in result.concepts
+        ]
+        
+        datasets = [
+            LLMDataset(name=d["name"], relation=d.get("relation", "USED_DATASET"))
+            for d in result.datasets
+        ]
+        
+        citations = [
+            LLMCitationIntent(target_title=ci["target_title"], intent=ci.get("intent", "BACKGROUND"))
+            for ci in result.citation_intents
+        ]
+        
+        concept_rels = [
+            LLMConceptRelation(source=cr["source"], target=cr["target"], relation_type=cr["relation_type"])
+            for cr in result.concept_relations
         ]
         
         response_model = LLMExtractionResponse(
             authors=result.authors,
             concepts=concepts,
-            tags=result.tags
+            tags=result.tags,
+            institutions=result.institutions,
+            author_institutions=result.author_institutions,
+            sponsored_by=result.sponsored_by,
+            datasets=datasets,
+            code_repositories=result.code_repositories,
+            journal_or_conference=result.journal_or_conference,
+            citation_intents=citations,
+            concept_relations=concept_rels
         )
         
         normalized_response = self.normalization_pipeline.normalize_extraction_response(response_model)
         
         normalized_concepts = [
-            {"name": c.name, "description": c.description}
+            {"name": c.name, "description": c.description, "aliases": c.aliases}
             for c in normalized_response.concepts
+        ]
+        
+        normalized_datasets = [
+            {"name": d.name, "relation": d.relation}
+            for d in normalized_response.datasets
+        ]
+        
+        normalized_citations = [
+            {"target_title": ci.target_title, "intent": ci.intent}
+            for ci in normalized_response.citation_intents
+        ]
+        
+        normalized_concept_rels = [
+            {"source": cr.source, "target": cr.target, "relation_type": cr.relation_type}
+            for cr in normalized_response.concept_relations
         ]
         
         return ExtractionResult(
             authors=normalized_response.authors,
             concepts=normalized_concepts,
             tags=normalized_response.tags,
-            via_llm=result.via_llm
+            via_llm=result.via_llm,
+            institutions=normalized_response.institutions,
+            author_institutions=normalized_response.author_institutions,
+            sponsored_by=normalized_response.sponsored_by,
+            datasets=normalized_datasets,
+            code_repositories=normalized_response.code_repositories,
+            journal_or_conference=normalized_response.journal_or_conference,
+            citation_intents=normalized_citations,
+            concept_relations=normalized_concept_rels
         )
+
+    async def classify_citation_intent_async(self, context: str, ref_title: str) -> str:
+        if not self.llm_engine:
+            return "BACKGROUND"
+        prompt = (
+            "Classify the citation intent of a scientific paper citing another paper based on the following context snippet.\n"
+            f"Cited Paper Title: {ref_title}\n"
+            f"Context Snippet:\n\"\"\"\n{context}\n\"\"\"\n\n"
+            "Choose exactly one of the following category codes that best describes how the citing paper relates to the cited paper in this context:\n"
+            "- USES_METHOD: Citing paper uses a method, algorithm, formula, or tool proposed in the cited paper.\n"
+            "- EXTENDS: Citing paper extends, improves, or builds upon the approach in the cited paper.\n"
+            "- COMPARES_WITH: Citing paper conducts a benchmark or comparison against the cited paper's results/method.\n"
+            "- DISPUTES: Citing paper disputes, criticizes, or disagrees with the hypotheses/conclusions in the cited paper.\n"
+            "- BACKGROUND: Any other general citation or background reference.\n\n"
+            "Output ONLY the category code (e.g., USES_METHOD, EXTENDS, COMPARES_WITH, DISPUTES, or BACKGROUND). Do not include any explanation or other text."
+        )
+        cheap_model = getattr(config, "llm_cheap_model_name", "google/gemini-2.5-flash")
+        resp = await self._call_llm_generate_async(prompt, task="extraction", message=f"Classifying citation intent for '{ref_title[:40]}'", model=cheap_model)
+        resp = resp.strip().upper()
+        for code in ["USES_METHOD", "EXTENDS", "COMPARES_WITH", "DISPUTES", "CRITICIZES", "BACKGROUND", "CITES"]:
+            if code in resp:
+                if code == "CRITICIZES":
+                    return "DISPUTES"
+                if code == "CITES":
+                    return "BACKGROUND"
+                return code
+        return "BACKGROUND"
 

@@ -41,7 +41,11 @@ class NoteService:
         title: str,
         content: str,
         authors: List[str] = None,
-        tags: List[str] = None
+        tags: List[str] = None,
+        comments_on: List[str] = None,
+        agrees_with: List[str] = None,
+        disagrees_with: List[str] = None,
+        linked_to: List[str] = None
     ) -> Tuple[str, str]:
         """
         Creates a markdown note on disk with YAML frontmatter and indexes it.
@@ -66,6 +70,14 @@ class NoteService:
             yaml_front["authors"] = authors
         if tags:
             yaml_front["tags"] = tags
+        if comments_on:
+            yaml_front["comments_on"] = comments_on
+        if agrees_with:
+            yaml_front["agrees_with"] = agrees_with
+        if disagrees_with:
+            yaml_front["disagrees_with"] = disagrees_with
+        if linked_to:
+            yaml_front["linked_to"] = linked_to
             
         frontmatter_str = yaml.dump(yaml_front, allow_unicode=True).strip()
         full_md = f"---\n{frontmatter_str}\n---\n\n{content}"

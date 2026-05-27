@@ -1,15 +1,37 @@
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Any
 from pydantic import BaseModel, Field, RootModel
 
 class LLMConcept(BaseModel):
     name: str
     description: str
+    aliases: List[str] = Field(default_factory=list)
+
+class LLMCitationIntent(BaseModel):
+    target_title: str
+    intent: str = Field(default="BACKGROUND")
+
+class LLMConceptRelation(BaseModel):
+    source: str
+    target: str
+    relation_type: str
+
+class LLMDataset(BaseModel):
+    name: str
+    relation: str = Field(default="USED_DATASET")
 
 class LLMExtractionResponse(BaseModel):
     authors: List[str] = Field(default_factory=list)
     concepts: List[LLMConcept] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
+    institutions: List[str] = Field(default_factory=list)
+    author_institutions: List[Dict[str, str]] = Field(default_factory=list)
+    sponsored_by: List[str] = Field(default_factory=list)
+    datasets: List[LLMDataset] = Field(default_factory=list)
+    code_repositories: List[str] = Field(default_factory=list)
+    journal_or_conference: Optional[str] = None
+    citation_intents: List[LLMCitationIntent] = Field(default_factory=list)
+    concept_relations: List[LLMConceptRelation] = Field(default_factory=list)
 
 class LLMClusteringResponse(RootModel[Dict[str, List[str]]]):
     pass
@@ -75,6 +97,7 @@ def validate_extraction_response(raw_data: dict) -> Tuple[LLMExtractionResponse,
             continue
         c_name = concept.get("name", "")
         c_desc = concept.get("description", "")
+        c_aliases_raw = concept.get("aliases", [])
         
         if not isinstance(c_name, str) or not isinstance(c_desc, str):
             warnings.append(f"Ignored concept with non-string name/description: {concept}")
@@ -101,7 +124,13 @@ def validate_extraction_response(raw_data: dict) -> Tuple[LLMExtractionResponse,
         if c_desc and (desc_word_count < 3 or desc_word_count > 60):
             warnings.append(f"Warning: Concept '{c_name}' description has unusual length ({desc_word_count} words).")
             
-        valid_concepts.append(LLMConcept(name=c_name, description=c_desc))
+        valid_aliases = []
+        if isinstance(c_aliases_raw, list):
+            for al in c_aliases_raw:
+                if isinstance(al, str) and al.strip():
+                    valid_aliases.append(al.strip())
+            
+        valid_concepts.append(LLMConcept(name=c_name, description=c_desc, aliases=valid_aliases))
 
     # 3. Validate tags
     valid_tags = []
@@ -124,10 +153,146 @@ def validate_extraction_response(raw_data: dict) -> Tuple[LLMExtractionResponse,
             
         valid_tags.append(cleaned)
 
+    # 4. Validate institutions
+    institutions_raw = raw_data.get("institutions", [])
+    valid_institutions = []
+    if isinstance(institutions_raw, list):
+        for inst in institutions_raw:
+            if isinstance(inst, str):
+                cleaned = inst.strip()
+                if cleaned:
+                    valid_institutions.append(cleaned)
+            else:
+                warnings.append(f"Ignored non-string institution: {inst}")
+    else:
+        warnings.append("Expected 'institutions' to be a list.")
+
+    # 5. Validate author_institutions
+    author_inst_raw = raw_data.get("author_institutions", [])
+    valid_author_inst = []
+    if isinstance(author_inst_raw, list):
+        for ai in author_inst_raw:
+            if isinstance(ai, dict):
+                author = ai.get("author", "")
+                institution = ai.get("institution", "")
+                if isinstance(author, str) and isinstance(institution, str):
+                    author = author.strip()
+                    institution = institution.strip()
+                    if author and institution:
+                        valid_author_inst.append({"author": author, "institution": institution})
+            else:
+                warnings.append(f"Ignored non-dict author_institution entry: {ai}")
+    else:
+        warnings.append("Expected 'author_institutions' to be a list.")
+
+    # 6. Validate sponsored_by
+    sponsored_raw = raw_data.get("sponsored_by", [])
+    valid_sponsored = []
+    if isinstance(sponsored_raw, list):
+        for sp in sponsored_raw:
+            if isinstance(sp, str):
+                cleaned = sp.strip()
+                if cleaned:
+                    valid_sponsored.append(cleaned)
+            else:
+                warnings.append(f"Ignored non-string sponsored_by entry: {sp}")
+    else:
+        warnings.append("Expected 'sponsored_by' to be a list.")
+
+    # 7. Validate datasets
+    datasets_raw = raw_data.get("datasets", [])
+    valid_datasets = []
+    if isinstance(datasets_raw, list):
+        for ds in datasets_raw:
+            if isinstance(ds, dict):
+                name = ds.get("name", "")
+                relation = ds.get("relation", "USED_DATASET")
+                if isinstance(name, str) and isinstance(relation, str):
+                    name = name.strip()
+                    relation = relation.strip().upper()
+                    if relation not in ("USED_DATASET", "INTRODUCED_DATASET"):
+                        relation = "USED_DATASET"
+                    if name:
+                        valid_datasets.append(LLMDataset(name=name, relation=relation))
+            elif isinstance(ds, str):
+                cleaned = ds.strip()
+                if cleaned:
+                    valid_datasets.append(LLMDataset(name=cleaned, relation="USED_DATASET"))
+    else:
+        warnings.append("Expected 'datasets' to be a list.")
+
+    # 8. Validate code_repositories
+    code_raw = raw_data.get("code_repositories", [])
+    valid_code = []
+    if isinstance(code_raw, list):
+        for cr in code_raw:
+            if isinstance(cr, str):
+                cleaned = cr.strip()
+                if cleaned:
+                    valid_code.append(cleaned)
+    else:
+        warnings.append("Expected 'code_repositories' to be a list.")
+
+    # 9. Validate journal_or_conference
+    jc_raw = raw_data.get("journal_or_conference")
+    valid_jc = None
+    if isinstance(jc_raw, str):
+        cleaned = jc_raw.strip()
+        if cleaned:
+            valid_jc = cleaned
+
+    # 10. Validate citation_intents
+    citation_intents_raw = raw_data.get("citation_intents", [])
+    valid_citations = []
+    if isinstance(citation_intents_raw, list):
+        for ci in citation_intents_raw:
+            if isinstance(ci, dict):
+                title = ci.get("target_title", "")
+                intent = ci.get("intent", "BACKGROUND")
+                if isinstance(title, str) and isinstance(intent, str):
+                    title = title.strip()
+                    intent = intent.strip().upper()
+                    if not intent:
+                        intent = "BACKGROUND"
+                    if title:
+                        valid_citations.append(LLMCitationIntent(target_title=title, intent=intent))
+            else:
+                warnings.append(f"Ignored non-dict citation_intents entry: {ci}")
+    else:
+        warnings.append("Expected 'citation_intents' to be a list.")
+
+    # 11. Validate concept_relations
+    concept_rel_raw = raw_data.get("concept_relations", [])
+    valid_concept_rels = []
+    if isinstance(concept_rel_raw, list):
+        for cr in concept_rel_raw:
+            if isinstance(cr, dict):
+                src = cr.get("source", "")
+                tgt = cr.get("target", "")
+                rel = cr.get("relation_type", "")
+                if isinstance(src, str) and isinstance(tgt, str) and isinstance(rel, str):
+                    src = src.strip()
+                    tgt = tgt.strip()
+                    rel = rel.strip().upper()
+                    if src and tgt and rel in ("SUBCLASS_OF", "IS_A", "PREREQUISITE_FOR"):
+                        valid_concept_rels.append(LLMConceptRelation(source=src, target=tgt, relation_type=rel))
+            else:
+                warnings.append(f"Ignored non-dict concept_relations entry: {cr}")
+    else:
+        warnings.append("Expected 'concept_relations' to be a list.")
+
     model = LLMExtractionResponse(
         authors=valid_authors,
         concepts=valid_concepts,
-        tags=valid_tags
+        tags=valid_tags,
+        institutions=valid_institutions,
+        author_institutions=valid_author_inst,
+        sponsored_by=valid_sponsored,
+        datasets=valid_datasets,
+        code_repositories=valid_code,
+        journal_or_conference=valid_jc,
+        citation_intents=valid_citations,
+        concept_relations=valid_concept_rels
     )
     return model, warnings
 

@@ -116,6 +116,19 @@ class MarkdownParser(BaseParser):
             except Exception:
                 created_at = datetime.datetime.now().isoformat()
 
+        comments_on = meta.get("comments_on") or meta.get("comments-on") or []
+        if isinstance(comments_on, str):
+            comments_on = [c.strip() for c in comments_on.split(",") if c.strip()]
+        agrees_with = meta.get("agrees_with") or meta.get("agrees-with") or []
+        if isinstance(agrees_with, str):
+            agrees_with = [c.strip() for c in agrees_with.split(",") if c.strip()]
+        disagrees_with = meta.get("disagrees_with") or meta.get("disagrees-with") or []
+        if isinstance(disagrees_with, str):
+            disagrees_with = [c.strip() for c in disagrees_with.split(",") if c.strip()]
+        linked_to = meta.get("linked_to") or meta.get("linked-to") or []
+        if isinstance(linked_to, str):
+            linked_to = [c.strip() for c in linked_to.split(",") if c.strip()]
+
         paper = Paper(
             id=paper_id,
             title=title,
@@ -129,6 +142,10 @@ class MarkdownParser(BaseParser):
                 "source_type": "note",
                 "tags": all_tags,
                 "original_path": str(path.resolve()),
+                "comments_on": comments_on,
+                "agrees_with": agrees_with,
+                "disagrees_with": disagrees_with,
+                "linked_to": linked_to,
             },
         )
 

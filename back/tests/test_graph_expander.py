@@ -1,6 +1,6 @@
 import unittest
-from unittest.mock import MagicMock, patch
-from src.models import Chunk, Paper, Author, Concept
+from unittest.mock import MagicMock
+from src.models import Chunk, Paper, Concept
 from src.services.graph_expander import ExperimentalGraphExpander
 from src.llm_schemas import EvidenceListResponse, EvidenceItem
 
@@ -85,7 +85,8 @@ class TestGraphExpander(unittest.TestCase):
         ]
         
         # Mock get_paper for the neighbors
-        p2 = Paper(id="paper_2", title="Title Two", abstract="Abstract Two")
+        import datetime
+        p2 = Paper(id="paper_2", title="Title Two", abstract="Abstract Two", year=datetime.datetime.now().year)
         p3 = Paper(id="paper_3", title="Title Three")
         concept1 = Concept(id="concept_1", name="Concept One", properties={"description": "Desc One"})
         
@@ -181,6 +182,23 @@ class TestGraphExpander(unittest.TestCase):
         # Check that we fell back gracefully and included all facts
         self.assertIn("[Paper] Title One", result)
         self.assertIn("[Chunk] Title One (Page 1)", result)
+
+    def test_trace_logging(self):
+        """Verify that expanding with trace=True executes successfully and outputs logs."""
+        c1 = Chunk(id="chunk_1", paper_id="paper_1", text_content="Intro text", page_number=1)
+        initial_chunks = [(c1, 0.9)]
+        
+        p1 = Paper(id="paper_1", title="Title One")
+        self.graph_repo.get_papers_batch.return_value = {"paper_1": p1}
+        self.graph_repo.get_neighbors.return_value = []
+        
+        mock_response = EvidenceListResponse(
+            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
+        )
+        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        
+        result = self.expander.expand("test query", initial_chunks, trace=True)
+        self.assertIn("[Paper] Title One", result)
 
 if __name__ == "__main__":
     unittest.main()
