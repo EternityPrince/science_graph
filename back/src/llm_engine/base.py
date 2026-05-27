@@ -201,6 +201,10 @@ def retry_with_temp_decay_async(max_retries: int = 3):
 
 
 class BaseLLMEngine:
+    @staticmethod
+    def extract_json(text: str) -> str:
+        return ResilientParser.extract_json(text)
+
     def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         raise NotImplementedError
 

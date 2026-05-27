@@ -13,10 +13,12 @@ DEFAULT_CONFIG = {
     "llm": {
         "provider": "mlx",
         "max_tokens": 1000,
+        "model_max_context": 4096,
         "temp": 0.1,
         "request_delay": 1.0,
         "retry_backoff": 2.0,
         "chunk_pool_size": 4,
+        "max_expanded_queries": 3,
         # Task-specific input token limits
         "extraction_input_limit": 5000,
         "clustering_input_limit": 6000,
@@ -99,6 +101,9 @@ llm:
   # Global default maximum output tokens for LLM response
   max_tokens: 1000
 
+  # Maximum context window size for the LLM
+  model_max_context: 4096
+
   # Default temperature (0.0 = deterministic, 1.0 = creative)
   temp: 0.1
 
@@ -110,6 +115,9 @@ llm:
 
   # Number of concurrent chunks to process in parallel via LLM
   chunk_pool_size: 4
+
+  # Maximum number of expanded queries for search (including original, 1 = disabled)
+  max_expanded_queries: 3
 
   # Local model settings (used if provider is 'mlx')
   local:
@@ -276,6 +284,28 @@ pdf_compression:
         return self.data["llm"].get("max_tokens", 1000)
 
     @property
+    def llm_model_max_context(self) -> int:
+        val = self.data["llm"].get("model_max_context")
+        if val is not None:
+            return int(val)
+        
+        provider = self.llm_provider
+        if provider == "openai":
+            model_name = self.llm_cloud_model_name.lower()
+            if "gpt-4o" in model_name:
+                return 128000
+            elif "gpt-4" in model_name:
+                return 8192
+            elif "gpt-3.5" in model_name:
+                return 16385
+            elif "gemini" in model_name:
+                return 32768
+            elif "claude" in model_name:
+                return 200000
+        
+        return 4096
+
+    @property
     def llm_temp(self) -> float:
         return self.data["llm"].get("temp", 0.1)
 
@@ -290,6 +320,10 @@ pdf_compression:
     @property
     def llm_chunk_pool_size(self) -> int:
         return int(self.data["llm"].get("chunk_pool_size", 4))
+
+    @property
+    def max_expanded_queries(self) -> int:
+        return int(self.data["llm"].get("max_expanded_queries", 3))
 
     @property
     def llm_extraction_input_limit(self) -> int:

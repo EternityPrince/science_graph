@@ -200,11 +200,12 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         self.service.expander.expand.return_value = "expansion block"
         
         with patch.object(self.service, "retrieve_relevant_chunks", return_value=[(chunk, 0.95)]):
-            with patch.object(self.service, "_get_reranker", return_value=MagicMock()):
-                res = self.service.ask("query")
-                self.assertEqual(res, "Answer Text")
-                self.service.expander.expand.assert_called_once()
-                self.llm_engine.generate_response.assert_called_once()
+            with patch.object(self.service, "build_context", return_value=("text context", "graph context")):
+                with patch.object(self.service, "_get_reranker", return_value=MagicMock()):
+                    res = self.service.ask("query")
+                    self.assertEqual(res, "Answer Text")
+                    self.service.expander.expand.assert_called_once()
+                    self.llm_engine.generate_response.assert_called_once()
 
         # Without expander
         self.service.expander = None
@@ -297,3 +298,221 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
                 results = [r async for r in stream]
                 self.assertEqual(results[0]["type"], "error")
                 self.assertIn("Generation failed: LLM connection timed out", results[0]["text"])
+
+    def test_trim_context_no_change(self):
+        # Context < limit: nothing changes
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.paper_id = "p1"
+        chunk1.page_number = 1
+        chunk1.text_content = "text1"
+
+        chunk2 = MagicMock(spec=Chunk)
+        chunk2.paper_id = "p2"
+        chunk2.page_number = 1
+        chunk2.text_content = "text2"
+
+        final_chunks = [(chunk1, 0.9), (chunk2, 0.8)]
+        
+        # Mock build_context
+        def build_context_mock(chunks):
+            txt = "\n\n".join([f"Block {i}: {c[0].text_content}" for i, c in enumerate(chunks, 1)])
+            graph = "No direct graph relations found."
+            return txt, graph
+        
+        with patch.object(self.service, "build_context", side_effect=build_context_mock):
+            trimmed_text, trimmed_graph, trimmed_chunks = self.service.trim_context(
+                context_text="Block 1: text1\n\nBlock 2: text2",
+                context_graph="No direct graph relations found.",
+                final_chunks=final_chunks,
+                query="query",
+                history_str="",
+                system_prompt="system",
+                model_max_context=1000,
+                reserved_tokens=500
+            )
+            # Should keep both chunks
+            self.assertEqual(len(trimmed_chunks), 2)
+            self.assertEqual(trimmed_chunks[0][0].text_content, "text1")
+            self.assertEqual(trimmed_chunks[1][0].text_content, "text2")
+
+    def test_trim_context_trim_chunks(self):
+        # Context > limit: chunks are cut from tail
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.paper_id = "p1"
+        chunk1.page_number = 1
+        chunk1.text_content = "text1"
+
+        chunk2 = MagicMock(spec=Chunk)
+        chunk2.paper_id = "p2"
+        chunk2.page_number = 1
+        chunk2.text_content = "text2"
+
+        final_chunks = [(chunk1, 0.9), (chunk2, 0.8)]
+        
+        # Mock build_context
+        def build_context_mock(chunks):
+            txt = "\n\n".join([f"Block {i}: {c[0].text_content}" for i, c in enumerate(chunks, 1)])
+            graph = "No direct graph relations found."
+            return txt, graph
+
+        with patch.object(self.service, "build_context", side_effect=build_context_mock):
+            trimmed_text, trimmed_graph, trimmed_chunks = self.service.trim_context(
+                context_text="Block 1: text1\n\nBlock 2: text2",
+                context_graph="No direct graph relations found.",
+                final_chunks=final_chunks,
+                query="query",
+                history_str="",
+                system_prompt="system",
+                model_max_context=40,
+                reserved_tokens=25 # Limit is 15 tokens
+            )
+            # Should trim to 1 chunk
+            self.assertEqual(len(trimmed_chunks), 1)
+            self.assertEqual(trimmed_chunks[0][0].text_content, "text1")
+
+    def test_trim_context_trim_graph(self):
+        # Context > limit even with 1 chunk: graph is trimmed
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.paper_id = "p1"
+        chunk1.page_number = 1
+        chunk1.text_content = "text1"
+
+        final_chunks = [(chunk1, 0.9)]
+        
+        # Mock build_context
+        def build_context_mock(chunks):
+            return "Block 1: text1", "- a1 (Author) authored paper p1\n- Paper p1 cites paper p2"
+            
+        # Mock get_neighbors
+        self.graph_repo.get_neighbors.return_value = [
+            ("a1", "Author", "AUTHORED", "p1", "Paper", json.dumps({"score": 0.5})),
+            ("p1", "Paper", "CITES", "p2", "Paper", json.dumps({"score": 0.9})),
+        ]
+        # We need name resolution for nodes
+        self.service._resolve_node_name = MagicMock(side_effect=lambda nid, lbl: nid)
+
+        with patch.object(self.service, "build_context", side_effect=build_context_mock):
+            trimmed_text, trimmed_graph, trimmed_chunks = self.service.trim_context(
+                context_text="Block 1: text1",
+                context_graph="- a1 (Author) authored paper p1\n- Paper p1 cites paper p2",
+                final_chunks=final_chunks,
+                query="query",
+                history_str="",
+                system_prompt="system",
+                model_max_context=31,
+                reserved_tokens=15 # limit is 16 tokens
+            )
+            
+            self.assertIn("cites paper p2", trimmed_graph)
+            self.assertNotIn("authored paper", trimmed_graph)
+
+    @patch("src.services.rag_service.config")
+    def test_expand_query_success(self, mock_config):
+        mock_config.max_expanded_queries = 3
+        mock_config.llm_max_tokens = 1000
+        
+        self.llm_engine.generate_response.return_value = '["cluster analysis", "grouping algorithm"]'
+        self.llm_engine.extract_json.side_effect = lambda x: x
+        
+        res = self.service._expand_query("clustering")
+        self.assertEqual(res, ["clustering", "cluster analysis", "grouping algorithm"])
+        
+        # Verify prompt format/intent
+        self.llm_engine.generate_response.assert_called_once()
+        prompt = self.llm_engine.generate_response.call_args[0][0]
+        self.assertIn("You are a search query expansion assistant", prompt)
+
+    @patch("src.services.rag_service.config")
+    def test_expand_query_invalid_json_fallback(self, mock_config):
+        mock_config.max_expanded_queries = 3
+        mock_config.llm_max_tokens = 1000
+        
+        self.llm_engine.generate_response.return_value = 'invalid json'
+        self.llm_engine.extract_json.side_effect = lambda x: x
+        
+        res = self.service._expand_query("clustering")
+        self.assertEqual(res, ["clustering"])
+
+    @patch("src.services.rag_service.config")
+    def test_expand_query_exception_fallback(self, mock_config):
+        mock_config.max_expanded_queries = 3
+        mock_config.llm_max_tokens = 1000
+        
+        self.llm_engine.generate_response.side_effect = Exception("LLM unavailable")
+        
+        res = self.service._expand_query("clustering")
+        self.assertEqual(res, ["clustering"])
+
+    @patch("src.services.rag_service.config")
+    def test_expand_query_length_limit(self, mock_config):
+        mock_config.max_expanded_queries = 3
+        
+        long_query = "a" * 201
+        res = self.service._expand_query(long_query)
+        self.assertEqual(res, [long_query])
+        self.llm_engine.generate_response.assert_not_called()
+
+    @patch("src.services.rag_service.config")
+    def test_expand_query_disabled(self, mock_config):
+        mock_config.max_expanded_queries = 1
+        
+        res = self.service._expand_query("clustering")
+        self.assertEqual(res, ["clustering"])
+        self.llm_engine.generate_response.assert_not_called()
+
+    @patch("sentence_transformers.CrossEncoder")
+    def test_retrieve_relevant_chunks_with_expansion(self, mock_cross_encoder):
+        mock_ce_instance = MagicMock()
+        mock_ce_instance.predict.side_effect = lambda pairs: [0.95, 0.85, 0.75]
+        self.service._reranker = mock_ce_instance
+
+        # Mock query expansion
+        self.service._expand_query = MagicMock(return_value=["clustering", "cluster analysis"])
+        
+        # We have 3 chunks
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.id = "c1"
+        chunk1.text_content = "text 1"
+        
+        chunk2 = MagicMock(spec=Chunk)
+        chunk2.id = "c2"
+        chunk2.text_content = "text 2"
+        
+        chunk3 = MagicMock(spec=Chunk)
+        chunk3.id = "c3"
+        chunk3.text_content = "text 3"
+
+        # Mock embedding engine
+        self.emb_engine.get_embedding.side_effect = lambda q: [0.1] if q == "clustering" else [0.2]
+        
+        # Mock vector search
+        def mock_search_similar(emb, limit):
+            # If embedding is [0.1] (clustering)
+            if emb == [0.1]:
+                return [(chunk1, 0.9), (chunk2, 0.8)]
+            # If embedding is [0.2] (cluster analysis)
+            else:
+                return [(chunk2, 0.85), (chunk3, 0.7)]
+        self.vector_repo.search_similar_chunks.side_effect = mock_search_similar
+        
+        # Mock FTS5 to return chunk1 with lower score
+        self.vector_repo.search_text_fts5.return_value = [(chunk1, 0.5)]
+        
+        res = self.service.retrieve_relevant_chunks("clustering", limit=3)
+        
+        # Let's check calls to search_similar_chunks
+        self.assertEqual(self.vector_repo.search_similar_chunks.call_count, 2)
+        
+        # Let's check call to search_text_fts5 is run with original query only
+        self.vector_repo.search_text_fts5.assert_called_once_with("clustering", limit=6)
+        
+        # Let's check the result contains the candidates sorted by reranker score
+        self.assertEqual(len(res), 3)
+        
+        # Reranker pairs should have been called with the original query "clustering"
+        mock_ce_instance.predict.assert_called_once()
+        pairs = mock_ce_instance.predict.call_args[0][0]
+        self.assertEqual(len(pairs), 3)
+        self.assertEqual(pairs[0][0], "clustering")
+        self.assertEqual(pairs[1][0], "clustering")
+        self.assertEqual(pairs[2][0], "clustering")
