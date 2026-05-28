@@ -10,6 +10,7 @@ from src.models import Paper, Chunk, slugify
 from src.config import config
 from src.repository.base import GraphRepository, VectorRepository
 from src.vector_search import EmbeddingEngine
+from src.services.similarity import JaccardSimilarity
 
 
 def _split_text_to_chunks_raw(
@@ -76,7 +77,6 @@ class DuplicateDetector:
         """
         Detects if the given paper/document is already present in the database.
         Returns:
-        Returns:
             Optional[Tuple[str, str]]: (duplicate_paper_id, matching_reason) if a duplicate is found,
                                        else None.
         """
@@ -113,34 +113,6 @@ class DuplicateDetector:
             logging.debug(f"detect_duplicate found content hash match for paper {paper.id} in {dt:.6f}s")
             return existing_hash.id, "content_hash"
 
-        # Helper for Jaccard similarity of author lists
-        def author_jaccard_similarity(authors1: List[str], authors2: List[str]) -> float:
-            set1 = {slugify(a) for a in authors1 if slugify(a)}
-            set2 = {slugify(a) for a in authors2 if slugify(a)}
-            if not set1 and not set2:
-                return 1.0
-            if not set1 or not set2:
-                return 0.0
-            return len(set1.intersection(set2)) / len(set1.union(set2))
-
-        # Helper for 3-word shingles
-        def get_3_shingles(text: str) -> set:
-            words = re.findall(r'\b\w+\b', text.lower())
-            shingles = set()
-            for i in range(len(words) - 2):
-                shingles.add((words[i], words[i+1], words[i+2]))
-            return shingles
-
-        # Helper for word Jaccard similarity
-        def word_jaccard_similarity(text1: str, text2: str) -> float:
-            words1 = set(re.findall(r'\b\w+\b', text1.lower()))
-            words2 = set(re.findall(r'\b\w+\b', text2.lower()))
-            if not words1 and not words2:
-                return 1.0
-            if not words1 or not words2:
-                return 0.0
-            return len(words1.intersection(words2)) / len(words1.union(words2))
-
         # Helper to reconstruct text from chunks
         def reconstruct_text(paper_id: str) -> str:
             chunks = self.vector_repo.get_chunks_for_paper(paper_id)
@@ -164,7 +136,7 @@ class DuplicateDetector:
         def get_3_shingles_cached(cand_id: str) -> set:
             if cand_id not in shingles_cache:
                 txt = get_reconstruct_text_cached(cand_id)
-                shingles_cache[cand_id] = get_3_shingles(txt)
+                shingles_cache[cand_id] = JaccardSimilarity.get_3_shingles(txt)
             return shingles_cache[cand_id]
 
         # Build candidate set of Papers to avoid database-wide scans
@@ -210,7 +182,7 @@ class DuplicateDetector:
                     cand_paper = self.graph_repo.get_paper(c.paper_id)
                     if cand_paper and not is_placeholder(cand_paper):
                         add_candidate(cand_paper)
-                        if word_jaccard_similarity(first_chunk_text, c.text_content) >= 0.80:
+                        if JaccardSimilarity.word_jaccard_similarity(first_chunk_text, c.text_content) >= 0.80:
                             dt = time.perf_counter() - t0
                             logging.debug(f"detect_duplicate found embedding similarity match in {dt:.6f}s")
                             return cand_paper.id, "embedding_similarity"
@@ -219,13 +191,13 @@ class DuplicateDetector:
         shingles_new = set()
         # Data validation: ensure full_text is a valid, non-empty string and not truncated
         if full_text and isinstance(full_text, str) and len(full_text.strip()) > 50:
-            shingles_new = get_3_shingles(full_text)
+            shingles_new = JaccardSimilarity.get_3_shingles(full_text)
 
         for cand_id, cand in candidates.items():
             # A. Exact Title and Author similarity > 0.3 or both empty
             if paper.title and cand.title:
                 if paper.title.strip().lower() == cand.title.strip().lower():
-                    author_sim = author_jaccard_similarity(paper.authors, cand.authors)
+                    author_sim = JaccardSimilarity.author_jaccard_similarity(paper.authors, cand.authors)
                     if author_sim > 0.3 or (not paper.authors and not cand.authors):
                         dt = time.perf_counter() - t0
                         logging.debug(f"detect_duplicate found title/author similarity match in {dt:.6f}s")

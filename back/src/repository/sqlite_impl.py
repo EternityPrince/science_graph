@@ -93,7 +93,10 @@ class SQLiteGraphRepository(GraphRepository):
                 id TEXT PRIMARY KEY,
                 label TEXT NOT NULL,
                 properties TEXT NOT NULL,
-                title TEXT GENERATED ALWAYS AS (json_extract(properties, '$.title')) VIRTUAL,
+                title TEXT GENERATED ALWAYS AS (trim(json_extract(properties, '$.title'))) VIRTUAL COLLATE NOCASE,
+                doi TEXT GENERATED ALWAYS AS (json_extract(properties, '$.doi')) VIRTUAL,
+                content_hash TEXT GENERATED ALWAYS AS (json_extract(properties, '$.content_hash')) VIRTUAL,
+                source_type TEXT GENERATED ALWAYS AS (json_extract(properties, '$.source_type')) VIRTUAL,
                 is_placeholder INTEGER GENERATED ALWAYS AS (
                     CASE 
                         WHEN json_extract(properties, '$.is_placeholder') = 1 THEN 1
@@ -107,9 +110,33 @@ class SQLiteGraphRepository(GraphRepository):
             # Schema migration: check if columns exist in nodes table for existing setups
             cursor = conn.execute("PRAGMA table_xinfo(nodes);")
             columns = [row[1] for row in cursor.fetchall()]
+            
+            # Drop old title column if it's not case-insensitive/trimmed
+            if "title" in columns:
+                try:
+                    conn.execute("ALTER TABLE nodes DROP COLUMN title;")
+                    columns.remove("title")
+                except sqlite3.OperationalError:
+                    pass
+                    
             if "title" not in columns:
                 try:
-                    conn.execute("ALTER TABLE nodes ADD COLUMN title TEXT GENERATED ALWAYS AS (json_extract(properties, '$.title')) VIRTUAL;")
+                    conn.execute("ALTER TABLE nodes ADD COLUMN title TEXT GENERATED ALWAYS AS (trim(json_extract(properties, '$.title'))) VIRTUAL COLLATE NOCASE;")
+                except sqlite3.OperationalError:
+                    pass
+            if "doi" not in columns:
+                try:
+                    conn.execute("ALTER TABLE nodes ADD COLUMN doi TEXT GENERATED ALWAYS AS (json_extract(properties, '$.doi')) VIRTUAL;")
+                except sqlite3.OperationalError:
+                    pass
+            if "content_hash" not in columns:
+                try:
+                    conn.execute("ALTER TABLE nodes ADD COLUMN content_hash TEXT GENERATED ALWAYS AS (json_extract(properties, '$.content_hash')) VIRTUAL;")
+                except sqlite3.OperationalError:
+                    pass
+            if "source_type" not in columns:
+                try:
+                    conn.execute("ALTER TABLE nodes ADD COLUMN source_type TEXT GENERATED ALWAYS AS (json_extract(properties, '$.source_type')) VIRTUAL;")
                 except sqlite3.OperationalError:
                     pass
             if "is_placeholder" not in columns:
@@ -141,8 +168,12 @@ class SQLiteGraphRepository(GraphRepository):
             
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_label ON nodes(label);")
+            conn.execute("DROP INDEX IF EXISTS idx_nodes_title;")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_title ON nodes(title);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_is_placeholder ON nodes(is_placeholder);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_doi ON nodes(doi);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_content_hash ON nodes(content_hash);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_source_type ON nodes(source_type);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);")
             conn.commit()
@@ -319,19 +350,12 @@ class SQLiteGraphRepository(GraphRepository):
                     properties=props
                 )
             
-            # Case-insensitive title match using indexed title column
+            # Case-insensitive title match using indexed title column (which now has COLLATE NOCASE)
             clean_title = title.strip()
             row = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND title = ? COLLATE NOCASE",
+                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND title = ?",
                 (clean_title,)
             ).fetchone()
-            
-            if not row:
-                # Fallback to TRIM in case there is trailing/leading whitespace in legacy properties
-                row = conn.execute(
-                    "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND TRIM(title) = ? COLLATE NOCASE",
-                    (clean_title,)
-                ).fetchone()
 
             if row:
                 props = json.loads(row["properties"])
@@ -353,7 +377,7 @@ class SQLiteGraphRepository(GraphRepository):
             return None
         with self._get_connection() as conn:
             row = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND json_extract(properties, '$.doi') = ?",
+                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND doi = ?",
                 (doi.strip(),)
             ).fetchone()
             if row:
@@ -376,7 +400,7 @@ class SQLiteGraphRepository(GraphRepository):
             return None
         with self._get_connection() as conn:
             row = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND json_extract(properties, '$.content_hash') = ?",
+                "SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND content_hash = ?",
                 (content_hash,)
             ).fetchone()
             if row:
@@ -472,76 +496,46 @@ class SQLiteGraphRepository(GraphRepository):
         if max_depth < 1:
             return []
         
-        # Simple BFS / traversal using raw SQLite
-        # Let's perform a query for 1-hop first
+        # Optimized recursive CTE traversal with UNION (implicit distinct) and path-based cycle prevention
         query = """
-        SELECT 
-            e.source_id as src_id, n1.label as src_label,
-            e.type as edge_type,
-            e.target_id as tgt_id, n2.label as tgt_label,
-            e.properties as edge_props
-        FROM edges e
-        JOIN nodes n1 ON e.source_id = n1.id
-        JOIN nodes n2 ON e.target_id = n2.id
-        WHERE e.source_id = ?
-        UNION ALL
-        SELECT 
-            e.source_id as src_id, n1.label as src_label,
-            e.type as edge_type,
-            e.target_id as tgt_id, n2.label as tgt_label,
-            e.properties as edge_props
-        FROM edges e
-        JOIN nodes n1 ON e.source_id = n1.id
-        JOIN nodes n2 ON e.target_id = n2.id
-        WHERE e.target_id = ? AND e.source_id != ?
+        WITH RECURSIVE traverse(current_node, src_id, src_label, edge_type, tgt_id, tgt_label, edge_props, depth, path) AS (
+            -- Anchor query: edges directly connected to the starting node
+            SELECT 
+                CASE WHEN e.source_id = :node_id THEN e.target_id ELSE e.source_id END,
+                e.source_id, n1.label, e.type, e.target_id, n2.label, e.properties,
+                1,
+                ',' || :node_id || ',' || CASE WHEN e.source_id = :node_id THEN e.target_id ELSE e.source_id END || ','
+            FROM edges e
+            JOIN nodes n1 ON e.source_id = n1.id
+            JOIN nodes n2 ON e.target_id = n2.id
+            WHERE e.source_id = :node_id OR e.target_id = :node_id
+            
+            UNION
+            
+            -- Recursive step: transition to adjacent nodes
+            SELECT 
+                CASE WHEN e.source_id = t.current_node THEN e.target_id ELSE e.source_id END,
+                e.source_id, n1.label, e.type, e.target_id, n2.label, e.properties,
+                t.depth + 1,
+                t.path || CASE WHEN e.source_id = t.current_node THEN e.target_id ELSE e.source_id END || ','
+            FROM edges e
+            JOIN nodes n1 ON e.source_id = n1.id
+            JOIN nodes n2 ON e.target_id = n2.id
+            JOIN traverse t ON (e.source_id = t.current_node OR e.target_id = t.current_node)
+            WHERE t.depth < :max_depth
+              AND t.path NOT LIKE '%,' || CASE WHEN e.source_id = t.current_node THEN e.target_id ELSE e.source_id END || ',%'
+        )
+        SELECT DISTINCT src_id, src_label, edge_type, tgt_id, tgt_label, edge_props FROM traverse;
         """
         
-        visited_edges = set()
-        results = []
-        
         with self._get_connection() as conn:
-            # We fetch starting node neighbors
-            rows = conn.execute(query, (node_id, node_id, node_id)).fetchall()
-            for r in rows:
-                edge_key = (r["src_id"], r["tgt_id"], r["edge_type"])
-                if edge_key not in visited_edges:
-                    visited_edges.add(edge_key)
-                    results.append((
-                        r["src_id"], r["src_label"],
-                        r["edge_type"],
-                        r["tgt_id"], r["tgt_label"],
-                        r["edge_props"]
-                    ))
-                    
-            # If max_depth > 1, we traverse further
-            current_nodes = {node_id}
-            for _ in range(1, max_depth):
-                next_nodes = set()
-                for edge in list(results):
-                    next_nodes.add(edge[0]) # src
-                    next_nodes.add(edge[3]) # tgt
-                
-                # Exclude starting nodes to avoid re-querying
-                query_nodes = next_nodes - current_nodes
-                if not query_nodes:
-                    break
-                
-                current_nodes.update(query_nodes)
-                
-                for q_node in query_nodes:
-                    rows = conn.execute(query, (q_node, q_node, q_node)).fetchall()
-                    for r in rows:
-                        edge_key = (r["src_id"], r["tgt_id"], r["edge_type"])
-                        if edge_key not in visited_edges:
-                            visited_edges.add(edge_key)
-                            results.append((
-                                r["src_id"], r["src_label"],
-                                r["edge_type"],
-                                r["tgt_id"], r["tgt_label"],
-                                r["edge_props"]
-                            ))
-                            
-        return results
+            rows = conn.execute(query, {"node_id": node_id, "max_depth": max_depth}).fetchall()
+            return [(
+                r["src_id"], r["src_label"],
+                r["edge_type"],
+                r["tgt_id"], r["tgt_label"],
+                r["edge_props"]
+            ) for r in rows]
 
     def get_stats(self) -> Dict[str, int]:
         with self._get_connection() as conn:
@@ -566,10 +560,8 @@ class SQLiteGraphRepository(GraphRepository):
                 """
                 DELETE FROM nodes
                 WHERE label = 'Concept'
-                AND id NOT IN (
-                    SELECT DISTINCT source_id FROM edges
-                    UNION
-                    SELECT DISTINCT target_id FROM edges
+                AND NOT EXISTS (
+                    SELECT 1 FROM edges WHERE source_id = nodes.id OR target_id = nodes.id
                 )
                 """
             )
@@ -669,7 +661,7 @@ class SQLiteGraphRepository(GraphRepository):
     def get_notes(self) -> List[Paper]:
         with self._get_connection() as conn:
             rows = conn.execute(
-                "SELECT id, properties FROM nodes WHERE label = 'UserNote' OR (label = 'Paper' AND json_extract(properties, '$.source_type') = 'note')"
+                "SELECT id, properties FROM nodes WHERE label = 'UserNote' OR (label = 'Paper' AND source_type = 'note')"
             ).fetchall()
             papers = []
             for r in rows:
@@ -744,44 +736,71 @@ class SQLiteGraphRepository(GraphRepository):
                     ).fetchall()
                 elif table == "authors":
                     rows = conn.execute(
-                        """SELECT id, properties,
-                                  (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
-                           FROM nodes WHERE label='Author' ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
+                        """SELECT n.id, n.properties, COUNT(e.source_id) as papers_count
+                           FROM nodes n
+                           LEFT JOIN edges e ON n.id = e.source_id AND e.type = 'AUTHORED'
+                           WHERE n.label = 'Author'
+                           GROUP BY n.id
+                           ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
                         (limit, off)
                     ).fetchall()
                 else:  # concepts
                     rows = conn.execute(
-                        """SELECT id, properties,
-                                  (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
-                           FROM nodes WHERE label='Concept' ORDER BY degree DESC LIMIT ? OFFSET ?""",
+                        """SELECT n.id, n.properties, COUNT(e.target_id) as degree
+                           FROM nodes n
+                           LEFT JOIN edges e ON n.id = e.target_id AND e.type = 'MENTIONS_CONCEPT'
+                           WHERE n.label = 'Concept'
+                           GROUP BY n.id
+                           ORDER BY degree DESC LIMIT ? OFFSET ?""",
                         (limit, off)
                     ).fetchall()
             else:
                 like_pat = f"%{search_query}%"
                 if table == "documents":
-                    rows = conn.execute(
-                        """SELECT id, properties FROM nodes
-                           WHERE label IN ('Paper', 'UserNote')
-                           AND (
-                               id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
-                               OR properties LIKE ?
-                           )
-                           LIMIT ? OFFSET ?""",
-                        (like_pat, like_pat, limit, off)
-                    ).fetchall()
+                    import re
+                    words = re.findall(r'\w+', search_query)
+                    fts_query = " OR ".join(words) if words else ""
+                    if fts_query:
+                        rows = conn.execute(
+                            """SELECT id, properties FROM nodes
+                               WHERE label IN ('Paper', 'UserNote')
+                               AND (
+                                   id IN (
+                                       SELECT DISTINCT c.paper_id 
+                                       FROM chunks_fts f
+                                       JOIN chunks c ON c.id = f.id
+                                       WHERE chunks_fts MATCH ?
+                                   )
+                                   OR properties LIKE ?
+                               )
+                               LIMIT ? OFFSET ?""",
+                            (fts_query, like_pat, limit, off)
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(
+                            """SELECT id, properties FROM nodes
+                               WHERE label IN ('Paper', 'UserNote')
+                               AND properties LIKE ?
+                               LIMIT ? OFFSET ?""",
+                            (like_pat, limit, off)
+                        ).fetchall()
                 elif table == "authors":
                     rows = conn.execute(
-                        """SELECT id, properties,
-                                  (SELECT count(*) FROM edges WHERE source_id=nodes.id AND type='AUTHORED') as papers_count
-                           FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)
+                        """SELECT n.id, n.properties, COUNT(e.source_id) as papers_count
+                           FROM nodes n
+                           LEFT JOIN edges e ON n.id = e.source_id AND e.type = 'AUTHORED'
+                           WHERE n.label = 'Author' AND (n.id LIKE ? OR n.properties LIKE ?)
+                           GROUP BY n.id
                            ORDER BY papers_count DESC LIMIT ? OFFSET ?""",
                         (like_pat, like_pat, limit, off)
                     ).fetchall()
                 else:  # concepts
                     rows = conn.execute(
-                        """SELECT id, properties,
-                                  (SELECT count(*) FROM edges WHERE target_id=nodes.id AND type='MENTIONS_CONCEPT') as degree
-                           FROM nodes WHERE label='Concept' AND (id LIKE ? OR properties LIKE ?)
+                        """SELECT n.id, n.properties, COUNT(e.target_id) as degree
+                           FROM nodes n
+                           LEFT JOIN edges e ON n.id = e.target_id AND e.type = 'MENTIONS_CONCEPT'
+                           WHERE n.label = 'Concept' AND (n.id LIKE ? OR n.properties LIKE ?)
+                           GROUP BY n.id
                            ORDER BY degree DESC LIMIT ? OFFSET ?""",
                         (like_pat, like_pat, limit, off)
                     ).fetchall()
@@ -798,17 +817,35 @@ class SQLiteGraphRepository(GraphRepository):
             
             like_pat = f"%{search_query}%"
             if table == "documents":
-                return conn.execute(
-                    """
-                    SELECT count(*) FROM nodes
-                    WHERE label IN ('Paper', 'UserNote')
-                    AND (
-                        id IN (SELECT DISTINCT paper_id FROM chunks WHERE text_content LIKE ?)
-                        OR properties LIKE ?
-                    )
-                    """,
-                    (like_pat, like_pat)
-                ).fetchone()[0]
+                import re
+                words = re.findall(r'\w+', search_query)
+                fts_query = " OR ".join(words) if words else ""
+                if fts_query:
+                    return conn.execute(
+                        """
+                        SELECT count(*) FROM nodes
+                        WHERE label IN ('Paper', 'UserNote')
+                        AND (
+                            id IN (
+                                SELECT DISTINCT c.paper_id 
+                                FROM chunks_fts f
+                                JOIN chunks c ON c.id = f.id
+                                WHERE chunks_fts MATCH ?
+                            )
+                            OR properties LIKE ?
+                        )
+                        """,
+                        (fts_query, like_pat)
+                    ).fetchone()[0]
+                else:
+                    return conn.execute(
+                        """
+                        SELECT count(*) FROM nodes
+                        WHERE label IN ('Paper', 'UserNote')
+                        AND properties LIKE ?
+                        """,
+                        (like_pat,)
+                    ).fetchone()[0]
             elif table == "authors":
                 return conn.execute(
                     "SELECT count(*) FROM nodes WHERE label='Author' AND (id LIKE ? OR properties LIKE ?)",
