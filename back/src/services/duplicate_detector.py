@@ -76,9 +76,14 @@ class DuplicateDetector:
         """
         Detects if the given paper/document is already present in the database.
         Returns:
+        Returns:
             Optional[Tuple[str, str]]: (duplicate_paper_id, matching_reason) if a duplicate is found,
                                        else None.
         """
+        import time
+        import logging
+        t0 = time.perf_counter()
+
         # Helper to check if a paper is a placeholder
         def is_placeholder(p: Paper) -> bool:
             if not p:
@@ -88,18 +93,24 @@ class DuplicateDetector:
         # 1. Exact ID check
         existing = self.graph_repo.get_paper(paper.id)
         if existing and not is_placeholder(existing):
+            dt = time.perf_counter() - t0
+            logging.debug(f"detect_duplicate found exact ID match for paper {paper.id} in {dt:.6f}s")
             return existing.id, "exact_id"
 
         # 2. DOI check
         if paper.doi:
             existing_doi = self.graph_repo.find_paper_by_doi(paper.doi)
             if existing_doi and not is_placeholder(existing_doi):
+                dt = time.perf_counter() - t0
+                logging.debug(f"detect_duplicate found DOI match for paper {paper.id} in {dt:.6f}s")
                 return existing_doi.id, "doi"
 
         # 3. Content Hash check (for incoming text)
         content_hash = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
         existing_hash = self.graph_repo.find_paper_by_content_hash(content_hash)
         if existing_hash and not is_placeholder(existing_hash):
+            dt = time.perf_counter() - t0
+            logging.debug(f"detect_duplicate found content hash match for paper {paper.id} in {dt:.6f}s")
             return existing_hash.id, "content_hash"
 
         # Helper for Jaccard similarity of author lists
@@ -140,6 +151,21 @@ class DuplicateDetector:
                     return chunk.id
             chunks_sorted = sorted(chunks, key=get_idx)
             return " ".join(c.text_content for c in chunks_sorted)
+
+        # Local cache for reconstructed text and shingles mapped by candidate ID
+        reconstruct_cache = {}
+        shingles_cache = {}
+
+        def get_reconstruct_text_cached(cand_id: str) -> str:
+            if cand_id not in reconstruct_cache:
+                reconstruct_cache[cand_id] = reconstruct_text(cand_id)
+            return reconstruct_cache[cand_id]
+
+        def get_3_shingles_cached(cand_id: str) -> set:
+            if cand_id not in shingles_cache:
+                txt = get_reconstruct_text_cached(cand_id)
+                shingles_cache[cand_id] = get_3_shingles(txt)
+            return shingles_cache[cand_id]
 
         # Build candidate set of Papers to avoid database-wide scans
         candidates = {}
@@ -185,10 +211,15 @@ class DuplicateDetector:
                     if cand_paper and not is_placeholder(cand_paper):
                         add_candidate(cand_paper)
                         if word_jaccard_similarity(first_chunk_text, c.text_content) >= 0.80:
+                            dt = time.perf_counter() - t0
+                            logging.debug(f"detect_duplicate found embedding similarity match in {dt:.6f}s")
                             return cand_paper.id, "embedding_similarity"
 
         # Now detailed checking on all candidates
-        shingles_new = get_3_shingles(full_text)
+        shingles_new = set()
+        # Data validation: ensure full_text is a valid, non-empty string and not truncated
+        if full_text and isinstance(full_text, str) and len(full_text.strip()) > 50:
+            shingles_new = get_3_shingles(full_text)
 
         for cand_id, cand in candidates.items():
             # A. Exact Title and Author similarity > 0.3 or both empty
@@ -196,30 +227,36 @@ class DuplicateDetector:
                 if paper.title.strip().lower() == cand.title.strip().lower():
                     author_sim = author_jaccard_similarity(paper.authors, cand.authors)
                     if author_sim > 0.3 or (not paper.authors and not cand.authors):
+                        dt = time.perf_counter() - t0
+                        logging.debug(f"detect_duplicate found title/author similarity match in {dt:.6f}s")
                         return cand_id, "title_author_similarity"
 
             # B. Legacy content hash comparison
             cand_hash = cand.properties.get("content_hash")
             cand_text = None
             if not cand_hash:
-                cand_text = reconstruct_text(cand_id)
+                cand_text = get_reconstruct_text_cached(cand_id)
                 cand_hash = hashlib.sha256(cand_text.encode('utf-8')).hexdigest()
                 updated_props = {**cand.properties, "content_hash": cand_hash}
                 self.graph_repo.update_node_properties(cand_id, updated_props)
 
             if cand_hash == content_hash:
+                dt = time.perf_counter() - t0
+                logging.debug(f"detect_duplicate found content hash match after reconstruction in {dt:.6f}s")
                 return cand_id, "content_hash"
 
             # C. 3-word shingles check (threshold >= 0.70)
             if shingles_new:
-                if cand_text is None:
-                    cand_text = reconstruct_text(cand_id)
-                shingles_cand = get_3_shingles(cand_text)
+                shingles_cand = get_3_shingles_cached(cand_id)
                 if shingles_cand:
                     intersection = len(shingles_new.intersection(shingles_cand))
                     union = len(shingles_new.union(shingles_cand))
                     jaccard = intersection / union if union > 0 else 0.0
                     if jaccard >= 0.70:
+                        dt = time.perf_counter() - t0
+                        logging.debug(f"detect_duplicate found shingle similarity match in {dt:.6f}s")
                         return cand_id, "shingle_similarity"
 
+        dt = time.perf_counter() - t0
+        logging.debug(f"detect_duplicate completed in {dt:.6f}s (no duplicates found)")
         return None
