@@ -7,7 +7,7 @@ import re
 import functools
 import inspect
 import asyncio
-from typing import Optional, Type
+from typing import Optional, Type, Any, Dict, List
 
 from pydantic import BaseModel, ValidationError
 from src.config import config
@@ -200,6 +200,71 @@ def retry_with_temp_decay_async(max_retries: int = 3):
     return decorator
 
 
+def validate_no_hallucinations(data: Any) -> None:
+    """
+    Recursively inspects data structures (dicts, lists, strings) to detect 
+    common LLM repetition hallucinations and loops, raising ValueError if found.
+    """
+    if isinstance(data, dict):
+        for val in data.values():
+            validate_no_hallucinations(val)
+    elif isinstance(data, list):
+        # 1. Check for extreme list lengths (often sign of infinite loop)
+        if len(data) > 50:
+            raise ValueError(f"List length ({len(data)}) exceeds reasonable threshold (50), likely due to repetition loop.")
+            
+        # 2. Check for repeating cycles of elements (e.g. A, B, A, B, A, B)
+        # We check cycles of length 1..4 repeating at least 3 times consecutively
+        n = len(data)
+        str_items = [str(x).strip().lower() for x in data]
+        for l in range(1, 5):
+            pattern_len = l * 3
+            for i in range(n - pattern_len + 1):
+                sub = str_items[i : i + pattern_len]
+                pattern = sub[:l]
+                if pattern * 3 == sub:
+                    # Ignore very short common words or empty patterns
+                    if not any(pattern):
+                        continue
+                    raise ValueError(f"Repetitive loop detected in list: {data[i : i + pattern_len]}")
+                    
+        # 3. Check for overall frequency ratio in larger lists
+        if len(data) > 10:
+            unique_count = len(set(str_items))
+            if unique_count / len(data) < 0.4:
+                raise ValueError("Low uniqueness ratio in list, indicating repeating elements.")
+                
+        # 4. Check for duplicate primitive elements repeating 3 or more times (hallucination indicator)
+        from collections import Counter
+        primitive_items = [str(x).strip().lower() for x in data if not isinstance(x, (dict, list))]
+        counts = Counter(primitive_items)
+        for item, count in counts.items():
+            if count >= 3 and len(item) > 1:
+                raise ValueError(f"Element '{item}' repeated {count} times in list, likely a hallucination loop.")
+                
+        # Recurse on list items
+        for item in data:
+            validate_no_hallucinations(item)
+            
+    elif isinstance(data, str):
+        # Check for repeating word cycles (e.g. repeating the same phrase 3+ times consecutively)
+        words = [w.strip().lower() for w in data.split() if w.strip()]
+        nw = len(words)
+        # Check cycles of length 1..10. 
+        # For single words (l=1), require 4 repetitions. For phrases (l>=2), require 3 repetitions.
+        for l in range(1, 11):
+            reps = 4 if l == 1 else 3
+            pattern_len = l * reps
+            for i in range(nw - pattern_len + 1):
+                sub = words[i : i + pattern_len]
+                pattern = sub[:l]
+                if pattern * reps == sub:
+                    # Ignore common single letter or very short repetitions if they are just punctuation/space
+                    if all(len(p) <= 2 or not p.isalnum() for p in pattern):
+                        continue
+                    raise ValueError(f"Repetitive loop detected in text: '... {' '.join(words[i : i + pattern_len])} ...'")
+
+
 class BaseLLMEngine:
     @staticmethod
     def extract_json(text: str) -> str:
@@ -264,6 +329,9 @@ class BaseLLMEngine:
                 pos=0
             ) from e
             
+        # Run repetition/hallucination checks
+        validate_no_hallucinations(parsed)
+            
         try:
             return schema_class.model_validate(parsed)
         except Exception as e:
@@ -292,6 +360,9 @@ class BaseLLMEngine:
                 doc=clean_json,
                 pos=0
             ) from e
+            
+        # Run repetition/hallucination checks
+        validate_no_hallucinations(parsed)
             
         try:
             return schema_class.model_validate(parsed)

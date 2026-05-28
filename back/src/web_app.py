@@ -746,6 +746,8 @@ async def upload_file(
 
     except DuplicateDocumentError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -793,6 +795,8 @@ async def index_url_route(
         return {"status": "ok", "id": ", ".join(paper_ids), "title": ", ".join(titles)}
     except DuplicateDocumentError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
