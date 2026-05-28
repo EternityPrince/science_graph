@@ -322,3 +322,113 @@ class TestLLMEngineIntegration(unittest.TestCase):
         # 10. Legitimate words should be preserved
         self.assertEqual(strip_thinking_tokens("The assistant helped the user."), "The assistant helped the user.")
 
+    def test_pydantic_field_validators_deduplication(self):
+        """Verify that Pydantic field validators clean and deduplicate lists of strings and objects."""
+        from src.llm_schemas import LLMExtractionResponse, LLMVideoSummaryResponse
+
+        # 1. Deduplicate string lists (authors, tags, institutions, sponsored_by) case-insensitively and strip whitespace
+        raw = {
+            "authors": ["Alice Smith", " alice smith ", "Bob Jones", "bob jones"],
+            "tags": ["deep learning", "Deep Learning", "nlp"],
+            "institutions": ["MIT", "mit", "Google"],
+            "sponsored_by": ["Google", "google", "IBM"],
+            "code_repositories": ["https://github.com/test", "https://github.com/test", "invalid_url_skipped"]
+        }
+        model = LLMExtractionResponse.model_validate(raw)
+        self.assertEqual(model.authors, ["Alice Smith", "Bob Jones"])
+        self.assertEqual(model.tags, ["deep learning", "nlp"])
+        self.assertEqual(model.institutions, ["MIT", "Google"])
+        self.assertEqual(model.sponsored_by, ["Google", "IBM"])
+        self.assertEqual(model.code_repositories, ["https://github.com/test"])
+
+        # 2. Unique concepts validation
+        raw_concepts = {
+            "concepts": [
+                {"name": "Self-Attention", "description": "Desc 1"},
+                {"name": "self-attention", "description": "Desc 2"},
+                {"name": "Transformer", "description": "Desc 3"}
+            ]
+        }
+        model_c = LLMExtractionResponse.model_validate(raw_concepts)
+        self.assertEqual(len(model_c.concepts), 2)
+        self.assertEqual(model_c.concepts[0].name, "Self-Attention")
+        self.assertEqual(model_c.concepts[1].name, "Transformer")
+
+        # 3. Unique citation intents validation
+        raw_citations = {
+            "citation_intents": [
+                {"target_title": "Paper A", "intent": "USES_METHOD"},
+                {"target_title": "paper a", "intent": "uses_method"},
+                {"target_title": "Paper A", "intent": "BACKGROUND"}
+            ]
+        }
+        model_cit = LLMExtractionResponse.model_validate(raw_citations)
+        self.assertEqual(len(model_cit.citation_intents), 2)
+        self.assertEqual(model_cit.citation_intents[0].target_title, "Paper A")
+        self.assertEqual(model_cit.citation_intents[0].intent, "USES_METHOD")
+        self.assertEqual(model_cit.citation_intents[1].target_title, "Paper A")
+        self.assertEqual(model_cit.citation_intents[1].intent, "BACKGROUND")
+
+        # 4. Unique concept relations validation
+        raw_relations = {
+            "concept_relations": [
+                {"source": "Concept A", "target": "Concept B", "relation_type": "IS_A"},
+                {"source": "concept a", "target": "concept b", "relation_type": "is_a"},
+                {"source": "Concept A", "target": "Concept C", "relation_type": "IS_A"}
+            ]
+        }
+        model_rel = LLMExtractionResponse.model_validate(raw_relations)
+        self.assertEqual(len(model_rel.concept_relations), 2)
+        self.assertEqual(model_rel.concept_relations[0].source, "Concept A")
+        self.assertEqual(model_rel.concept_relations[0].target, "Concept B")
+        self.assertEqual(model_rel.concept_relations[0].relation_type, "IS_A")
+
+        # 5. Video summary deduplication
+        raw_video = {
+            "overview": "Concise summary",
+            "themes": ["Theme A", "theme a", "Theme B"],
+            "outline": ["Outline A", "outline a", "Outline B"]
+        }
+        model_vid = LLMVideoSummaryResponse.model_validate(raw_video)
+        self.assertEqual(model_vid.themes, ["Theme A", "Theme B"])
+        self.assertEqual(model_vid.outline, ["Outline A", "Outline B"])
+
+    def test_pydantic_field_validators_blank_values(self):
+        """Verify that Pydantic field validators do not filter out blank values, leaving them for the normalization pipeline."""
+        from src.llm_schemas import LLMExtractionResponse
+
+        # 1. Blank concept name
+        raw_concepts = {
+            "concepts": [
+                {"name": "  ", "description": "Desc 1"},
+                {"name": "", "description": "Desc 2"}
+            ]
+        }
+        model_c = LLMExtractionResponse.model_validate(raw_concepts)
+        # The first blank concept is preserved, the second is deduplicated (both strip to "")
+        self.assertEqual(len(model_c.concepts), 1)
+        self.assertEqual(model_c.concepts[0].name, "  ")
+
+        # 2. Blank citation intent target title
+        raw_citations = {
+            "citation_intents": [
+                {"target_title": "  ", "intent": "BACKGROUND"},
+                {"target_title": "", "intent": "BACKGROUND"}
+            ]
+        }
+        model_cit = LLMExtractionResponse.model_validate(raw_citations)
+        self.assertEqual(len(model_cit.citation_intents), 1)
+        self.assertEqual(model_cit.citation_intents[0].target_title, "  ")
+
+        # 3. Blank concept relation source/target
+        raw_relations = {
+            "concept_relations": [
+                {"source": "  ", "target": "Concept B", "relation_type": "IS_A"},
+                {"source": "Concept A", "target": "", "relation_type": "IS_A"}
+            ]
+        }
+        model_rel = LLMExtractionResponse.model_validate(raw_relations)
+        self.assertEqual(len(model_rel.concept_relations), 2)
+
+
+

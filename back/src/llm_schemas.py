@@ -1,6 +1,6 @@
 import re
 from typing import List, Dict, Tuple, Optional, Any
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, field_validator
 
 class LLMConcept(BaseModel):
     name: str
@@ -32,6 +32,106 @@ class LLMExtractionResponse(BaseModel):
     journal_or_conference: Optional[str] = None
     citation_intents: List[LLMCitationIntent] = Field(default_factory=list)
     concept_relations: List[LLMConceptRelation] = Field(default_factory=list)
+
+    @field_validator("authors", "tags", "institutions", "sponsored_by", mode="before")
+    @classmethod
+    def clean_and_deduplicate_strings(cls, v: Any) -> List[str]:
+        if not isinstance(v, list):
+            return []
+        seen = set()
+        cleaned = []
+        for x in v:
+            if isinstance(x, str):
+                s = x.strip()
+                if s and s.lower() not in seen:
+                    seen.add(s.lower())
+                    cleaned.append(s)
+        return cleaned
+
+    @field_validator("code_repositories", mode="before")
+    @classmethod
+    def validate_and_clean_urls(cls, v: Any) -> List[str]:
+        if not isinstance(v, list):
+            return []
+        seen = set()
+        cleaned = []
+        for x in v:
+            if isinstance(x, str):
+                s = x.strip()
+                if re.match(r"^https?://[^\s/$.?#].[^\s]*$", s, re.IGNORECASE):
+                    if s.lower() not in seen:
+                        seen.add(s.lower())
+                        cleaned.append(s)
+        return cleaned
+
+    @field_validator("concepts", mode="before")
+    @classmethod
+    def validate_unique_concepts(cls, v: Any) -> List[Any]:
+        if not isinstance(v, list):
+            return []
+        seen = set()
+        cleaned = []
+        for item in v:
+            if isinstance(item, dict):
+                name = item.get("name", "")
+            elif hasattr(item, "name"):
+                name = getattr(item, "name", "")
+            else:
+                name = ""
+            if isinstance(name, str):
+                n_cleaned = name.strip().lower()
+                if n_cleaned not in seen:
+                    seen.add(n_cleaned)
+                    cleaned.append(item)
+        return cleaned
+
+    @field_validator("citation_intents", mode="before")
+    @classmethod
+    def validate_unique_citation_intents(cls, v: Any) -> List[Any]:
+        if not isinstance(v, list):
+            return []
+        seen = set()
+        cleaned = []
+        for item in v:
+            if isinstance(item, dict):
+                title = item.get("target_title", "")
+                intent = item.get("intent", "BACKGROUND")
+            elif hasattr(item, "target_title"):
+                title = getattr(item, "target_title", "")
+                intent = getattr(item, "intent", "BACKGROUND")
+            else:
+                title, intent = "", ""
+            if isinstance(title, str) and isinstance(intent, str):
+                key = (title.strip().lower(), intent.strip().upper())
+                if key not in seen:
+                    seen.add(key)
+                    cleaned.append(item)
+        return cleaned
+
+    @field_validator("concept_relations", mode="before")
+    @classmethod
+    def validate_unique_concept_relations(cls, v: Any) -> List[Any]:
+        if not isinstance(v, list):
+            return []
+        seen = set()
+        cleaned = []
+        for item in v:
+            if isinstance(item, dict):
+                src = item.get("source", "")
+                tgt = item.get("target", "")
+                rel = item.get("relation_type", "")
+            elif hasattr(item, "source"):
+                src = getattr(item, "source", "")
+                tgt = getattr(item, "target", "")
+                rel = getattr(item, "relation_type", "")
+            else:
+                src, tgt, rel = "", "", ""
+            if isinstance(src, str) and isinstance(tgt, str) and isinstance(rel, str):
+                key = (src.strip().lower(), tgt.strip().lower(), rel.strip().upper())
+                if key not in seen:
+                    seen.add(key)
+                    cleaned.append(item)
+        return cleaned
 
 class LLMClusteringResponse(RootModel[Dict[str, List[str]]]):
     pass
@@ -350,6 +450,21 @@ class LLMVideoSummaryResponse(BaseModel):
     overview: str = Field(description="A concise summary/overview of the video (2-3 paragraphs).")
     themes: List[str] = Field(description="List of key themes or topics discussed in the video, with brief explanations.")
     outline: List[str] = Field(description="Detailed lecture outline or chronological/structured breakdown of the video's content.")
+
+    @field_validator("themes", "outline", mode="before")
+    @classmethod
+    def clean_list_strings(cls, v: Any) -> List[str]:
+        if not isinstance(v, list):
+            return []
+        seen = set()
+        cleaned = []
+        for x in v:
+            if isinstance(x, str):
+                s = x.strip()
+                if s and s.lower() not in seen:
+                    seen.add(s.lower())
+                    cleaned.append(s)
+        return cleaned
 
 
 class EvidenceItem(BaseModel):
