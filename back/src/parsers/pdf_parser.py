@@ -191,36 +191,129 @@ class PDFParser(BaseParser):
         dpi_target: int,
         quality: int,
     ) -> None:
-        """Recompresses images in a PDF using PyMuPDF and saves the result."""
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        doc = fitz.open(input_path)
-        actual_threshold = max(dpi_threshold, dpi_target + 1)
-
-        try:
-            doc.rewrite_images(
-                dpi_threshold=actual_threshold,
-                dpi_target=dpi_target,
-                quality=quality,
-                lossy=True,
-                lossless=True,
+        """Recompresses images in a PDF using PyMuPDF and saves the result in a separate process to prevent segfaults."""
+        import multiprocessing
+        ctx = multiprocessing.get_context("spawn")
+        p = ctx.Process(
+            target=_compress_worker,
+            args=(input_path, output_path, dpi_threshold, dpi_target, quality)
+        )
+        p.start()
+        p.join()
+        if p.exitcode != 0:
+            raise RuntimeError(
+                f"PDF compression process crashed with exit code {p.exitcode} (possible segmentation fault)"
             )
-        except Exception as e:
-            con.warning(f"Failed to rewrite images in PDF: {e}")
 
-        if Path(input_path).resolve() == Path(output_path).resolve():
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                tmp_name = tmp.name
-            try:
-                doc.save(tmp_name, garbage=4, deflate=True)
-                doc.close()
-                shutil.move(tmp_name, output_path)
-            except Exception as e:
-                if os.path.exists(tmp_name):
-                    try:
-                        os.remove(tmp_name)
-                    except Exception:
-                        pass
-                raise e
+
+def _is_pdf_valid(path: str, expected_page_count: int) -> bool:
+    import fitz
+    import os
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return False
+    try:
+        if hasattr(fitz, "JM_mupdf_warnings_store"):
+            fitz.JM_mupdf_warnings_store.clear()
+        
+        with fitz.open(path) as doc:
+            if doc.page_count != expected_page_count:
+                return False
+            for page in doc:
+                page.get_text()
+                page.get_drawings()
+                
+        if hasattr(fitz, "JM_mupdf_warnings_store"):
+            critical_keywords = ["syntax error", "corrupt", "damaged", "unknown keyword", "error in content stream"]
+            for warning in fitz.JM_mupdf_warnings_store:
+                if any(kw in warning.lower() for kw in critical_keywords):
+                    return False
+        return True
+    except Exception:
+        return False
+
+
+def _compress_worker(
+    input_path: str,
+    output_path: str,
+    dpi_threshold: int,
+    dpi_target: int,
+    quality: int,
+) -> None:
+    # This runs in a separate process to isolate PyMuPDF segfaults from the main process
+    import fitz
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Open original document to get expected page count
+    doc = fitz.open(input_path)
+    expected_page_count = doc.page_count
+    actual_threshold = max(dpi_threshold, dpi_target + 1)
+
+    # 2. Attempt aggressive compression (rewriting images)
+    tmp_aggressive = None
+    try:
+        doc.rewrite_images(
+            dpi_threshold=actual_threshold,
+            dpi_target=dpi_target,
+            quality=quality,
+            lossy=True,
+            lossless=True,
+        )
+        
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_aggressive = tmp.name
+        
+        doc.save(tmp_aggressive, garbage=4, deflate=True)
+        doc.close()
+        
+        # Verify aggressive compression
+        if _is_pdf_valid(tmp_aggressive, expected_page_count):
+            shutil.move(tmp_aggressive, output_path)
+            return
         else:
-            doc.save(output_path, garbage=4, deflate=True)
+            raise RuntimeError("Aggressive PDF compression resulted in a corrupted file.")
+    except Exception as aggressive_err:
+        # If document wasn't closed yet, close it
+        try:
             doc.close()
+        except Exception:
+            pass
+    finally:
+        if tmp_aggressive and os.path.exists(tmp_aggressive):
+            try:
+                os.remove(tmp_aggressive)
+            except Exception:
+                pass
+
+    # 3. Fallback: Safe compression (lossless, no image rewriting)
+    doc = fitz.open(input_path)
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_safe = tmp.name
+        
+    try:
+        doc.save(tmp_safe, garbage=4, deflate=True)
+        doc.close()
+        
+        # Verify safe compression
+        if _is_pdf_valid(tmp_safe, expected_page_count):
+            shutil.move(tmp_safe, output_path)
+            return
+        else:
+            raise RuntimeError("Safe PDF compression resulted in a corrupted file.")
+    except Exception as safe_err:
+        raise RuntimeError(
+            f"Failed to compress PDF: aggressive compression failed, "
+            f"and safe fallback also failed ({safe_err})."
+        )
+    finally:
+        if os.path.exists(tmp_safe):
+            try:
+                os.remove(tmp_safe)
+            except Exception:
+                pass
+
+

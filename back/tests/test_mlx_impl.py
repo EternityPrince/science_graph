@@ -69,10 +69,8 @@ class TestMlxImpl(unittest.TestCase):
         
         processor = ConstrainedLogitsProcessor(mock_enforcer)
         
-        mock_tokens = MagicMock()
-        mock_tokens.tolist.return_value = [0, 10, 11]
-        
         import mlx.core as mx
+        mock_tokens = mx.array([0, 10, 11])
         logits = mx.array([0.1, 0.2, 0.3, 0.4, 0.5])
         res = processor(mock_tokens, logits)
         
@@ -91,10 +89,9 @@ class TestMlxImpl(unittest.TestCase):
         mock_enforcer.get_allowed_tokens.return_value = mock_allowed_tokens
         
         processor = ConstrainedLogitsProcessor(mock_enforcer)
-        mock_tokens = MagicMock()
-        mock_tokens.tolist.return_value = [0, 10]
         
         import mlx.core as mx
+        mock_tokens = mx.array([0, 10])
         logits = mx.array([0.1, 0.2, 0.3])
         res = processor(mock_tokens, logits)
         res_list = res.tolist()

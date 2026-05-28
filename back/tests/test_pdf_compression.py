@@ -86,3 +86,85 @@ def test_pdf_compression_nested_path():
             os.remove(output_path)
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
+
+def test_pdf_compression_crash_handling():
+    import pytest
+    with pytest.raises(RuntimeError) as exc_info:
+        compress_and_save_pdf(
+            input_path="non_existent_file_xyz.pdf",
+            output_path="some_output_path.pdf",
+            dpi_threshold=151,
+            dpi_target=150,
+            quality=75
+        )
+    assert "PDF compression process crashed" in str(exc_info.value)
+
+
+def test_pdf_compression_fallback_on_rewrite_error(monkeypatch):
+    import fitz
+    from src.parsers.pdf_parser import _compress_worker
+
+    # Create a temp PDF with a page
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
+        input_path = tmp_in.name
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_out:
+        output_path = tmp_out.name
+
+    try:
+        doc = fitz.open()
+        page = doc.new_page(width=100, height=100)
+        doc.save(input_path)
+        doc.close()
+
+        # Mock rewrite_images to raise an exception
+        def mock_rewrite_images(*args, **kwargs):
+            raise RuntimeError("Mocked rewrite_images failure")
+
+        monkeypatch.setattr(fitz.Document, "rewrite_images", mock_rewrite_images)
+
+        # Call _compress_worker directly so the mock is active
+        _compress_worker(
+            input_path=input_path,
+            output_path=output_path,
+            dpi_threshold=151,
+            dpi_target=150,
+            quality=75
+        )
+
+        # The output file should still exist and be valid because of fallback
+        assert os.path.exists(output_path)
+        with fitz.open(output_path) as out_doc:
+            assert out_doc.page_count == 1
+    finally:
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+
+def test_is_pdf_valid_helper():
+    from src.parsers.pdf_parser import _is_pdf_valid
+    import fitz
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        path = tmp.name
+
+    try:
+        # Create a valid PDF
+        doc = fitz.open()
+        doc.new_page(width=100, height=100)
+        doc.save(path)
+        doc.close()
+
+        # Valid page count match
+        assert _is_pdf_valid(path, 1) is True
+        # Page count mismatch
+        assert _is_pdf_valid(path, 2) is False
+
+        # Corrupted / invalid path
+        assert _is_pdf_valid("non_existent.pdf", 1) is False
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+

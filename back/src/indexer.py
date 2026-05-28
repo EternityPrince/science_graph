@@ -846,7 +846,14 @@ class Indexer:
         con.dim(f"Chunking and embedding: {(paper.title or paper.id)[:60]}")
         is_pdf = archive_fn is not None and (source_path or paper.file_path) and (source_path or paper.file_path).endswith(".pdf")
         if is_pdf:
-            chunks = await asyncio.to_thread(split_text_to_chunks, paper.id, source_path or paper.file_path)
+            pdf_path = None
+            if paper.file_path and os.path.exists(paper.file_path):
+                pdf_path = paper.file_path
+            elif source_path and os.path.exists(source_path):
+                pdf_path = source_path
+            else:
+                pdf_path = source_path or paper.file_path
+            chunks = await asyncio.to_thread(split_text_to_chunks, paper.id, pdf_path)
         else:
             chunks = _split_text_to_chunks_raw(paper.id, full_text)
 
@@ -1350,6 +1357,10 @@ class Indexer:
                     def _archive(t_path=tgt, a_path=archive_path):
                         self._archive_pdf(t_path, a_path)
 
+                    orig_size = 0
+                    if tgt and os.path.exists(tgt):
+                        orig_size = os.path.getsize(tgt)
+
                     parsed_items.append({
                         "item": item,
                         "paper": paper,
@@ -1359,6 +1370,7 @@ class Indexer:
                         "needs_enrichment": True,
                         "archive_fn": _archive,
                         "source_path": tgt,
+                        "orig_size": orig_size,
                         "trace_info": trace_info
                     })
 
@@ -1369,6 +1381,10 @@ class Indexer:
                     paper, wiki_links, body = await asyncio.to_thread(parser.parse, tgt)
                     trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
 
+                    orig_size = 0
+                    if tgt and os.path.exists(tgt):
+                        orig_size = os.path.getsize(tgt)
+
                     parsed_items.append({
                         "item": item,
                         "paper": paper,
@@ -1378,6 +1394,7 @@ class Indexer:
                         "needs_enrichment": False,
                         "archive_fn": None,
                         "source_path": tgt,
+                        "orig_size": orig_size,
                         "trace_info": trace_info
                     })
 
@@ -1388,6 +1405,10 @@ class Indexer:
                     paper, _, full_text = await asyncio.to_thread(parser.parse, tgt)
                     trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
 
+                    orig_size = 0
+                    if tgt and os.path.exists(tgt):
+                        orig_size = os.path.getsize(tgt)
+
                     parsed_items.append({
                         "item": item,
                         "paper": paper,
@@ -1397,6 +1418,7 @@ class Indexer:
                         "needs_enrichment": False,
                         "archive_fn": None,
                         "source_path": tgt,
+                        "orig_size": orig_size,
                         "trace_info": trace_info
                     })
 
@@ -1494,7 +1516,14 @@ class Indexer:
 
                 is_pdf = p_item["archive_fn"] is not None and (source_path or paper.file_path) and (source_path or paper.file_path).endswith(".pdf")
                 if is_pdf:
-                    chunks = await asyncio.to_thread(split_text_to_chunks, paper.id, source_path or paper.file_path)
+                    pdf_path = None
+                    if paper.file_path and os.path.exists(paper.file_path):
+                        pdf_path = paper.file_path
+                    elif source_path and os.path.exists(source_path):
+                        pdf_path = source_path
+                    else:
+                        pdf_path = source_path or paper.file_path
+                    chunks = await asyncio.to_thread(split_text_to_chunks, paper.id, pdf_path)
                 else:
                     chunks = _split_text_to_chunks_raw(paper.id, full_text)
 
@@ -1601,9 +1630,7 @@ class Indexer:
                 if summary_text:
                     paper.properties["summary"] = summary_text
 
-                orig_size = 0
-                if source_path and os.path.exists(source_path):
-                    orig_size = os.path.getsize(source_path)
+                orig_size = p_item.get("orig_size", 0)
                 if orig_size > 0 and paper.file_path and os.path.exists(paper.file_path):
                     new_size = os.path.getsize(paper.file_path)
                     trace_info["original_size"] = orig_size

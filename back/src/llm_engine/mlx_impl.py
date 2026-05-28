@@ -63,21 +63,29 @@ class ConstrainedLogitsProcessor:
     """Logits processor that filters tokens to match a given TokenEnforcer schema."""
     def __init__(self, token_enforcer: Any):
         self.token_enforcer = token_enforcer
+        self.generated_tokens = []
 
     def __call__(self, tokens: mx.array, logits: mx.array) -> mx.array:
-        # tokens[1:] are the generated tokens (skipping the last prompt token)
-        generated_tokens = tokens.tolist()[1:]
-        allowed_tokens = self.token_enforcer.get_allowed_tokens(generated_tokens).allowed_tokens
+        num_tokens = tokens.shape[0]
+        current_len = len(self.generated_tokens)
+        
+        # Incrementally fetch only the newly generated tokens using fast .item()
+        # instead of copying the whole token list via .tolist() on every step.
+        if num_tokens > current_len + 1:
+            for idx in range(current_len + 1, num_tokens):
+                self.generated_tokens.append(tokens[idx].item())
+                
+        allowed_tokens = self.token_enforcer.get_allowed_tokens(self.generated_tokens).allowed_tokens
         
         if not allowed_tokens:
             return logits
             
-        import numpy as np
+        # Create logits mask directly in MLX to avoid CPU allocations and copies
         vocab_size = logits.shape[-1]
-        mask = np.full(vocab_size, -np.inf, dtype=np.float32)
-        mask[allowed_tokens] = 0.0
+        mask = mx.full((vocab_size,), float("-inf"), dtype=mx.float32)
+        mask[mx.array(allowed_tokens)] = 0.0
         
-        return logits + mx.array(mask)
+        return logits + mask
 
 
 class MlxLLMEngine(BaseLLMEngine):

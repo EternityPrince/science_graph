@@ -898,3 +898,96 @@ class TestIndexerPipeline(unittest.TestCase):
         self.assertIn("DISAGREES_WITH", edge_types)
         self.assertIn("LINKED_TO", edge_types)
         self.assertIn("RELATED_TO", edge_types)
+
+    @patch("src.external_api.fetch_paper_metadata")
+    @patch("src.parsers.pdf_parser.PDFParser.parse")
+    @patch("src.indexer.split_text_to_chunks")
+    def test_index_pdf_source_deleted_after_archiving(self, mock_split_text, mock_pdf_extract, mock_fetch):
+        """Test that if the source PDF is deleted/moved during the archiving stage, chunking uses the archived PDF path."""
+        from src.config import config
+        config.data["pdf_compression_enabled"] = False
+        
+        mock_fetch.return_value = None
+        mock_pdf_extract.return_value = (
+            Paper(id="pdf_deleted_test", title="Deleted Source Test Title", authors=["Test Author"]),
+            [],
+            "This is the full text of the test paper."
+        )
+        mock_split_text.return_value = [
+            Chunk(id="pdf_deleted_test#0", paper_id="pdf_deleted_test", text_content="chunk text", page_number=1)
+        ]
+        
+        # Create the temporary source file
+        src_path = self._write_file("dummy pdf data", suffix=".pdf")
+        self.assertTrue(os.path.exists(src_path))
+        
+        try:
+            # Run the indexer. This will trigger _archive_pdf which copies the file to the archive_dir and deletes the source.
+            paper_id = self.indexer.index_pdf(src_path)
+            self.assertEqual(paper_id, "pdf_deleted_test")
+            
+            # Verify the source file was indeed deleted
+            self.assertFalse(os.path.exists(src_path))
+            
+            # Verify split_text_to_chunks was called with the archived PDF path
+            expected_archive_path = os.path.join(self.archive_dir, "pdf_deleted_test.pdf")
+            mock_split_text.assert_called_once_with("pdf_deleted_test", expected_archive_path)
+            
+            # Verify the archived file actually exists
+            self.assertTrue(os.path.exists(expected_archive_path))
+            
+        finally:
+            if os.path.exists(src_path):
+                os.unlink(src_path)
+
+    @patch("src.external_api.fetch_paper_metadata")
+    @patch("src.parsers.pdf_parser.PDFParser.parse")
+    @patch("src.indexer.split_text_to_chunks")
+    def test_index_batch_pdf_source_deleted_after_archiving(self, mock_split_text, mock_pdf_extract, mock_fetch):
+        """Test that index_batch succeeds even if the source PDF is deleted/moved during archiving, by using the archive path."""
+        from src.config import config
+        config.data["pdf_compression_enabled"] = False
+        
+        mock_fetch.return_value = None
+        mock_pdf_extract.return_value = (
+            Paper(id="pdf_batch_deleted_test", title="Batch Deleted Source Test Title", authors=["Test Author"]),
+            [],
+            "This is the full text of the test paper for batch."
+        )
+        mock_split_text.return_value = [
+            Chunk(id="pdf_batch_deleted_test#0", paper_id="pdf_batch_deleted_test", text_content="chunk text", page_number=1)
+        ]
+        
+        self.indexer._extractor.extract_async = AsyncMock(return_value=MagicMock(concepts=[], tags=[], authors=[]))
+        self.indexer._extractor.generate_summary_async = AsyncMock(return_value="Summary")
+        self.emb_engine.get_embeddings = MagicMock(return_value=[[0.1, 0.2, 0.3]])
+
+        # Create temporary source file
+        src_path = self._write_file("dummy pdf data", suffix=".pdf")
+        self.assertTrue(os.path.exists(src_path))
+        
+        try:
+            # Execute batch indexing
+            res = self.indexer.index_batch([src_path], use_llm=True)
+            self.assertEqual(len(res), 1)
+            self.assertTrue(res[0]["success"])
+            
+            # Verify the source file was indeed deleted
+            self.assertFalse(os.path.exists(src_path))
+            
+            # Verify split_text_to_chunks was called with the archived PDF path
+            expected_archive_path = os.path.join(self.archive_dir, "pdf_batch_deleted_test.pdf")
+            mock_split_text.assert_called_once_with("pdf_batch_deleted_test", expected_archive_path)
+            
+            # Verify the archived file actually exists
+            self.assertTrue(os.path.exists(expected_archive_path))
+            
+            # Verify original and compressed sizes are tracked in trace_info
+            self.assertIn("original_size", res[0])
+            self.assertIn("compressed_size", res[0])
+            self.assertGreater(res[0]["original_size"], 0)
+            self.assertGreater(res[0]["compressed_size"], 0)
+            
+        finally:
+            if os.path.exists(src_path):
+                os.unlink(src_path)
