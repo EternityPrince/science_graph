@@ -63,6 +63,10 @@ class ReviewAgent:
         Returns:
             Markdown report as a string.
         """
+        import time
+        import logging
+        t0 = time.perf_counter()
+
         con.section(f"Auto-Review: {topic}")
         con.info(f"Retrieving up to [bold]{limit}[/bold] relevant chunks …")
 
@@ -82,20 +86,39 @@ class ReviewAgent:
         else:
             sections = self._cluster_chunks(final_chunks, topic)
 
-        # Step 3 — Synthesize each section sequentially
-        con.info(f"Synthesizing [bold]{len(sections)}[/bold] section(s) …")
+        # Step 3 — Synthesize sections in parallel
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from src.config import config
+
+        con.info(f"Synthesizing [bold]{len(sections)}[/bold] section(s) in parallel …")
         synthesized: Dict[str, str] = {}
-        for idx, (section_name, chunk_ids) in enumerate(sections.items(), start=1):
-            con.dim(f"  [{idx}/{len(sections)}] {section_name}")
-            section_chunks = [id_to_chunk[cid] for cid in chunk_ids if cid in id_to_chunk]
+        
+        # Semaphore based on chunk_pool_size to avoid Rate Limit Errors
+        pool_size = config.data.get("llm", {}).get("chunk_pool_size", 4)
+        sem = threading.Semaphore(pool_size)
+        write_lock = threading.Lock()
+
+        def synthesize_worker(idx_val: int, sec_name: str, ch_ids: List[str]) -> None:
+            section_chunks = [id_to_chunk[cid] for cid in ch_ids if cid in id_to_chunk]
             if not section_chunks:
-                continue
+                return
             chunks_text = self._format_chunks_for_synthesis(section_chunks)
-            synthesized[section_name] = self.llm_engine.synthesize_section(
-                section_name=section_name,
-                chunks_text=chunks_text,
-                topic=topic,
-            )
+            
+            with sem:
+                con.dim(f"  [{idx_val}/{len(sections)}] Starting synthesis for {sec_name} ...")
+                res = self.llm_engine.synthesize_section(
+                    section_name=sec_name,
+                    chunks_text=chunks_text,
+                    topic=topic,
+                )
+            
+            with write_lock:
+                synthesized[sec_name] = res
+
+        with ThreadPoolExecutor(max_workers=len(sections)) as executor:
+            for idx, (section_name, chunk_ids) in enumerate(sections.items(), start=1):
+                executor.submit(synthesize_worker, idx, section_name, chunk_ids)
 
         # Step 4 — Comparison table
         con.dim("Building comparison table …")
@@ -116,6 +139,9 @@ class ReviewAgent:
             con.success(f"Report saved: [bold]{output_path}[/bold]")
 
         con.success("Auto-Review complete")
+        
+        dt = time.perf_counter() - t0
+        logging.debug(f"ReviewAgent.run completed in {dt:.6f}s for topic: {topic!r}")
         return report
 
     # ──────────────────────────────────────────────────────────────────────────
