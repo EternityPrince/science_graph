@@ -1,6 +1,7 @@
 import re
 import math
 import time
+import fitz
 from typing import List, Tuple, Dict, Optional
 from rank_bm25 import BM25Okapi
 from src.config import config
@@ -41,13 +42,14 @@ class EmbeddingEngine:
 
 def split_text_to_chunks(paper_id: str, file_path: str, chunk_size: int = None, chunk_overlap: int = None) -> List[Chunk]:
     """
-    Reads PDF page by page and splits it into overlapping text chunks.
+    Reads PDF page by page and splits it into overlapping text chunks using sentence-aware boundary detection.
     Preserves page number references for each chunk.
     """
-    import fitz  # PyMuPDF
+    import logging
+    t0 = time.perf_counter()
     
     chunk_size = chunk_size or config.chunk_size
-    chunk_overlap = chunk_overlap or config.chunk_overlap
+    chunk_overlap = chunk_overlap if chunk_overlap is not None else 50
     
     doc = fitz.open(file_path)
     chunks = []
@@ -72,15 +74,15 @@ def split_text_to_chunks(paper_id: str, file_path: str, chunk_size: int = None, 
             chunk_idx += 1
             continue
             
-        # Slide window across the page text
-        start = 0
-        while start < len(text_clean):
-            end = start + chunk_size
-            chunk_text = text_clean[start:end]
-            
-            # If the last chunk is too small, we can discard it or merge it if it is very short,
-            # but standard windowing is fine
-            if len(chunk_text) > 50 or start == 0:
+        # Split on sentence boundaries
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text_clean) if s.strip()]
+        
+        current_chunk = []
+        current_len = 0
+        for sentence in sentences:
+            sentence_len = len(sentence)
+            if current_len + sentence_len > chunk_size and current_chunk:
+                chunk_text = " ".join(current_chunk)
                 chunks.append(Chunk(
                     id=f"{paper_id}#{chunk_idx}",
                     paper_id=paper_id,
@@ -89,8 +91,52 @@ def split_text_to_chunks(paper_id: str, file_path: str, chunk_size: int = None, 
                 ))
                 chunk_idx += 1
                 
-            start += (chunk_size - chunk_overlap)
-            
+                # Setup overlap sentences
+                overlap_sentences = []
+                overlap_len = 0
+                for s in reversed(current_chunk):
+                    s_len = len(s)
+                    if overlap_len + s_len + (1 if overlap_sentences else 0) <= chunk_overlap:
+                        overlap_sentences.insert(0, s)
+                        overlap_len += s_len + (1 if overlap_sentences else 0)
+                    else:
+                        break
+                current_chunk = overlap_sentences + [sentence]
+                current_len = sum(len(s) for s in current_chunk) + len(current_chunk) - 1
+            else:
+                if sentence_len > chunk_size:
+                    # Split extremely long sentences into character-based sub-chunks
+                    start = 0
+                    while start < sentence_len:
+                        end = start + chunk_size
+                        sub_text = sentence[start:end].strip()
+                        if sub_text:
+                            chunks.append(Chunk(
+                                id=f"{paper_id}#{chunk_idx}",
+                                paper_id=paper_id,
+                                text_content=sub_text,
+                                page_number=page_num
+                            ))
+                            chunk_idx += 1
+                        start += (chunk_size - chunk_overlap)
+                    current_chunk = []
+                    current_len = 0
+                else:
+                    current_chunk.append(sentence)
+                    current_len += sentence_len + (1 if len(current_chunk) > 1 else 0)
+                
+        if current_chunk:
+            chunk_text = " ".join(current_chunk)
+            chunks.append(Chunk(
+                id=f"{paper_id}#{chunk_idx}",
+                paper_id=paper_id,
+                text_content=chunk_text,
+                page_number=page_num
+            ))
+            chunk_idx += 1
+
+    dt = time.perf_counter() - t0
+    logging.debug(f"split_text_to_chunks for paper {paper_id} completed in {dt:.6f}s")
     return chunks
 
 
