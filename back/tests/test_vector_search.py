@@ -88,3 +88,20 @@ class TestVectorSearch:
         engine._ensure_model_loaded()
         
         mock_sentence_transformer.assert_called_once_with("paraphrase-MiniLM", device="cpu")
+
+    def test_bm25_incremental_indexing(self):
+        corpus = [
+            ("c1", "Attention is all you need for transformer networks"),
+            ("c3", "Self-supervised contrastive learning and representation learning")
+        ]
+        bm25 = BM25(corpus)
+        results = bm25.score("reward")
+        assert results[0][1] == 0.0
+
+        # Now add new documents incrementally
+        bm25.add_documents([
+            ("c2", "Reinforcement learning is trained using reward functions")
+        ])
+        results2 = bm25.score("reward")
+        assert results2[0][0] == "c2"
+        assert results2[0][1] > 0.0

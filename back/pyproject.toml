@@ -50,6 +50,7 @@ dependencies = [
     # MCP-connector
     "fastmcp>=0.4.1",
     "tiktoken>=0.13.0",
+    "rank-bm25>=0.2.2",
 ]
 
 [project.scripts]
