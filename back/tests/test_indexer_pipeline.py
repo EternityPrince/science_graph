@@ -427,6 +427,7 @@ class TestIndexerPipeline(unittest.TestCase):
         
         # Alias lookup failure path (exception)
         self.graph_repo.get_concept_aliases.side_effect = Exception("db error")
+        self.indexer._aliases_cache = None
         self.assertEqual(self.indexer.resolve_entity("Concept", "alias concept"), slugify("alias concept"))
         
         # get_nodes_by_label exception path
