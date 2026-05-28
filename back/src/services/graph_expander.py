@@ -36,7 +36,7 @@ class ExperimentalGraphExpander:
         self.top_chunks_per_paper = top_chunks_per_paper
         
         # Semaphore/lock to prevent concurrent model execution and minimize model switching overhead
-        self.model_lock = threading.Lock()
+        self.model_lock = threading.Semaphore(1)
 
     def _resolve_paper_title(self, paper_id: str, papers_map: Dict[str, Paper]) -> str:
         paper = papers_map.get(paper_id)
@@ -378,8 +378,7 @@ class ExperimentalGraphExpander:
             # 2.3 Batch Reranking under model lock
             t_rerank_start = time.perf_counter()
             pairs = [(query, ctext) for _, ctext, _ in cards]
-            with self.model_lock:
-                scores = self.reranker.predict(pairs)
+            scores = self.reranker.predict(pairs)
             hop_data["rerank_time"] = time.perf_counter() - t_rerank_start
                 
             # Associate scores and calculate decayed score / UserNote priority
@@ -472,8 +471,7 @@ class ExperimentalGraphExpander:
             t_rerank_chunks_start = time.perf_counter()
             # Batch rerank all new chunks to find the most relevant ones
             chunk_pairs = [(query, c.text_content) for c in new_chunks_to_score]
-            with self.model_lock:
-                chunk_scores = self.reranker.predict(chunk_pairs)
+            chunk_scores = self.reranker.predict(chunk_pairs)
             telemetry["ingestion"]["rerank_time"] = time.perf_counter() - t_rerank_chunks_start
                 
             # Group chunks by paper
@@ -643,6 +641,10 @@ class ExperimentalGraphExpander:
         telemetry["overall_time"] = time.perf_counter() - t_overall_start
         if should_trace:
             self._print_trace_summary(telemetry)
+
+        import logging
+        dt = time.perf_counter() - t_overall_start
+        logging.debug(f"ExperimentalGraphExpander.expand completed in {dt:.6f}s")
 
         if not enrichment_lines:
             return "No essential knowledge graph enrichment found."
