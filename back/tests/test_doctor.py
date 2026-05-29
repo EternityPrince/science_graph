@@ -158,6 +158,100 @@ class TestDoctor(unittest.TestCase):
         chunks = self.vector_repo.get_all_chunks()
         self.assertEqual(chunks[0].text_content, "Chunk content")
 
+    @patch("src.services.metadata_enricher.MetadataEnricher.enrich")
+    def test_doctor_missing_fields_check_and_fix(self, mock_enrich):
+        # Mock Semantic Scholar metadata enrichment to return abstract
+        mock_enrich.return_value = {
+            "title": "Title",
+            "abstract": "Enriched Abstract",
+            "authors": ["Author One"],
+            "year": 2026,
+            "doi": "10.1000/xyz123"
+        }
+
+        # 1. Save a paper without abstract and summary
+        paper = Paper(
+            id="p_missing",
+            title="Title",
+            authors=["Author One"],
+            abstract="", # Missing abstract
+            properties={} # Missing summary (no "summary" key)
+        )
+        self.graph_repo.save_paper(paper)
+
+        # 2. Add chunk for this paper
+        chunk = Chunk(
+            id="p_missing#0",
+            paper_id="p_missing",
+            text_content="Some chunk text content",
+            page_number=1,
+            embedding=[0.1] * 384
+        )
+        self.vector_repo.save_chunks([chunk])
+
+        # Mock LLM engine for summary generation
+        mock_llm = MagicMock()
+        mock_llm.generate_response.return_value = "Generated Summary via LLM"
+        self.doctor_service.llm_engine = mock_llm
+
+        # Run diagnostics in check-only mode
+        report_check = self.doctor_service.run_diagnostics(fix=False)
+        self.assertEqual(report_check["stats"]["papers_fixed"], 1)
+        self.assertTrue(report_check["anomalies"]["papers"][0]["missing_abstract"])
+        self.assertTrue(report_check["anomalies"]["papers"][0]["missing_summary"])
+
+        # Check database: still unchanged
+        p_check = self.graph_repo.get_paper("p_missing")
+        self.assertEqual(p_check.abstract, "")
+        self.assertNotIn("summary", p_check.properties)
+
+        # Run diagnostics in FIX mode
+        report_fix = self.doctor_service.run_diagnostics(fix=True)
+        self.assertEqual(report_fix["stats"]["papers_fixed"], 1)
+
+        # Verify updates in database
+        p_fixed = self.graph_repo.get_paper("p_missing")
+        self.assertEqual(p_fixed.abstract, "Enriched Abstract") # filled by MetadataEnricher mock
+        self.assertEqual(p_fixed.properties.get("summary"), "Generated Summary via LLM") # filled by LLM summary mock
+
+    @patch("src.services.metadata_enricher.MetadataEnricher.enrich")
+    def test_doctor_missing_abstract_llm_fallback(self, mock_enrich):
+        # Mock Semantic Scholar metadata enrichment to return nothing (e.g. offline or not found)
+        mock_enrich.return_value = None
+
+        # 1. Save a paper without abstract
+        paper = Paper(
+            id="p_missing_llm",
+            title="Title",
+            authors=["Author One"],
+            abstract="", # Missing abstract
+            properties={"summary": "Has summary already"}
+        )
+        self.graph_repo.save_paper(paper)
+
+        # 2. Add chunk for this paper
+        chunk = Chunk(
+            id="p_missing_llm#0",
+            paper_id="p_missing_llm",
+            text_content="Some chunk text content representing the paper",
+            page_number=1,
+            embedding=[0.1] * 384
+        )
+        self.vector_repo.save_chunks([chunk])
+
+        # Mock LLM engine for abstract generation
+        mock_llm = MagicMock()
+        mock_llm.generate_response.return_value = "Generated Abstract via LLM Fallback"
+        self.doctor_service.llm_engine = mock_llm
+
+        # Run diagnostics in FIX mode
+        report_fix = self.doctor_service.run_diagnostics(fix=True)
+        self.assertEqual(report_fix["stats"]["papers_fixed"], 1)
+
+        # Verify abstract is generated using LLM fallback
+        p_fixed = self.graph_repo.get_paper("p_missing_llm")
+        self.assertEqual(p_fixed.abstract, "Generated Abstract via LLM Fallback")
+
     @patch("src.cli.get_services")
     def test_cli_doctor_command(self, mock_get_services):
         mock_get_services.return_value = (self.graph_repo, self.vector_repo, MagicMock(), MagicMock())

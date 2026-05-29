@@ -1,10 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { PaperDetailResponse } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { parseWikiLinks } from "@/utils/wikiLinks";
+import { Marked } from "marked";
+import DOMPurify from "dompurify";
 
 interface Props {
   details: PaperDetailResponse;
@@ -73,8 +75,22 @@ export default function VideoDetails({ details }: Props) {
 
   const processText = (text: string) => {
     if (!text) return "";
-    const withWiki = parseWikiLinks(text, graphNodes);
-    return formatTextWithTimestamps(withWiki);
+    try {
+      const marked = new Marked();
+      const parsed = marked.parse(text) as string;
+      
+      let sanitized = parsed;
+      if (typeof window !== "undefined") {
+        sanitized = DOMPurify.sanitize(parsed);
+      }
+      
+      const withWiki = parseWikiLinks(sanitized, graphNodes);
+      return formatTextWithTimestamps(withWiki);
+    } catch (err) {
+      console.error("Failed to parse markdown in VideoDetails:", err);
+      const withWiki = parseWikiLinks(text, graphNodes);
+      return formatTextWithTimestamps(withWiki);
+    }
   };
 
   return (

@@ -29,7 +29,7 @@ from src.config import config
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 from src.vector_search import EmbeddingEngine
 from src.indexer import DuplicateDocumentError
-from src.llm_engine import LLMEngine
+from src.llm_engine import LLMEngine, strip_thinking_tokens
 from src.services.rag_service import RAGService
 from src.services.note_service import NoteService
 from src.schemas import (
@@ -375,6 +375,23 @@ async def get_paper(
             if (p := cited_by_map.get(pid)) and p.title
         ][:100]
 
+        abstract = paper.abstract
+        if abstract:
+            abstract = strip_thinking_tokens(abstract)
+        summary = paper.properties.get("summary")
+        if summary:
+            summary = strip_thinking_tokens(summary)
+
+        clean_props = {**paper.properties}
+        if "summary" in clean_props and clean_props["summary"]:
+            clean_props["summary"] = strip_thinking_tokens(clean_props["summary"])
+        if "video_overview" in clean_props and clean_props["video_overview"]:
+            clean_props["video_overview"] = strip_thinking_tokens(clean_props["video_overview"])
+        if "video_themes" in clean_props and isinstance(clean_props["video_themes"], list):
+            clean_props["video_themes"] = [strip_thinking_tokens(t) if isinstance(t, str) else t for t in clean_props["video_themes"]]
+        if "video_outline" in clean_props and isinstance(clean_props["video_outline"], list):
+            clean_props["video_outline"] = [strip_thinking_tokens(o) if isinstance(o, str) else o for o in clean_props["video_outline"]]
+
         return {
             "type": "paper",
             "id": paper.id,
@@ -382,16 +399,16 @@ async def get_paper(
             "authors": authors,
             "year": paper.year,
             "doi": paper.doi,
-            "abstract": paper.abstract,
+            "abstract": abstract,
             "source_type": paper.properties.get("source_type", "paper"),
             "concepts": concepts,
             "tags": tags,
             "citations": citations,
             "cited_by": cited_by,
             "file_path": paper.file_path,
-            "summary": paper.properties.get("summary"),
+            "summary": summary,
             "created_at": paper.created_at,
-            "properties": paper.properties,
+            "properties": clean_props,
         }
 
     elif label == "Author":
@@ -466,6 +483,39 @@ async def get_paper_text(
             for c in chunks
         ]
     }
+
+
+@app.get("/api/paper-pdf/{paper_id:path}")
+async def get_paper_pdf(
+    paper_id: str,
+    graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
+):
+    """Serve the original PDF file of a paper if available."""
+    paper = await asyncio.to_thread(graph_repo.get_paper, paper_id)
+    if not paper or not paper.file_path:
+        raise HTTPException(status_code=404, detail="Paper or file path not found")
+
+    expanded = os.path.expanduser(paper.file_path)
+    if not os.path.exists(expanded):
+        expanded = str(Path(paper.file_path).resolve())
+        if not os.path.exists(expanded):
+            raise HTTPException(status_code=404, detail=f"File not found on host: {paper.file_path}")
+
+    suffix = Path(expanded).suffix.lower()
+    if suffix == ".pdf":
+        media_type = "application/pdf"
+    elif suffix == ".md":
+        media_type = "text/markdown"
+    elif suffix == ".epub":
+        media_type = "application/epub+zip"
+    else:
+        media_type = "application/octet-stream"
+
+    headers = {
+        "Content-Disposition": f"inline; filename=\"{os.path.basename(expanded)}\""
+    }
+    return FileResponse(expanded, media_type=media_type, headers=headers)
+
 
 
 # ── /api/search ──
@@ -637,15 +687,22 @@ async def get_documents(
             else:
                 concepts.append(name)
 
+        abstract = props.get("abstract")
+        if abstract:
+            abstract = strip_thinking_tokens(abstract)
+        summary = props.get("summary")
+        if summary:
+            summary = strip_thinking_tokens(summary)
+
         results.append({
             "id": paper_id,
             "title": props.get("title", paper_id),
             "authors": props.get("authors", []),
             "year": props.get("year"),
             "doi": props.get("doi"),
-            "abstract": props.get("abstract"),
+            "abstract": abstract,
             "source_type": props.get("source_type", "paper"),
-            "summary": props.get("summary"),
+            "summary": summary,
             "concepts": concepts[:5],
             "tags": tags,
             "file_path": props.get("file_path"),

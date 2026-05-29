@@ -14,9 +14,10 @@ interface WorkCardProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   onOpenDetails: () => void;
+  onOpenReader: (id: string) => void;
 }
 
-export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetails }: WorkCardProps) {
+export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetails, onOpenReader }: WorkCardProps) {
   const router = useRouter();
   const {
     addLibraryFilter,
@@ -111,7 +112,9 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
         height: "100%",
         fontFamily: "'JetBrains Mono', monospace",
         boxSizing: "border-box",
+        cursor: "pointer",
       }}
+      onClick={() => onOpenReader(item.id)}
     >
       {/* Visual lab indicator block in top left */}
       <div
@@ -126,7 +129,7 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
       />
 
       {/* Top Row: Icon, Title, Year */}
-      <div className="library-card-header" onClick={onToggleExpand} style={{ cursor: "pointer" }}>
+      <div className="library-card-header">
         <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", flex: 1 }}>
           <span style={{ fontSize: "18px" }} title={typeLabel[item.source_type]}>
             {typeIcon[item.source_type] || "📄"}
@@ -360,6 +363,23 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
           }}
         >
           🗺️ Graph
+        </button>
+
+        <button
+          className="btn btn-primary btn-sm"
+          style={{
+            fontSize: "11px",
+            textTransform: "uppercase",
+            backgroundColor: "var(--accent)",
+            borderColor: "var(--accent)",
+            color: "#fff"
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenReader(item.id);
+          }}
+        >
+          📖 Читать
         </button>
 
         <button

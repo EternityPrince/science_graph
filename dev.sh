@@ -82,12 +82,12 @@ if command -v uv &> /dev/null; then
         uv sync
     fi
     # Use uv to run backend
-    CMD_BACK="uv run python main.py serve --no-open --host 127.0.0.1 --port 8000"
+    CMD_BACK="uv run python main.py serve --no-open --host 127.0.0.1 --port 8000 --reload"
 else
     # Fallback to python venv
     if [ -d ".venv" ]; then
         source .venv/bin/activate
-        CMD_BACK="python3 main.py serve --no-open --host 127.0.0.1 --port 8000"
+        CMD_BACK="python3 main.py serve --no-open --host 127.0.0.1 --port 8000 --reload"
     else
         echo -e "${RED}[SYSTEM] Error: Neither 'uv' nor a python '.venv' was found. Please run 'uv sync' or set up a virtual environment in the 'back' folder first.${NC}"
         exit 1

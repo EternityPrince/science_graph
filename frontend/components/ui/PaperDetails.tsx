@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { PaperDetailResponse } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { parseWikiLinks } from "@/utils/wikiLinks";
 import { openLocalFile } from "@/lib/api";
 import { useState } from "react";
+import WikiLinkParser from "./WikiLinkParser";
 
 interface Props {
   details: PaperDetailResponse;
@@ -14,8 +14,6 @@ interface Props {
 export default function PaperDetails({ details }: Props) {
   const router = useRouter();
   const setSelectedNodeId = useStore((state) => state.setSelectedNodeId);
-  const setView = useStore((state) => state.setView);
-  const graphNodes = useStore((state) => state.graphData?.nodes) || [];
   const showReferences = useStore((state) => state.showReferences);
   const setShowReferences = useStore((state) => state.setShowReferences);
   const askAbout = useStore((state) => state.askAbout);
@@ -38,21 +36,6 @@ export default function PaperDetails({ details }: Props) {
     video: "badge-video"
   };
 
-  const handleWikiLinkClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.classList.contains("wiki-link")) {
-      e.preventDefault();
-      const nodeId = target.getAttribute("data-node-id");
-      if (nodeId) {
-        setSelectedNodeId(nodeId);
-        setView("graph");
-      }
-    }
-  };
-
-  const processText = (text: string) => {
-    return parseWikiLinks(text || "", graphNodes);
-  };
 
   const handleOpenLocalFile = async () => {
     if (!details.file_path) return;
@@ -113,12 +96,9 @@ export default function PaperDetails({ details }: Props) {
       {details.abstract && (
         <div className="details-card">
           <h3>📄 Аннотация</h3>
-          <div 
-            className="abstract-text" 
-            style={{ marginTop: "10px" }}
-            onClick={handleWikiLinkClick}
-            dangerouslySetInnerHTML={{ __html: processText(details.abstract) }}
-          />
+          <div className="abstract-text" style={{ marginTop: "10px" }}>
+            <WikiLinkParser text={details.abstract} />
+          </div>
         </div>
       )}
 
@@ -127,9 +107,9 @@ export default function PaperDetails({ details }: Props) {
           <h3>💡 Краткое содержание (LLM Summary)</h3>
           <div 
             style={{ fontSize: "13px", color: "var(--text2)", lineHeight: "1.6", marginTop: "10px", maxHeight: "250px", overflowY: "auto", background: "var(--surface3)", padding: "10px 12px" }}
-            onClick={handleWikiLinkClick}
-            dangerouslySetInnerHTML={{ __html: processText(details.summary) }}
-          />
+          >
+            <WikiLinkParser text={details.summary} />
+          </div>
           <div style={{ fontSize: "10px", color: "var(--text3)", marginTop: "12px", borderTop: "1px solid var(--border-solid)", paddingTop: "8px" }}>
             🤖 Сгенерировано LLM
           </div>

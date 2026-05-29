@@ -2,7 +2,7 @@ import re
 import json
 import logging
 from typing import List, Dict, Any, Tuple
-from src.models import Author, Concept, slugify
+from src.models import Author, Concept, Paper, slugify
 from src.repository.base import GraphRepository, VectorRepository
 from src.services.normalization_pipeline import NormalizationPipeline
 
@@ -68,9 +68,10 @@ class DoctorService:
     Checks and fixes unapplied formatters and LLM artifacts.
     """
 
-    def __init__(self, graph_repo: GraphRepository, vector_repo: VectorRepository):
+    def __init__(self, graph_repo: GraphRepository, vector_repo: VectorRepository, llm_engine: Any = None):
         self.graph_repo = graph_repo
         self.vector_repo = vector_repo
+        self.llm_engine = llm_engine
         self.normalizer = NormalizationPipeline()
 
     def run_diagnostics(self, fix: bool = False) -> Dict[str, Any]:
@@ -308,6 +309,8 @@ class DoctorService:
             title = props.get("title", "")
             abstract = props.get("abstract", "")
             authors = props.get("authors", [])
+            summary = props.get("summary", "")
+            is_placeholder = props.get("is_placeholder", False) or props.get("placeholder", False)
 
             new_title = clean_text(title)
             new_abstract = clean_text(abstract)
@@ -318,9 +321,13 @@ class DoctorService:
                 norm_author = self.normalizer.normalize_author_name(author)
                 new_authors.append(clean_text(norm_author))
 
-            if new_title != title or new_abstract != abstract or new_authors != authors:
+            has_formatting_anomaly = (new_title != title or new_abstract != abstract or new_authors != authors)
+            missing_abstract = not abstract and not is_placeholder
+            missing_summary = not summary and not is_placeholder
+
+            if has_formatting_anomaly or missing_abstract or missing_summary:
                 report["stats"]["papers_fixed"] += 1
-                report["anomalies"]["papers"].append({
+                anomaly_entry = {
                     "id": paper_id,
                     "old_title": title,
                     "new_title": new_title,
@@ -328,15 +335,112 @@ class DoctorService:
                     "new_abstract": new_abstract[:60] + "..." if new_abstract else "",
                     "old_authors": authors,
                     "new_authors": new_authors,
-                })
+                    "missing_abstract": missing_abstract,
+                    "missing_summary": missing_summary,
+                }
+                report["anomalies"]["papers"].append(anomaly_entry)
+
                 if fix:
-                    new_props = {
+                    fixed_props = {
                         **props,
                         "title": new_title,
                         "abstract": new_abstract,
                         "authors": new_authors
                     }
-                    self.graph_repo.update_node_properties(paper_id, new_props)
+                    updated = has_formatting_anomaly
+                    paper_obj = None
+
+                    if missing_abstract:
+                        paper_obj = Paper(
+                            id=paper_id,
+                            title=fixed_props.get("title", ""),
+                            authors=fixed_props.get("authors", []),
+                            year=fixed_props.get("year"),
+                            doi=fixed_props.get("doi"),
+                            abstract=fixed_props.get("abstract"),
+                            file_path=fixed_props.get("file_path"),
+                            created_at=fixed_props.get("created_at"),
+                            properties=fixed_props
+                        )
+                        from src.services.metadata_enricher import MetadataEnricher
+                        enricher = MetadataEnricher()
+                        try:
+                            api_meta = enricher.enrich(paper_obj)
+                            if api_meta:
+                                paper_obj, _, _ = enricher.apply(paper_obj, api_meta)
+                                if paper_obj.abstract:
+                                    fixed_props["abstract"] = paper_obj.abstract
+                                    updated = True
+                                    missing_abstract = False
+                                    anomaly_entry["generated_abstract"] = True
+                        except Exception as e:
+                            logger.error(f"Error enriching paper {paper_id}: {e}")
+
+                        if missing_abstract and self.llm_engine:
+                            chunks = self.vector_repo.get_chunks_for_paper(paper_id)
+                            if chunks:
+                                chunks.sort(key=lambda c: (c.page_number, c.id))
+                                full_text = "\n\n".join(c.text_content for c in chunks)
+                                if full_text:
+                                    prompt = (
+                                        "You are an expert scientific writing assistant. Based on the following text from a scientific paper, "
+                                        "generate a concise, academic abstract (approx 150-250 words) that outlines the main goals, methods, and key findings of the work.\n\n"
+                                        f"Title: {fixed_props.get('title')}\n\n"
+                                        f"Paper Text:\n{full_text[:4000]}\n\n"
+                                        "Abstract:"
+                                    )
+                                    try:
+                                        generated_abstract = self.llm_engine.generate_response(prompt, task="synthesis")
+                                        if generated_abstract:
+                                            fixed_props["abstract"] = clean_text(generated_abstract)
+                                            paper_obj.abstract = fixed_props["abstract"]
+                                            updated = True
+                                            missing_abstract = False
+                                            anomaly_entry["generated_abstract"] = True
+                                    except Exception as e:
+                                        logger.error(f"Failed to generate abstract via LLM: {e}")
+
+                    if missing_summary and self.llm_engine:
+                        if not paper_obj:
+                            paper_obj = Paper(
+                                id=paper_id,
+                                title=fixed_props.get("title", ""),
+                                authors=fixed_props.get("authors", []),
+                                year=fixed_props.get("year"),
+                                doi=fixed_props.get("doi"),
+                                abstract=fixed_props.get("abstract"),
+                                file_path=fixed_props.get("file_path"),
+                                created_at=fixed_props.get("created_at"),
+                                properties=fixed_props
+                            )
+                        from src.services.extraction_service import ExtractionService
+                        extractor = ExtractionService(llm_engine=self.llm_engine)
+                        chunks = self.vector_repo.get_chunks_for_paper(paper_id)
+                        if chunks:
+                            chunks.sort(key=lambda c: (c.page_number, c.id))
+                            full_text = "\n\n".join(c.text_content for c in chunks)
+                        else:
+                            full_text = ""
+                        try:
+                            summary_text = extractor.generate_summary(paper_obj, full_text)
+                            if summary_text:
+                                fixed_props["summary"] = summary_text
+                                if paper_obj.properties.get("source_type") == "video":
+                                    fixed_props["video_overview"] = paper_obj.properties.get("video_overview")
+                                    fixed_props["video_themes"] = paper_obj.properties.get("video_themes")
+                                    fixed_props["video_outline"] = paper_obj.properties.get("video_outline")
+                                updated = True
+                                anomaly_entry["generated_summary"] = True
+                        except Exception as e:
+                            logger.error(f"Failed to generate summary: {e}")
+
+                    if updated:
+                        if "abstract" in fixed_props:
+                            fixed_props["abstract"] = clean_text(fixed_props["abstract"])
+                        if "summary" in fixed_props:
+                            fixed_props["summary"] = clean_text(fixed_props["summary"])
+                        self.graph_repo.update_node_properties(paper_id, fixed_props)
+                        anomaly_entry["new_abstract"] = fixed_props.get("abstract", "")[:60] + "..." if fixed_props.get("abstract") else ""
 
         # ── Step 4: Sanitize Chunks ───────────────────────────────────────────
         try:

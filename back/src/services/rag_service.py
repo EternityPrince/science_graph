@@ -1,5 +1,6 @@
 import json
 import asyncio
+import re
 from typing import List, Tuple, AsyncGenerator, Any, Optional
 import tiktoken
 from src.models import Chunk
@@ -9,6 +10,11 @@ from src.llm_engine import BaseLLMEngine
 from src.config import config
 from src import console as con
 from src.prompts import prompts
+
+TECHNICAL_TOKEN_RE = re.compile(
+    r"(<\|im_start\|>|<\|im_end\|>|<\|im_sep\|>|<\|start_header_id\|>|<\|end_header_id\|>|<\|eot_id\|>|<\|eom_id\|>|<\|endoftext\|>|<\|assistant\|>|<\|user\|>|<\|system\|>|<\|end\|>|\[INST\]|\[/INST\]|<s>|</s>|<start_of_turn>|<end_of_turn>|<<SYS>>|<</SYS>>|<pad>|<unk>)",
+    re.IGNORECASE
+)
 
 def count_prompt_tokens(text: str) -> int:
     if not text:
@@ -436,7 +442,10 @@ class RAGService:
             if isinstance(item, Exception):
                 yield {"type": "error", "text": f"Generation failed: {item}"}
                 return
-            yield {"type": "token", "text": item}
+            cleaned_item = TECHNICAL_TOKEN_RE.sub("", item)
+            if not cleaned_item and item:
+                continue
+            yield {"type": "token", "text": cleaned_item}
 
         yield {"type": "done"}
 

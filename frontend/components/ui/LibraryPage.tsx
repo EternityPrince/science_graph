@@ -9,22 +9,21 @@ import DetailSheet from "./DetailSheet";
 import { List } from "react-window";
 import { fetchPaperDetails, fetchPaperText } from "@/lib/api";
 
-import { LibraryResponse, LibraryPaperItem } from "@/lib/types";
+import { LibraryResponse, LibraryPaperItem, PaperDetailResponse } from "@/lib/types";
+import WikiLinkParser from "./WikiLinkParser";
 
 interface LibraryPageProps {
   initialData?: LibraryResponse | null;
 }
 
 export default function LibraryPage({ initialData }: LibraryPageProps) {
-  const {
-    libraryData: storeLibraryData,
-    libraryPage,
-    librarySearch,
-    fetchLibraryData,
-    refreshAll,
-    onlyIndexed,
-    setOnlyIndexed,
-  } = useStore();
+  const storeLibraryData = useStore((state) => state.libraryData);
+  const libraryPage = useStore((state) => state.libraryPage);
+  const librarySearch = useStore((state) => state.librarySearch);
+  const fetchLibraryData = useStore((state) => state.fetchLibraryData);
+  const refreshAll = useStore((state) => state.refreshAll);
+  const onlyIndexed = useStore((state) => state.onlyIndexed);
+  const setOnlyIndexed = useStore((state) => state.setOnlyIndexed);
 
   const libraryData = storeLibraryData || initialData;
 
@@ -34,11 +33,13 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
 
   const [readerPaperId, setReaderPaperId] = useState<string | null>(null);
   const [readerLoading, setReaderLoading] = useState(false);
+  const [readerDetails, setReaderDetails] = useState<PaperDetailResponse | null>(null);
   const [readerTitle, setReaderTitle] = useState("");
   const [readerChunks, setReaderChunks] = useState<Array<{ id: string; text_content: string; page_number?: number }>>([]);
   const [readerChatInput, setReaderChatInput] = useState("");
   const [readerMessages, setReaderMessages] = useState<Array<{ role: "user" | "agent"; content: string; isStreaming?: boolean }>>([]);
   const [readerChatStreaming, setReaderChatStreaming] = useState(false);
+  const [showPdfReader, setShowPdfReader] = useState(false);
   const readerChatEndRef = useRef<HTMLDivElement>(null);
 
   const listRef = useRef<any>(null);
@@ -85,20 +86,23 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
 
   // Load paper text for reader mode
   useEffect(() => {
+    setShowPdfReader(false);
     if (!readerPaperId) {
       setReaderChunks([]);
       setReaderTitle("");
+      setReaderDetails(null);
       setReaderMessages([]);
       return;
     }
 
     setReaderLoading(true);
     
-    // Fetch details to get title
+    // Fetch details to get title and metadata
     fetchPaperDetails(readerPaperId)
       .then((det) => {
         if (det.type === "paper") {
           setReaderTitle(det.title);
+          setReaderDetails(det);
         }
       })
       .catch(console.error);
@@ -172,10 +176,11 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
         for (const line of lines) {
           if (!line.startsWith("data:")) continue;
           const raw = line.slice(5).trim();
+          if (!raw) continue;
           try {
             const parsed = JSON.parse(raw);
-            if (parsed.token) {
-              accumulated += parsed.token;
+            if (parsed.type === "token") {
+              accumulated += parsed.text;
               setReaderMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -184,8 +189,8 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
                 }
                 return next;
               });
-            } else if (parsed.error) {
-              accumulated += `\n[Ошибка: ${parsed.error}]`;
+            } else if (parsed.type === "error") {
+              accumulated += `\n[Ошибка: ${parsed.text}]`;
               setReaderMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -253,6 +258,7 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
           isExpanded={expandedCardId === item.id}
           onToggleExpand={() => setExpandedCardId(expandedCardId === item.id ? null : item.id)}
           onOpenDetails={() => setSelectedDetailPaperId(item.id)}
+          onOpenReader={(id) => setReaderPaperId(id)}
         />
       </div>
     );
@@ -342,6 +348,7 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
                 isExpanded={expandedCardId === item.id}
                 onToggleExpand={() => setExpandedCardId(expandedCardId === item.id ? null : item.id)}
                 onOpenDetails={() => setSelectedDetailPaperId(item.id)}
+                onOpenReader={(id) => setReaderPaperId(id)}
               />
             ))}
           </div>
@@ -424,22 +431,47 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
           {/* Main Grid: Split Screen */}
           <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
             
-            {/* Left: Text Content (60% width) */}
+            {/* Left: Text Content (60% width) or PDF Reader */}
             <div style={{
               flex: "0 0 60%",
               overflowY: "auto",
-              padding: "40px",
+              padding: showPdfReader ? "20px" : "40px",
               borderRight: "2px solid var(--border)",
-              backgroundColor: "#0b0c10"
+              backgroundColor: "#0b0c10",
+              display: "flex",
+              flexDirection: "column"
             }}>
               {readerLoading ? (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "16px", color: "var(--accent)" }}>
                   <span style={{ fontSize: "32px", animation: "spin 2s linear infinite" }}>⚙️</span>
-                  <span>ЗАГРУЗКА ТЕКСТА ИЗ БАЗЫ ЗНАНИЙ...</span>
+                  <span>ЗАГРУЗКА ДАННЫХ ИЗ БАЗЫ ЗНАНИЙ...</span>
                 </div>
-              ) : readerChunks.length === 0 ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text3)" }}>
-                  [!] В базе знаний нет извлеченного текста для этого документа
+              ) : showPdfReader ? (
+                <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                    <button 
+                      className="btn btn-ghost btn-sm" 
+                      onClick={() => setShowPdfReader(false)}
+                      style={{ fontSize: "11px", textTransform: "uppercase" }}
+                    >
+                      ← Назад к описанию
+                    </button>
+                    <a 
+                      href={`/api/paper-pdf/${readerPaperId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-ghost btn-sm"
+                      style={{ fontSize: "11px", textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                    >
+                      Открыть в новой вкладке ↗
+                    </a>
+                  </div>
+                  <div style={{ flex: 1, minHeight: "500px", position: "relative" }}>
+                    <iframe 
+                      src={`/api/paper-pdf/${readerPaperId}`} 
+                      style={{ width: "100%", height: "100%", border: "2px solid var(--border)", minHeight: "calc(100vh - 160px)" }}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div style={{
@@ -448,29 +480,303 @@ export default function LibraryPage({ initialData }: LibraryPageProps) {
                   fontFamily: "'Lora', Georgia, serif",
                   fontSize: "17px",
                   lineHeight: "1.75",
-                  color: "#c9cde0"
+                  color: "#c9cde0",
+                  width: "100%"
                 }}>
-                  {readerChunks.map((chunk) => (
-                    <div key={chunk.id} style={{ marginBottom: "32px", position: "relative" }}>
-                      {chunk.page_number && (
-                        <div style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
+                  {/* Metadata Header Block */}
+                  {readerDetails && (
+                    <div style={{ marginBottom: "40px" }}>
+                      {/* Source Type Badge */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                        <span style={{
                           fontSize: "10px",
                           fontFamily: "'JetBrains Mono', monospace",
-                          color: "var(--text3)",
-                          marginBottom: "16px",
-                          textTransform: "uppercase"
+                          backgroundColor: "rgba(99, 102, 241, 0.15)",
+                          border: "1px solid var(--accent)",
+                          color: "var(--accent)",
+                          padding: "2px 8px",
+                          textTransform: "uppercase",
+                          fontWeight: "bold"
                         }}>
-                          <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
-                          <span>Страница {chunk.page_number}</span>
-                          <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
+                          {readerDetails.source_type || "document"}
+                        </span>
+                        {readerDetails.file_path && (
+                          <span style={{
+                            fontSize: "10px",
+                            fontFamily: "'JetBrains Mono', monospace",
+                            backgroundColor: "rgba(16, 185, 129, 0.15)",
+                            border: "1px solid var(--col-concept)",
+                            color: "var(--col-concept)",
+                            padding: "2px 8px",
+                            textTransform: "uppercase",
+                            fontWeight: "bold"
+                          }}>
+                            indexed
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Large Title */}
+                      <h1 style={{
+                        fontFamily: "'Lora', serif",
+                        fontSize: "28px",
+                        fontWeight: "normal",
+                        lineHeight: "1.3",
+                        marginBottom: "16px",
+                        color: "var(--text)"
+                      }}>
+                        {readerDetails.title}
+                      </h1>
+
+                      {/* Authors, Year, DOI callout box */}
+                      <div style={{
+                        border: "1px solid var(--border)",
+                        backgroundColor: "var(--surface)",
+                        padding: "16px",
+                        marginBottom: "24px",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: "12px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px"
+                      }}>
+                        <div><span style={{ color: "var(--text3)" }}>АВТОРЫ:</span> {readerDetails.authors.join(", ") || "Неизвестно"}</div>
+                        {readerDetails.year && <div><span style={{ color: "var(--text3)" }}>ГОД:</span> {readerDetails.year}</div>}
+                        {readerDetails.doi && (
+                          <div>
+                            <span style={{ color: "var(--text3)" }}>DOI:</span>{" "}
+                            <a href={`https://doi.org/${readerDetails.doi}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
+                              {readerDetails.doi}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* AI Summary / LLM Summary */}
+                      {readerDetails.summary && (
+                        <div style={{ marginBottom: "24px" }}>
+                          <h3 style={{
+                            fontSize: "11px",
+                            fontFamily: "'JetBrains Mono', monospace",
+                            textTransform: "uppercase",
+                            color: "var(--accent)",
+                            borderBottom: "1px solid var(--border)",
+                            paddingBottom: "4px",
+                            marginBottom: "8px",
+                            letterSpacing: "1px",
+                            fontWeight: "bold"
+                          }}>
+                            🧬 Резюме (AI Summary)
+                          </h3>
+                          <div style={{ fontSize: "14px", fontFamily: "'Lora', serif", lineHeight: "1.6", color: "var(--text2)" }}>
+                            <WikiLinkParser text={readerDetails.summary} />
+                          </div>
                         </div>
                       )}
-                      <p style={{ whiteSpace: "pre-wrap" }}>{chunk.text_content}</p>
+
+                      {/* Abstract */}
+                      {readerDetails.abstract && (
+                        <div style={{ marginBottom: "24px" }}>
+                          <h3 style={{
+                            fontSize: "11px",
+                            fontFamily: "'JetBrains Mono', monospace",
+                            textTransform: "uppercase",
+                            color: "var(--text3)",
+                            borderBottom: "1px solid var(--border)",
+                            paddingBottom: "4px",
+                            marginBottom: "8px",
+                            letterSpacing: "1px",
+                            fontWeight: "bold"
+                          }}>
+                            📄 Аннотация (Abstract)
+                          </h3>
+                          <div style={{ fontSize: "14px", fontFamily: "'Lora', serif", lineHeight: "1.6", color: "var(--text2)" }}>
+                            <WikiLinkParser text={readerDetails.abstract} />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Concepts & Tags */}
+                      {((readerDetails.concepts && readerDetails.concepts.length > 0) || (readerDetails.tags && readerDetails.tags.length > 0)) && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "24px" }}>
+                          {readerDetails.concepts && readerDetails.concepts.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace", color: "var(--text3)", textTransform: "uppercase", marginBottom: "6px" }}>
+                                Связанные Концепты ({readerDetails.concepts.length})
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                {readerDetails.concepts.map(c => (
+                                  <span key={c.id} className="tag" style={{ borderColor: "var(--col-concept)", color: "var(--col-concept)", fontSize: "11px", padding: "2px 8px" }}>
+                                    {c.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {readerDetails.tags && readerDetails.tags.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace", color: "var(--text3)", textTransform: "uppercase", marginBottom: "6px" }}>
+                                Теги ({readerDetails.tags.length})
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                {readerDetails.tags.map(t => (
+                                  <span key={t.id} className="tag" style={{ borderColor: "var(--col-tag)", color: "var(--col-tag)", fontSize: "11px", padding: "2px 8px" }}>
+                                    {t.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Citations & Cited By */}
+                      {((readerDetails.citations && readerDetails.citations.length > 0) || (readerDetails.cited_by && readerDetails.cited_by.length > 0)) && (
+                        <div style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: "24px",
+                          borderTop: "1px dashed var(--border)",
+                          borderBottom: "1px dashed var(--border)",
+                          padding: "16px 0",
+                          marginBottom: "32px"
+                        }}>
+                          <div>
+                            <div style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace", color: "var(--text3)", textTransform: "uppercase", marginBottom: "8px" }}>
+                              Источники (References - {readerDetails.citations?.length || 0})
+                            </div>
+                            {readerDetails.citations && readerDetails.citations.length > 0 ? (
+                              <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
+                                {readerDetails.citations.map(cit => (
+                                  <li key={cit.id}>
+                                    <button
+                                      onClick={() => setReaderPaperId(cit.id)}
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        padding: 0,
+                                        color: "var(--accent)",
+                                        textDecoration: "underline",
+                                        textAlign: "left",
+                                        fontSize: "12px",
+                                        cursor: "pointer",
+                                        fontFamily: "'Lora', serif"
+                                      }}
+                                    >
+                                      🔗 {cit.title}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div style={{ fontSize: "11px", color: "var(--text3)", fontStyle: "italic" }}>Нет связей</div>
+                            )}
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace", color: "var(--text3)", textTransform: "uppercase", marginBottom: "8px" }}>
+                              Цитируется по базе (Cited By - {readerDetails.cited_by?.length || 0})
+                            </div>
+                            {readerDetails.cited_by && readerDetails.cited_by.length > 0 ? (
+                              <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
+                                {readerDetails.cited_by.map(cit => (
+                                  <li key={cit.id}>
+                                    <button
+                                      onClick={() => setReaderPaperId(cit.id)}
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        padding: 0,
+                                        color: "var(--accent)",
+                                        textDecoration: "underline",
+                                        textAlign: "left",
+                                        fontSize: "12px",
+                                        cursor: "pointer",
+                                        fontFamily: "'Lora', serif"
+                                      }}
+                                    >
+                                      🔗 {cit.title}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div style={{ fontSize: "11px", color: "var(--text3)", fontStyle: "italic" }}>Нет связей</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  )}
+
+                  {/* Divider separating metadata from text */}
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    fontSize: "10px",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: "var(--accent)",
+                    marginBottom: "32px",
+                    textTransform: "uppercase"
+                  }}>
+                    <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
+                    <span>Содержание публикации (Full Text)</span>
+                    <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
+                  </div>
+
+                  {/* Custom PDF Reader Button integration */}
+                  <div style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "16px",
+                    padding: "40px 20px",
+                    border: "2px dashed #222632",
+                    backgroundColor: "rgba(255, 255, 255, 0.02)",
+                    borderRadius: "4px"
+                  }}>
+                    <div style={{ fontSize: "13px", color: "var(--text3)", fontFamily: "'JetBrains Mono', monospace", textAlign: "center", marginBottom: "8px" }}>
+                      [ Текст публикации проиндексирован и доступен для ИИ-ассистента ]
+                    </div>
+                    <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => setShowPdfReader(true)}
+                        style={{
+                          fontSize: "12px",
+                          textTransform: "uppercase",
+                          backgroundColor: "var(--accent)",
+                          borderColor: "var(--accent)",
+                          color: "#fff",
+                          padding: "10px 20px",
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontWeight: "bold",
+                          letterSpacing: "0.5px"
+                        }}
+                      >
+                        📄 Открыть PDF ридер
+                      </button>
+                      <a
+                        href={`/api/paper-pdf/${readerPaperId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-ghost"
+                        style={{
+                          fontSize: "12px",
+                          textTransform: "uppercase",
+                          padding: "10px 20px",
+                          fontFamily: "'JetBrains Mono', monospace",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px"
+                        }}
+                      >
+                        Системный ридер ↗
+                      </a>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

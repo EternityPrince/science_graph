@@ -948,12 +948,17 @@ def doctor(
         "--fix",
         help="Actually apply changes to sanitize and clean LLM artifacts and formatters",
     ),
+    cloud: bool = typer.Option(
+        False,
+        "--cloud",
+        help="Use cloud provider instead of local model for LLM fixes",
+    ),
 ):
     """
     Scan database through the repository layer, detecting and fixing LLM output artifacts,
     unapplied formatting, and incorrect identifiers due to formatting anomalies.
     """
-    graph_repo, vector_repo, _, _ = get_services(load_llm=False, load_embeddings=False)
+    graph_repo, vector_repo, _, llm_engine = get_services(load_llm=fix, load_embeddings=False, use_cloud=cloud)
     
     from src.services.doctor_service import DoctorService
     
@@ -965,7 +970,7 @@ def doctor(
         
     con.blank()
     
-    doctor_service = DoctorService(graph_repo, vector_repo)
+    doctor_service = DoctorService(graph_repo, vector_repo, llm_engine=llm_engine)
     report = doctor_service.run_diagnostics(fix=fix)
     
     # 1. Print Stats Table
@@ -1015,6 +1020,12 @@ def doctor(
                 con.console.print("    - Abstract updated")
             if paper["old_authors"] != paper["new_authors"]:
                 con.console.print(f"    - Authors: [red]{paper['old_authors']}[/red] -> [green]{paper['new_authors']}[/green]")
+            if paper.get("missing_abstract"):
+                status = "[green]generated[/green]" if paper.get("generated_abstract") else "[yellow]missing[/yellow]"
+                con.console.print(f"    - Abstract: {status}")
+            if paper.get("missing_summary"):
+                status = "[green]generated[/green]" if paper.get("generated_summary") else "[yellow]missing[/yellow]"
+                con.console.print(f"    - Summary: {status}")
         con.blank()
         
     # Detail Authors
