@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import logging
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 
 from fastmcp import FastMCP
@@ -104,7 +104,8 @@ def search_papers(query: str, limit: int = 20) -> list:
     return results
 
 @mcp.tool
-def query_rag(question: str, limit: int = 5, use_cloud: bool = False) -> str:
+def query_rag(question: str, limit: int = 5, use_cloud: bool = False,
+              paper_id: Optional[str] = None, filters: Optional[dict] = None) -> str:
     """
     Query the RAG pipeline.
     Retrieves relevant text chunks and graph connections, runs them through the local (or cloud) LLM,
@@ -112,7 +113,7 @@ def query_rag(question: str, limit: int = 5, use_cloud: bool = False) -> str:
     """
     try:
         rag_service = get_rag_service(use_cloud=use_cloud)
-        response = rag_service.ask(question, limit=limit)
+        response = rag_service.ask(question, limit=limit, paper_id=paper_id, filters=filters)
         return response
     except Exception as e:
         return f"Error executing RAG query: {str(e)}"
@@ -307,6 +308,254 @@ def create_note(title: str, content: str, authors: List[str] = None, tags: List[
         return {"status": "success", "id": paper_id, "file_path": note_path}
     except Exception as e:
         return {"status": "error", "message": f"Failed to create note: {str(e)}"}
+
+
+# ── MCP Resources ──
+
+@mcp.resource("graph://notes")
+def list_notes_resource() -> str:
+    """Retrieve a list of all research notes as a markdown index."""
+    try:
+        note_service = get_note_service()
+        notes = note_service.get_notes()
+        if not notes:
+            return "# Research Notes\n\nNo research notes found in the graph."
+        
+        lines = ["# Research Notes Index\n", "Click on any note link to read its full content:\n"]
+        for note in notes:
+            lines.append(f"- **[{note['title']}](graph://notes/{note['id']})** (ID: `{note['id']}`)")
+            if note.get("summary"):
+                lines.append(f"  *Summary:* {note['summary']}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing notes: {str(e)}"
+
+@mcp.resource("graph://notes/{note_id}")
+def get_note_resource(note_id: str) -> str:
+    """Retrieve the full content of a specific research note as markdown."""
+    try:
+        graph_repo = get_graph_repo()
+        paper = graph_repo.get_paper(note_id)
+        if not paper:
+            return f"Error: Note with ID '{note_id}' not found."
+            
+        frontmatter = {
+            "id": paper.id,
+            "title": paper.title,
+            "authors": paper.authors or [],
+            "created_at": paper.created_at,
+        }
+        if paper.properties:
+            frontmatter.update(paper.properties)
+            
+        import yaml
+        fm_str = yaml.dump(frontmatter, allow_unicode=True).strip()
+        return f"---\n{fm_str}\n---\n\n{paper.abstract or ''}"
+    except Exception as e:
+        return f"Error retrieving note: {str(e)}"
+
+@mcp.resource("graph://papers/{paper_id}/abstract")
+def get_paper_abstract_resource(paper_id: str) -> str:
+    """Retrieve the abstract or summary text for a specific paper."""
+    try:
+        graph_repo = get_graph_repo()
+        paper = graph_repo.get_paper(paper_id)
+        if not paper:
+            return f"Error: Paper with ID '{paper_id}' not found."
+        return f"# Abstract: {paper.title}\n\n{paper.abstract or 'No abstract available.'}"
+    except Exception as e:
+        return f"Error retrieving paper abstract: {str(e)}"
+
+
+# ── MCP Prompts ──
+
+@mcp.prompt()
+def summarize_paper(paper_id: str) -> str:
+    """Generate a prompt to summarize a specific paper or note."""
+    return f"Please summarize the paper or research note with ID '{paper_id}'. Provide key findings, methodology, and list the core concepts mentioned."
+
+@mcp.prompt()
+def compare_papers(paper_id_1: str, paper_id_2: str) -> str:
+    """Generate a prompt to compare two research documents."""
+    return f"Compare the paper/note with ID '{paper_id_1}' and the paper/note with ID '{paper_id_2}'. Find common themes, contrasting viewpoints, and analyze how their concepts link together."
+
+@mcp.prompt()
+def analyze_concept(concept_id: str) -> str:
+    """Generate a prompt to analyze a specific concept across the graph."""
+    return f"Analyze the concept '{concept_id}'. What documents mention it? How is it defined across the graph, and what other concepts or tags is it connected to?"
+
+
+# ── Extra MCP Editing & Graph Tools ──
+
+@mcp.tool
+def manage_graph(
+    action: str,
+    node_id: Optional[str] = None,
+    source_id: Optional[str] = None,
+    target_id: Optional[str] = None,
+    relationship_type: Optional[str] = None,
+    properties: Optional[dict] = None,
+    paper_id: Optional[str] = None,
+    tags: Optional[List[str]] = None
+) -> dict:
+    """Unified graph management tool.
+    
+    Supported actions and their parameters:
+    - action="delete_node" -> node_id (str)
+    - action="create_edge" -> source_id (str), target_id (str), relationship_type (str), properties (Optional[dict])
+    - action="delete_edge" -> source_id (str), target_id (str), relationship_type (str)
+    - action="add_tags" -> paper_id (str), tags (List[str])
+    """
+    try:
+        graph_repo = get_graph_repo()
+        action_clean = action.strip()
+        
+        if action_clean == "delete_node":
+            if not node_id:
+                return {"status": "error", "message": "node_id is required for delete_node action."}
+            node = graph_repo.get_node_by_id(node_id)
+            if not node:
+                return {"status": "error", "message": f"Node with ID '{node_id}' not found."}
+                
+            graph_repo.delete_node(node_id)
+            return {"status": "success", "message": f"Node '{node_id}' deleted successfully."}
+            
+        elif action_clean == "create_edge":
+            if not source_id or not target_id or not relationship_type:
+                return {"status": "error", "message": "source_id, target_id, and relationship_type are required for create_edge action."}
+            src = graph_repo.get_node_by_id(source_id)
+            tgt = graph_repo.get_node_by_id(target_id)
+            if not src:
+                return {"status": "error", "message": f"Source node '{source_id}' not found."}
+            if not tgt:
+                return {"status": "error", "message": f"Target node '{target_id}' not found."}
+                
+            graph_repo.add_edge(source_id, target_id, relationship_type, properties or {})
+            return {"status": "success", "message": f"Relationship '{relationship_type}' created from '{source_id}' to '{target_id}'."}
+            
+        elif action_clean == "delete_edge":
+            if not source_id or not target_id or not relationship_type:
+                return {"status": "error", "message": "source_id, target_id, and relationship_type are required for delete_edge action."}
+            with graph_repo._get_connection() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM edges WHERE source_id = ? AND target_id = ? AND type = ?",
+                    (source_id, target_id, relationship_type)
+                )
+                conn.commit()
+                if cursor.rowcount == 0:
+                    return {"status": "error", "message": "No matching relationship found to delete."}
+                    
+            return {"status": "success", "message": f"Relationship '{relationship_type}' from '{source_id}' to '{target_id}' deleted."}
+            
+        elif action_clean == "add_tags":
+            if not paper_id or tags is None:
+                return {"status": "error", "message": "paper_id and tags are required for add_tags action."}
+            paper = graph_repo.get_node_by_id(paper_id)
+            if not paper:
+                return {"status": "error", "message": f"Paper/note with ID '{paper_id}' not found."}
+                
+            from src.models import slugify, Concept
+            
+            added_tags = []
+            for tag in tags:
+                tag_clean = tag.strip()
+                if not tag_clean:
+                    continue
+                tag_id = slugify(tag_clean)
+                
+                existing_concept = graph_repo.get_node_by_id(tag_id)
+                if not existing_concept:
+                    concept = Concept(
+                        id=tag_id,
+                        name=tag_clean,
+                        properties={"is_tag": True}
+                    )
+                    graph_repo.save_concept(concept)
+                    
+                graph_repo.add_edge(paper_id, tag_id, "HAS_TAG")
+                added_tags.append(tag_clean)
+                
+            return {"status": "success", "message": f"Tags {added_tags} added to paper '{paper_id}'."}
+            
+        else:
+            return {"status": "error", "message": f"Unknown action: '{action}'. Allowed actions: 'delete_node', 'create_edge', 'delete_edge', 'add_tags'."}
+            
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to execute graph management action: {str(e)}"}
+
+@mcp.tool
+def update_note(
+    note_id: str,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+    authors: Optional[List[str]] = None,
+    tags: Optional[List[str]] = None,
+    use_cloud: bool = False
+) -> dict:
+    """Update an existing research note. Modifies the markdown file on disk and re-indexes the document."""
+    try:
+        note_service = get_note_service(use_cloud=use_cloud)
+        res = note_service.update_note(
+            note_id=note_id,
+            title=title,
+            content=content,
+            authors=authors,
+            tags=tags
+        )
+        return res
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to update note: {str(e)}"}
+
+@mcp.tool
+def search_graph(query: str, limit: int = 10) -> list:
+    """Search the graph database for papers, authors, and concepts matching the query."""
+    try:
+        graph_repo = get_graph_repo()
+        q_like = f"%{query}%"
+        results = []
+        with graph_repo._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, label, properties, title
+                FROM nodes
+                WHERE (label IN ('Paper', 'UserNote') AND title LIKE ?)
+                   OR (label IN ('Author', 'Concept') AND json_extract(properties, '$.name') LIKE ?)
+                LIMIT ?
+                """,
+                (q_like, q_like, limit)
+            ).fetchall()
+            
+            for r in rows:
+                node_id = r["id"]
+                label = r["label"]
+                props = json.loads(r["properties"] or "{}")
+                
+                if label in ('Paper', 'UserNote'):
+                    title = r["title"] or props.get("title", node_id)
+                    results.append({
+                        "type": "paper",
+                        "id": node_id,
+                        "title": title
+                    })
+                elif label == 'Author':
+                    name = props.get("name", node_id)
+                    results.append({
+                        "type": "author",
+                        "id": node_id,
+                        "name": name
+                    })
+                elif label == 'Concept':
+                    name = props.get("name", node_id)
+                    is_tag = props.get("is_tag", False)
+                    results.append({
+                        "type": "tag" if is_tag else "concept",
+                        "id": node_id,
+                        "name": name
+                    })
+        return results
+    except Exception as e:
+        return [{"error": f"Search failed: {str(e)}"}]
+
 
 if __name__ == "__main__":
     mcp.run()
