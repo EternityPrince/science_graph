@@ -606,5 +606,55 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
             trimmed_chunk = trimmed_chunks[0][0]
             self.assertEqual(trimmed_chunk.text_content, "This is sentence one. This is sentence three.")
 
+    @patch("src.services.rag_service.config")
+    def test_retrieve_relevant_chunks_with_hyde(self, mock_config):
+        mock_config.hyde_enabled = True
+        mock_config.hyde_max_tokens = 300
+        mock_config.hyde_count = 1
+        mock_config.max_expanded_queries = 1
+        mock_config.llm_max_tokens = 1000
+        
+        self.emb_engine.get_embedding.return_value = [0.1, 0.2]
+        self.llm_engine.generate_response.return_value = "Hypothetical text"
+        
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.id = "c1"
+        chunk1.text_content = "content 1"
+        
+        self.vector_repo.search_similar_chunks.return_value = [(chunk1, 0.9)]
+        self.vector_repo.search_text_fts5.return_value = []
+        
+        res = self.service.retrieve_relevant_chunks("query", limit=1)
+        
+        self.llm_engine.generate_response.assert_called_once()
+        self.assertEqual(self.emb_engine.get_embedding.call_count, 2)
+        self.emb_engine.get_embedding.assert_any_call("query")
+        self.emb_engine.get_embedding.assert_any_call("Hypothetical text")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0][0].id, "c1")
+
+    @patch("src.services.rag_service.config")
+    def test_retrieve_relevant_chunks_with_hyde_multiple(self, mock_config):
+        mock_config.hyde_enabled = True
+        mock_config.hyde_max_tokens = 300
+        mock_config.hyde_count = 2
+        mock_config.max_expanded_queries = 1
+        mock_config.llm_max_tokens = 1000
+        
+        self.emb_engine.get_embedding.return_value = [0.1, 0.2]
+        self.llm_engine.generate_response.side_effect = ["Hypothetical text 1", "Hypothetical text 2"]
+        
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.id = "c1"
+        chunk1.text_content = "content 1"
+        
+        self.vector_repo.search_similar_chunks.return_value = [(chunk1, 0.9)]
+        self.vector_repo.search_text_fts5.return_value = []
+        
+        res = self.service.retrieve_relevant_chunks("query", limit=1, hyde_responses=2)
+        
+        self.assertEqual(self.llm_engine.generate_response.call_count, 2)
+        self.assertEqual(self.emb_engine.get_embedding.call_count, 3)
+
 if __name__ == "__main__":
     unittest.main()

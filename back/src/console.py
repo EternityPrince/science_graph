@@ -108,6 +108,11 @@ def dim(msg: str) -> None:
     console.print(f"{_get_time_prefix()}  [muted]{msg}[/]")
 
 
+def debug(msg: str) -> None:
+    """Grey — debug / verbose."""
+    console.print(f"{_get_time_prefix()}  [muted][DEBUG] {msg}[/]")
+
+
 def section(title: str) -> None:
     """Horizontal rule with title."""
     prefix = _get_time_prefix()

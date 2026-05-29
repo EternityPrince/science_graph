@@ -416,7 +416,7 @@ class RAGService:
         repaired = re.sub(r"\s+", " ", repaired).strip()
         return repaired
 
-    def retrieve_relevant_chunks(self, query: str, limit: int = 5, paper_id: Optional[str] = None, filters: Optional[dict] = None) -> List[tuple[Chunk, float]]:
+    def retrieve_relevant_chunks(self, query: str, limit: int = 5, paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> List[tuple[Chunk, float]]:
         # Focused document RAG: cosine similarity search directly over document chunks in Python
         if paper_id:
             import numpy as np
@@ -467,6 +467,55 @@ class RAGService:
                     existing_chunk, existing_score = all_dense_results[chunk.id]
                     if score > existing_score:
                         all_dense_results[chunk.id] = (chunk, score)
+
+        # 2. Run HyDE (Hypothetical Document Embeddings) if enabled
+        if config.hyde_enabled:
+            # Resolve hyde_responses parameter
+            if hyde_responses is None:
+                # Check sys.argv for --hyde
+                import sys
+                argv_hyde = None
+                for idx, arg in enumerate(sys.argv):
+                    if arg == "--hyde":
+                        if idx + 1 < len(sys.argv):
+                            try:
+                                argv_hyde = int(sys.argv[idx + 1])
+                            except ValueError:
+                                pass
+                    elif arg.startswith("--hyde="):
+                        try:
+                            argv_hyde = int(arg.split("=", 1)[1])
+                        except ValueError:
+                            pass
+                if argv_hyde is not None:
+                    hyde_responses = argv_hyde
+                else:
+                    hyde_responses = getattr(config, "hyde_count", 1)
+
+            for _ in range(hyde_responses):
+                try:
+                    hypothetical = self.llm_engine.generate_response(
+                        prompt=prompts.get_prompt("rag", "hyde", query=query),
+                        max_tokens=config.hyde_max_tokens
+                    )
+                    con.debug(f"Generated hypothetical answer: {hypothetical}")
+                    
+                    hyp_emb = self.emb_engine.get_embedding(hypothetical)
+                    if filters:
+                        hyde_res = self.vector_repo.search_similar_chunks(hyp_emb, limit=limit * 2, filters=filters)
+                    else:
+                        hyde_res = self.vector_repo.search_similar_chunks(hyp_emb, limit=limit * 2)
+                        
+                    for chunk, score in hyde_res:
+                        if chunk.id not in all_dense_results:
+                            all_dense_results[chunk.id] = (chunk, score)
+                        else:
+                            existing_chunk, existing_score = all_dense_results[chunk.id]
+                            if score > existing_score:
+                                all_dense_results[chunk.id] = (chunk, score)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"HyDE generation failed: {e}")
                         
         dense_results = list(all_dense_results.values())
         # Sort dense results by score descending to assign proper ranks for RRF
@@ -541,8 +590,8 @@ class RAGService:
             con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
             return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
 
-    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None) -> str:
-        final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters)
+    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> str:
+        final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)
         if not final_chunks:
             return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."  # noqa: E501
 
@@ -586,12 +635,12 @@ class RAGService:
             logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
             return raw_response
 
-    async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None) -> AsyncGenerator[dict, None]:
+    async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None, hyde_responses: Optional[int] = None) -> AsyncGenerator[dict, None]:
         import queue
         import threading
 
         try:
-            final_chunks = await asyncio.to_thread(self.retrieve_relevant_chunks, question, limit, paper_id)
+            final_chunks = await asyncio.to_thread(self.retrieve_relevant_chunks, question, limit, paper_id, None, hyde_responses)
         except Exception as e:
             yield {"type": "error", "text": f"Retrieval failed: {e}"}
             return

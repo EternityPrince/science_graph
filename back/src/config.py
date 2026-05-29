@@ -21,6 +21,7 @@ DEFAULT_CONFIG = {
         "max_expanded_queries": 3,
         "hyde_enabled": False,
         "hyde_max_tokens": 300,
+        "hyde_count": 1,
         # Task-specific input token limits
         "extraction_input_limit": 5000,
         "clustering_input_limit": 6000,
@@ -120,6 +121,15 @@ llm:
 
   # Maximum number of expanded queries for search (including original, 1 = disabled)
   max_expanded_queries: 3
+
+  # Enable Hypothetical Document Embeddings (HyDE) for retrieval improvement
+  hyde_enabled: false
+
+  # Maximum tokens generated for the hypothetical answer
+  hyde_max_tokens: 300
+
+  # Number of hypothetical answers to generate
+  hyde_count: 1
 
   # Local model settings (used if provider is 'mlx')
   local:
@@ -326,6 +336,18 @@ pdf_compression:
     @property
     def max_expanded_queries(self) -> int:
         return int(self.data["llm"].get("max_expanded_queries", 3))
+
+    @property
+    def hyde_enabled(self) -> bool:
+        return bool(self.data["llm"].get("hyde_enabled", False))
+
+    @property
+    def hyde_max_tokens(self) -> int:
+        return int(self.data["llm"].get("hyde_max_tokens", 300))
+
+    @property
+    def hyde_count(self) -> int:
+        return int(self.data["llm"].get("hyde_count", 1))
 
     @property
     def llm_extraction_input_limit(self) -> int:

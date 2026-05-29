@@ -25,5 +25,5 @@ class RAGPipeline:
     def build_context(self, similar_chunks: List[Tuple[Chunk, float]]) -> Tuple[str, str]:
         return self.service.build_context(similar_chunks)
 
-    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None) -> str:
-        return self.service.ask(query, limit, history_str, paper_id=paper_id, filters=filters)
+    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> str:
+        return self.service.ask(query, limit, history_str, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)
