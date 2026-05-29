@@ -19,7 +19,7 @@ DEFAULT_CONFIG = {
         "retry_backoff": 2.0,
         "chunk_pool_size": 4,
         "max_expanded_queries": 3,
-        "hyde_enabled": false,
+        "hyde_enabled": False,
         "hyde_max_tokens": 300,
         # Task-specific input token limits
         "extraction_input_limit": 5000,

@@ -516,3 +516,95 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pairs[0][0], "clustering")
         self.assertEqual(pairs[1][0], "clustering")
         self.assertEqual(pairs[2][0], "clustering")
+
+    @patch("sentence_transformers.CrossEncoder")
+    def test_rag_service_warmup(self, mock_cross_encoder):
+        mock_ce = MagicMock()
+        mock_cross_encoder.return_value = mock_ce
+        
+        RAGService(
+            self.graph_repo,
+            self.vector_repo,
+            self.emb_engine,
+            self.llm_engine,
+            self.expander,
+            warmup=True
+        )
+        mock_ce.predict.assert_called_once_with([("warmup query", "warmup context")])
+
+    def test_classify_intent_and_extract_filters(self):
+        self.llm_engine.generate_response.return_value = '{"search_query": "machine learning", "year_start": 2020, "year_end": 2022, "author": "Smith", "venue": "JMLR"}'
+        self.llm_engine.extract_json.side_effect = lambda x: x
+        
+        q, filters = self.service._classify_intent_and_extract_filters("papers by Smith about machine learning in 2021")
+        self.assertEqual(q, "machine learning")
+        self.assertEqual(filters, {"year_start": 2020, "year_end": 2022, "author": "Smith", "venue": "JMLR"})
+        
+        self.llm_engine.generate_response.side_effect = Exception("LLM error")
+        q2, filters2 = self.service._classify_intent_and_extract_filters("год")
+        self.assertEqual(q2, "год")
+        self.assertIsNone(filters2)
+
+    @patch("src.services.rag_service.config")
+    def test_expand_query_short_query_enrichment(self, mock_config):
+        mock_config.max_expanded_queries = 5
+        self.graph_repo.get_concept_aliases.return_value = {"bert": "BERT"}
+        concept_node = MagicMock()
+        concept_node.properties = {
+            "aliases": ["Bidirectional Encoder Representations from Transformers"],
+            "name_en": "BERT English",
+            "name_ru": "БЕРТ"
+        }
+        self.graph_repo.get_concept.return_value = concept_node
+        
+        self.llm_engine.generate_response.return_value = "[]"
+        self.llm_engine.extract_json.side_effect = lambda x: x
+        
+        res = self.service._expand_query("bert")
+        self.assertIn("bert", res)
+        # Check canonical/synonyms are found
+        self.assertIn("Bidirectional Encoder Representations from Transformers", res)
+        self.assertIn("BERT English", res)
+        self.assertIn("БЕРТ", res)
+
+    def test_validate_and_repair_citations(self):
+        chunks = [MagicMock(spec=Chunk), MagicMock(spec=Chunk)]
+        
+        res1 = self.service._validate_and_repair_citations("Statement [1].", chunks)
+        self.assertEqual(res1, "Statement [1].")
+        
+        res2 = self.service._validate_and_repair_citations("Statement [3].", chunks)
+        self.assertEqual(res2, "Statement .")
+        
+        res3 = self.service._validate_and_repair_citations("Statement [1] and [3].", chunks)
+        self.assertEqual(res3, "Statement [1] and .")
+
+    def test_trim_context_sentence_pruning(self):
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.paper_id = "p1"
+        chunk1.page_number = 1
+        chunk1.text_content = "This is sentence one. This is sentence two. This is sentence three."
+        
+        final_chunks = [(chunk1, 0.9)]
+        
+        def build_context_mock(chunks):
+            txt = "\n\n".join([f"Block: {c[0].text_content}" for c in chunks])
+            return txt, "No direct graph relations found."
+            
+        with patch.object(self.service, "build_context", side_effect=build_context_mock):
+            trimmed_text, trimmed_graph, trimmed_chunks = self.service.trim_context(
+                context_text="Block: This is sentence one. This is sentence two. This is sentence three.",
+                context_graph="No direct graph relations found.",
+                final_chunks=final_chunks,
+                query="query",
+                history_str="",
+                system_prompt="system",
+                model_max_context=46,
+                reserved_tokens=25
+            )
+            self.assertEqual(len(trimmed_chunks), 1)
+            trimmed_chunk = trimmed_chunks[0][0]
+            self.assertEqual(trimmed_chunk.text_content, "This is sentence one. This is sentence three.")
+
+if __name__ == "__main__":
+    unittest.main()

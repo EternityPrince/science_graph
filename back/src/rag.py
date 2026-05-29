@@ -1,4 +1,4 @@
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Optional
 from src.models import Chunk
 from src.repository.base import GraphRepository, VectorRepository
 from src.vector_search import EmbeddingEngine
@@ -25,5 +25,5 @@ class RAGPipeline:
     def build_context(self, similar_chunks: List[Tuple[Chunk, float]]) -> Tuple[str, str]:
         return self.service.build_context(similar_chunks)
 
-    def ask(self, query: str, limit: int = 5, history_str: str = "") -> str:
-        return self.service.ask(query, limit, history_str)
+    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None) -> str:
+        return self.service.ask(query, limit, history_str, paper_id=paper_id, filters=filters)

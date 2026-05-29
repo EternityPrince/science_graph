@@ -62,7 +62,8 @@ class ServiceContainer:
                     self.get_graph_repo(),
                     self.get_vector_repo(),
                     self.get_embedding_engine(),
-                    llm
+                    llm,
+                    warmup=True
                 )
             return self._rag_service_cloud
         else:
@@ -72,7 +73,8 @@ class ServiceContainer:
                     self.get_graph_repo(),
                     self.get_vector_repo(),
                     self.get_embedding_engine(),
-                    llm
+                    llm,
+                    warmup=True
                 )
             return self._rag_service_local
 

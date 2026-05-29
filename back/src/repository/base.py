@@ -67,6 +67,16 @@ class GraphRepository(ABC):
         """
         pass
 
+    def get_neighbors_batch(self, node_ids: List[str]) -> List[tuple[str, str, str, str, str, str]]:
+        """
+        Returns direct (depth 1) connections from multiple node_ids in a single batch query.
+        Each connection is a tuple: (src_id, src_label, edge_type, target_id, target_label, edge_properties_json)
+        """
+        results = []
+        for node_id in node_ids:
+            results.extend(self.get_neighbors(node_id, max_depth=1))
+        return results
+
     @abstractmethod
     def get_stats(self) -> Dict[str, int]:
         """Returns statistical numbers of nodes and edges."""
@@ -205,7 +215,7 @@ class VectorRepository(ABC):
         self.save_chunks(chunks)
 
     @abstractmethod
-    def search_similar_chunks(self, query_embedding: List[float], limit: int = 5) -> List[tuple[Chunk, float]]:
+    def search_similar_chunks(self, query_embedding: List[float], limit: int = 5, filters: Optional[dict] = None) -> List[tuple[Chunk, float]]:
         """
         Searches for similar chunks using cosine similarity.
         Returns a list of tuples (Chunk, score).
@@ -213,7 +223,7 @@ class VectorRepository(ABC):
         pass
 
     @abstractmethod
-    def search_text_fts5(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
+    def search_text_fts5(self, query: str, limit: int = 10, filters: Optional[dict] = None) -> List[tuple[Chunk, float]]:
         """
         Searches for chunks using SQLite FTS5 BM25 search.
         Returns a list of tuples (Chunk, score).

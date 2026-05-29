@@ -67,6 +67,52 @@ class TestVectorSearch:
             if os.path.exists(pdf_path):
                 os.remove(pdf_path)
 
+    def test_split_text_to_chunks_structure_aware(self):
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            pdf_path = tmp.name
+
+        try:
+            doc = fitz.open()
+            page = doc.new_page()
+            
+            # Markdown table & LaTeX equation within a longer text block
+            text_content = (
+                "Here is an introduction sentence.\n"
+                "| Header 1 | Header 2 |\n"
+                "|---|---|\n"
+                "| Cell 1 | Cell 2 |\n"
+                "Another sentence describing the table.\n"
+                "$$\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$\n"
+                "And a conclusion sentence.\n"
+                "\\begin{equation} a^2 + b^2 = c^2 \\end{equation}\n"
+                "Inline math: \\(x + y = z\\) and \\[a^2 = b\\] and $f(x) = y$.\n"
+                "This has prices: $100 and $200."
+            )
+            page.insert_text((50, 50), text_content)
+            doc.save(pdf_path)
+            doc.close()
+
+            # Split with chunk_size = 80, overlap = 10
+            chunks = split_text_to_chunks(
+                paper_id="struct_test",
+                file_path=pdf_path,
+                chunk_size=80,
+                chunk_overlap=10
+            )
+
+            # Recombine and check that the structures exist intact in the chunks
+            combined = "\n".join([c.text_content for c in chunks])
+            assert "| Header 1 | Header 2 |" in combined
+            assert "$$\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$" in combined
+            assert "\\begin{equation} a^2 + b^2 = c^2 \\end{equation}" in combined
+            assert "\\(x + y = z\\)" in combined
+            assert "\\[a^2 = b\\]" in combined
+            assert "$f(x) = y$" in combined
+            assert "$100 and $200" in combined
+        finally:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+
     @patch("sentence_transformers.SentenceTransformer")
     @patch("torch.backends.mps.is_available")
     def test_embedding_engine_device_selection_mps(self, mock_mps_available, mock_sentence_transformer):

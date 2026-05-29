@@ -537,6 +537,31 @@ class SQLiteGraphRepository(GraphRepository):
                 r["edge_props"]
             ) for r in rows]
 
+    def get_neighbors_batch(self, node_ids: List[str]) -> List[tuple[str, str, str, str, str, str]]:
+        if not node_ids:
+            return []
+        placeholders = ",".join("?" for _ in node_ids)
+        query = f"""
+        SELECT
+            e.source_id as src_id, n1.label as src_label, 
+            e.type as edge_type, 
+            e.target_id as tgt_id, n2.label as tgt_label, 
+            e.properties as edge_props
+        FROM edges e
+        JOIN nodes n1 ON e.source_id = n1.id
+        JOIN nodes n2 ON e.target_id = n2.id
+        WHERE e.source_id IN ({placeholders}) OR e.target_id IN ({placeholders})
+        """
+        params = node_ids + node_ids
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [(
+                r["src_id"], r["src_label"],
+                r["edge_type"],
+                r["tgt_id"], r["tgt_label"],
+                r["edge_props"]
+            ) for r in rows]
+
     def get_stats(self) -> Dict[str, int]:
         with self._get_connection() as conn:
             paper_count = conn.execute("SELECT COUNT(*) FROM nodes WHERE label IN ('Paper', 'UserNote')").fetchone()[0]
@@ -1132,7 +1157,32 @@ class SQLiteVectorRepository(VectorRepository):
                 ))
             return chunks
 
-    def search_similar_chunks(self, query_embedding: List[float], limit: int = 5) -> List[tuple[Chunk, float]]:
+    def _build_metadata_filters(self, filters: Optional[dict]) -> tuple[str, list]:
+        # TODO/WARNING: Filtering using json_extract on n.properties runs without indexes,
+        # resulting in a full table scan for each query. This will become a bottleneck as the
+        # database grows. In the future, we should extract fields like 'year', 'authors', and
+        # 'venue' into separate indexed columns in the nodes/chunks table.
+        if not filters:
+            return "", []
+        clauses = []
+        params = []
+        if "year_start" in filters and filters["year_start"] is not None:
+            clauses.append("CAST(json_extract(n.properties, '$.year') AS INTEGER) >= ?")
+            params.append(int(filters["year_start"]))
+        if "year_end" in filters and filters["year_end"] is not None:
+            clauses.append("CAST(json_extract(n.properties, '$.year') AS INTEGER) <= ?")
+            params.append(int(filters["year_end"]))
+        if "author" in filters and filters["author"]:
+            clauses.append("json_extract(n.properties, '$.authors') LIKE ?")
+            params.append(f"%{filters['author']}%")
+        if "venue" in filters and filters["venue"]:
+            clauses.append("json_extract(n.properties, '$.journal') LIKE ?")
+            params.append(f"%{filters['venue']}%")
+        if clauses:
+            return " AND " + " AND ".join(clauses), params
+        return "", []
+
+    def search_similar_chunks(self, query_embedding: List[float], limit: int = 5, filters: Optional[dict] = None) -> List[tuple[Chunk, float]]:
         ndim = len(query_embedding)
         index = self._get_index(ndim)
         
@@ -1140,8 +1190,8 @@ class SQLiteVectorRepository(VectorRepository):
             return []
             
         q_vec = np.array(query_embedding, dtype=np.float32)
-        # Fetch more candidates to account for deleted/ghost vectors
-        search_limit = max(limit * 3, 50)
+        # Fetch more candidates to account for deleted/ghost vectors and metadata filtering!
+        search_limit = max(limit * 5, 100)
         matches = index.search(q_vec, search_limit)
         
         if len(matches) == 0:
@@ -1150,11 +1200,16 @@ class SQLiteVectorRepository(VectorRepository):
         keys_list = [int(k) for k in matches.keys]
         placeholders = ",".join("?" for _ in keys_list)
         
+        filter_sql, filter_params = self._build_metadata_filters(filters)
+        query = f"""
+            SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, c.id_hash 
+            FROM chunks c
+            JOIN nodes n ON n.id = c.paper_id
+            WHERE c.id_hash IN ({placeholders}) {filter_sql}
+        """
+        
         with self._get_connection() as conn:
-            rows = conn.execute(
-                f"SELECT id, paper_id, text_content, page_number, embedding, id_hash FROM chunks WHERE id_hash IN ({placeholders})",
-                keys_list
-            ).fetchall()
+            rows = conn.execute(query, keys_list + filter_params).fetchall()
             
         key_to_dist = {int(k): float(d) for k, d in zip(matches.keys, matches.distances)}
         
@@ -1178,30 +1233,35 @@ class SQLiteVectorRepository(VectorRepository):
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:limit]
 
-    def search_text_fts5(self, query: str, limit: int = 10) -> List[tuple[Chunk, float]]:
+    def search_text_fts5(self, query: str, limit: int = 10, filters: Optional[dict] = None) -> List[tuple[Chunk, float]]:
         import re
         words = re.findall(r'\w+', query)
         if not words:
             return []
         fts_query = " OR ".join(words)
         
+        filter_sql, filter_params = self._build_metadata_filters(filters)
+        
         with self._get_connection() as conn:
             try:
                 # bm25 returns negative values where lower is better.
                 # So we sort by bm25(...) ASC and return -bm25(...) as the score.
-                rows = conn.execute(
-                    """
+                query_str = f"""
                     SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, f.score
                     FROM (
                         SELECT id, -bm25(chunks_fts) as score
                         FROM chunks_fts
                         WHERE chunks_fts MATCH ?
-                        ORDER BY bm25(chunks_fts) ASC
-                        LIMIT ?
                     ) f
                     JOIN chunks c ON c.id = f.id
-                    """,
-                    (fts_query, limit)
+                    JOIN nodes n ON n.id = c.paper_id
+                    WHERE 1=1 {filter_sql}
+                    ORDER BY f.score DESC
+                    LIMIT ?
+                """
+                rows = conn.execute(
+                    query_str,
+                    [fts_query] + filter_params + [limit]
                 ).fetchall()
             except sqlite3.OperationalError:
                 return []

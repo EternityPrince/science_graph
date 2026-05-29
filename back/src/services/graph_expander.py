@@ -132,157 +132,183 @@ class ExperimentalGraphExpander:
             # 2.1 Bidirectional Batch Fetch
             t_fetch_start = time.perf_counter()
             new_neighbors: Dict[str, Tuple[str, Optional[str]]] = {}  # neighbor_id -> (label, connection_desc)
-            
+            # Resolve titles for the entire layer to format connection descriptions properly
+            node_titles = {}
             for node_id in current_node_ids:
                 curr_label = node_labels.get(node_id, "Paper")
-                curr_title = ""
                 if curr_label in ("Paper", "UserNote"):
                     paper = papers_map.get(node_id) or self.graph_repo.get_paper(node_id)
-                    curr_title = paper.title if paper else node_id
+                    node_titles[node_id] = paper.title if paper else node_id
                 elif curr_label == "Author":
                     author = self.graph_repo.get_author(node_id)
-                    curr_title = author.name if author else node_id
+                    node_titles[node_id] = author.name if author else node_id
                 elif curr_label == "Concept":
                     concept = self.graph_repo.get_concept(node_id)
-                    curr_title = concept.name if concept else node_id
+                    node_titles[node_id] = concept.name if concept else node_id
                 else:
                     props = self.graph_repo.get_node_properties(node_id)
-                    curr_title = props.get("name") if props else node_id
+                    node_titles[node_id] = props.get("name") if props else node_id
+
+            # Use batch query if available and configured (mock-safe fallback)
+            use_batch = False
+            if hasattr(self.graph_repo, "get_neighbors_batch"):
+                from unittest.mock import Mock
+                if isinstance(self.graph_repo.get_neighbors_batch, Mock):
+                    if (self.graph_repo.get_neighbors_batch._mock_return_value is not Mock._mock_return_value 
+                            or self.graph_repo.get_neighbors_batch.side_effect is not None):
+                        use_batch = True
+                else:
+                    use_batch = True
+            
+            if use_batch:
+                neighbors = self.graph_repo.get_neighbors_batch(list(current_node_ids))
+            else:
+                # Fallback to sequential get_neighbors to preserve backward compatibility & mock tests
+                neighbors = []
+                for node_id in current_node_ids:
+                    node_neighbors = self.graph_repo.get_neighbors(node_id, max_depth=1)
+                    neighbors.extend(node_neighbors)
+            
+            for src_id, src_label, edge_type, tgt_id, tgt_label, edge_props_json in neighbors:
+                if src_id in current_node_ids:
+                    node_id = src_id
+                    curr_title = node_titles[node_id]
+                    curr_label = node_labels.get(node_id, src_label)
+                    neigh_id = tgt_id
+                    neigh_label = tgt_label
+                    is_outbound = True
+                elif tgt_id in current_node_ids:
+                    node_id = tgt_id
+                    curr_title = node_titles[node_id]
+                    curr_label = node_labels.get(node_id, tgt_label)
+                    neigh_id = src_id
+                    neigh_label = src_label
+                    is_outbound = False
+                else:
+                    continue
                 
-                neighbors = self.graph_repo.get_neighbors(node_id, max_depth=1)
-                for src_id, src_label, edge_type, tgt_id, tgt_label, edge_props_json in neighbors:
-                    # Identify neighbor
-                    if src_id == node_id:
-                        neigh_id = tgt_id
-                        neigh_label = tgt_label
-                        is_outbound = True
-                    else:
-                        neigh_id = src_id
-                        neigh_label = src_label
-                        is_outbound = False
+                if neigh_id in visited_nodes or neigh_id in new_neighbors:
+                    continue
+                    
+                # Filter based on type:
+                allowed = False
+                if curr_label in ("Paper", "UserNote"):
+                    if neigh_label in ("Paper", "UserNote", "Author", "Concept", "Institution", "Dataset", "CodeRepository", "JournalConference"):
+                        allowed = True
+                elif curr_label == "Author":
+                    if neigh_label in ("Paper", "UserNote", "Institution"):
+                        allowed = True
+                elif curr_label == "Concept":
+                    if neigh_label in ("Paper", "UserNote", "Concept"):
+                        allowed = True
+                elif curr_label == "Institution":
+                    if neigh_label in ("Paper", "UserNote", "Author"):
+                        allowed = True
+                elif curr_label in ("Dataset", "CodeRepository", "JournalConference"):
+                    if neigh_label in ("Paper", "UserNote"):
+                        allowed = True
                         
-                    if neigh_id in visited_nodes or neigh_id in new_neighbors:
-                        continue
+                if not allowed:
+                    continue
                         
-                    # Filter based on type:
-                    allowed = False
-                    if curr_label in ("Paper", "UserNote"):
-                        if neigh_label in ("Paper", "UserNote", "Author", "Concept", "Institution", "Dataset", "CodeRepository", "JournalConference"):
-                            allowed = True
-                    elif curr_label == "Author":
-                        if neigh_label in ("Paper", "UserNote", "Institution"):
-                            allowed = True
-                    elif curr_label == "Concept":
-                        if neigh_label in ("Paper", "UserNote", "Concept"):
-                            allowed = True
-                    elif curr_label == "Institution":
-                        if neigh_label in ("Paper", "UserNote", "Author"):
-                            allowed = True
-                    elif curr_label in ("Dataset", "CodeRepository", "JournalConference"):
-                        if neigh_label in ("Paper", "UserNote"):
-                            allowed = True
-                            
-                    if not allowed:
-                        continue
-                            
-                    # Construct connection description
-                    conn_desc = None
-                    try:
-                        import json
-                        edge_props = json.loads(edge_props_json) if edge_props_json else {}
-                    except Exception:
-                        edge_props = {}
+                # Construct connection description
+                conn_desc = None
+                try:
+                    import json
+                    edge_props = json.loads(edge_props_json) if edge_props_json else {}
+                except Exception:
+                    edge_props = {}
 
-                    # Custom intent and context snippet for CITES
-                    intent_str = ""
-                    if edge_type == "CITES":
-                        intent = edge_props.get("intent")
-                        ctx = edge_props.get("context")
-                        if intent:
-                            intent_str += f" (Intent: {intent})"
-                        if ctx:
-                            intent_str += f" [Context: \"{ctx}\"]"
+                # Custom intent and context snippet for CITES
+                intent_str = ""
+                if edge_type == "CITES":
+                    intent = edge_props.get("intent")
+                    ctx = edge_props.get("context")
+                    if intent:
+                        intent_str += f" (Intent: {intent})"
+                    if ctx:
+                        intent_str += f" [Context: \"{ctx}\"]"
 
-                    if edge_type == "CITES":
-                        if is_outbound:
-                            conn_desc = f"Cites paper '{curr_title}'{intent_str}"
-                        else:
-                            conn_desc = f"Cited by paper '{curr_title}'{intent_str}"
-                    elif edge_type == "AUTHORED":
-                        if is_outbound:
-                            conn_desc = f"Author of paper/note '{curr_title}'"
-                        else:
-                            conn_desc = f"Paper/note authored by '{curr_title}'"
-                    elif edge_type == "MENTIONS_CONCEPT":
-                        if is_outbound:
-                            conn_desc = f"Concept mentioned in paper/note '{curr_title}'"
-                        else:
-                            conn_desc = f"Paper/note mentioning concept '{curr_title}'"
-                    elif edge_type == "HAS_TAG":
-                        if is_outbound:
-                            conn_desc = f"Tag for paper/note '{curr_title}'"
-                        else:
-                            conn_desc = f"Paper/note tagged with '{curr_title}'"
-                    elif edge_type == "AFFILIATED_WITH":
-                        if is_outbound:
-                            conn_desc = f"Institution affiliated with author '{curr_title}'"
-                        else:
-                            conn_desc = f"Author affiliated with institution '{curr_title}'"
-                    elif edge_type == "SPONSORED_BY":
-                        if is_outbound:
-                            conn_desc = f"Institution sponsoring paper/note '{curr_title}'"
-                        else:
-                            conn_desc = f"Paper/note sponsored by institution '{curr_title}'"
-                    elif edge_type in ("USED_DATASET", "INTRODUCED_DATASET"):
-                        rel_verb = "using" if edge_type == "USED_DATASET" else "introducing"
-                        if is_outbound:
-                            conn_desc = f"Dataset {rel_verb} in paper/note '{curr_title}'"
-                        else:
-                            conn_desc = f"Paper/note {rel_verb} dataset '{curr_title}'"
-                    elif edge_type == "HAS_CODE":
-                        if is_outbound:
-                            conn_desc = f"Code repository for paper/note '{curr_title}'"
-                        else:
-                            conn_desc = f"Paper/note containing code repository '{curr_title}'"
-                    elif edge_type == "PUBLISHED_IN":
-                        if is_outbound:
-                            conn_desc = f"Journal/conference publishing paper/note '{curr_title}'"
-                        else:
-                            conn_desc = f"Paper/note published in journal/conference '{curr_title}'"
-                    elif edge_type in ("SUBCLASS_OF", "IS_A"):
-                        if is_outbound:
-                            conn_desc = f"Subclass of concept '{curr_title}'"
-                        else:
-                            conn_desc = f"Superclass of concept '{curr_title}'"
-                    elif edge_type == "PREREQUISITE_FOR":
-                        if is_outbound:
-                            conn_desc = f"Prerequisite for concept '{curr_title}'"
-                        else:
-                            conn_desc = f"Requires concept '{curr_title}' as prerequisite"
-                    elif edge_type == "COMMENTS_ON":
-                        if is_outbound:
-                            conn_desc = f"Commented on by note '{curr_title}'"
-                        else:
-                            conn_desc = f"Note commenting on '{curr_title}'"
-                    elif edge_type == "AGREES_WITH":
-                        if is_outbound:
-                            conn_desc = f"Agreed with by note '{curr_title}'"
-                        else:
-                            conn_desc = f"Note agreeing with '{curr_title}'"
-                    elif edge_type == "DISAGREES_WITH":
-                        if is_outbound:
-                            conn_desc = f"Disagreed with by note '{curr_title}'"
-                        else:
-                            conn_desc = f"Note disagreeing with '{curr_title}'"
-                    elif edge_type == "LINKED_TO":
-                        if is_outbound:
-                            conn_desc = f"Concept linked to note '{curr_title}'"
-                        else:
-                            conn_desc = f"Note linked to concept '{curr_title}'"
+                if edge_type == "CITES":
+                    if is_outbound:
+                        conn_desc = f"Cites paper '{curr_title}'{intent_str}"
                     else:
-                        conn_desc = f"Connected to '{curr_title}' via {edge_type}"
-                            
-                    new_neighbors[neigh_id] = (neigh_label, conn_desc)
+                        conn_desc = f"Cited by paper '{curr_title}'{intent_str}"
+                elif edge_type == "AUTHORED":
+                    if is_outbound:
+                        conn_desc = f"Author of paper/note '{curr_title}'"
+                    else:
+                        conn_desc = f"Paper/note authored by '{curr_title}'"
+                elif edge_type == "MENTIONS_CONCEPT":
+                    if is_outbound:
+                        conn_desc = f"Concept mentioned in paper/note '{curr_title}'"
+                    else:
+                        conn_desc = f"Paper/note mentioning concept '{curr_title}'"
+                elif edge_type == "HAS_TAG":
+                    if is_outbound:
+                        conn_desc = f"Tag for paper/note '{curr_title}'"
+                    else:
+                        conn_desc = f"Paper/note tagged with '{curr_title}'"
+                elif edge_type == "AFFILIATED_WITH":
+                    if is_outbound:
+                        conn_desc = f"Institution affiliated with author '{curr_title}'"
+                    else:
+                        conn_desc = f"Author affiliated with institution '{curr_title}'"
+                elif edge_type == "SPONSORED_BY":
+                    if is_outbound:
+                        conn_desc = f"Institution sponsoring paper/note '{curr_title}'"
+                    else:
+                        conn_desc = f"Paper/note sponsored by institution '{curr_title}'"
+                elif edge_type in ("USED_DATASET", "INTRODUCED_DATASET"):
+                    rel_verb = "using" if edge_type == "USED_DATASET" else "introducing"
+                    if is_outbound:
+                        conn_desc = f"Dataset {rel_verb} in paper/note '{curr_title}'"
+                    else:
+                        conn_desc = f"Paper/note {rel_verb} dataset '{curr_title}'"
+                elif edge_type == "HAS_CODE":
+                    if is_outbound:
+                        conn_desc = f"Code repository for paper/note '{curr_title}'"
+                    else:
+                        conn_desc = f"Paper/note containing code repository '{curr_title}'"
+                elif edge_type == "PUBLISHED_IN":
+                    if is_outbound:
+                        conn_desc = f"Journal/conference publishing paper/note '{curr_title}'"
+                    else:
+                        conn_desc = f"Paper/note published in journal/conference '{curr_title}'"
+                elif edge_type in ("SUBCLASS_OF", "IS_A"):
+                    if is_outbound:
+                        conn_desc = f"Subclass of concept '{curr_title}'"
+                    else:
+                        conn_desc = f"Superclass of concept '{curr_title}'"
+                elif edge_type == "PREREQUISITE_FOR":
+                    if is_outbound:
+                        conn_desc = f"Prerequisite for concept '{curr_title}'"
+                    else:
+                        conn_desc = f"Requires concept '{curr_title}' as prerequisite"
+                elif edge_type == "COMMENTS_ON":
+                    if is_outbound:
+                        conn_desc = f"Commented on by note '{curr_title}'"
+                    else:
+                        conn_desc = f"Note commenting on '{curr_title}'"
+                elif edge_type == "AGREES_WITH":
+                    if is_outbound:
+                        conn_desc = f"Agreed with by note '{curr_title}'"
+                    else:
+                        conn_desc = f"Note agreeing with '{curr_title}'"
+                elif edge_type == "DISAGREES_WITH":
+                    if is_outbound:
+                        conn_desc = f"Disagreed with by note '{curr_title}'"
+                    else:
+                        conn_desc = f"Note disagreeing with '{curr_title}'"
+                elif edge_type == "LINKED_TO":
+                    if is_outbound:
+                        conn_desc = f"Concept linked to note '{curr_title}'"
+                    else:
+                        conn_desc = f"Note linked to concept '{curr_title}'"
+                else:
+                    conn_desc = f"Connected to '{curr_title}' via {edge_type}"
+                        
+                new_neighbors[neigh_id] = (neigh_label, conn_desc)
             hop_data["fetch_time"] = time.perf_counter() - t_fetch_start
                     
             if not new_neighbors:

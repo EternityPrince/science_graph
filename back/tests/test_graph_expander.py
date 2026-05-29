@@ -200,5 +200,60 @@ class TestGraphExpander(unittest.TestCase):
         result = self.expander.expand("test query", initial_chunks, trace=True)
         self.assertIn("[Paper] Title One", result)
 
+    def test_graph_expander_with_batch(self):
+        c1 = Chunk(id="chunk_1", paper_id="paper_1", text_content="Intro text", page_number=1)
+        initial_chunks = [(c1, 0.9)]
+        
+        p1 = Paper(id="paper_1", title="Title One")
+        self.graph_repo.get_papers_batch.return_value = {"paper_1": p1}
+        
+        # Configure get_neighbors_batch to return a neighbor and trigger use_batch
+        self.graph_repo.get_neighbors_batch.return_value = [
+            ("paper_1", "Paper", "CITES", "paper_2", "Paper", "{}")
+        ]
+        
+        # Mock final LLM
+        mock_response = EvidenceListResponse(
+            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
+        )
+        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        
+        result = self.expander.expand("query", initial_chunks)
+        
+        self.graph_repo.get_neighbors_batch.assert_called_once_with(["paper_1"])
+        self.graph_repo.get_neighbors.assert_not_called()
+        self.assertIn("[Paper] Title One", result)
+
+    def test_other_relation_types_coverage(self):
+        c1 = Chunk(id="chunk_1", paper_id="paper_1", text_content="Text", page_number=1)
+        initial_chunks = [(c1, 0.9)]
+        
+        p1 = Paper(id="paper_1", title="Title One")
+        self.graph_repo.get_papers_batch.return_value = {"paper_1": p1}
+        
+        self.graph_repo.get_neighbors.return_value = [
+            ("paper_1", "Paper", "AUTHORED", "author_1", "Author", "{}"),
+            ("author_2", "Author", "AUTHORED", "paper_1", "Paper", "{}"),
+            ("paper_1", "Paper", "HAS_TAG", "tag_1", "Concept", "{}"),
+            ("tag_2", "Concept", "HAS_TAG", "paper_1", "Paper", "{}"),
+            ("paper_1", "Paper", "SPONSORED_BY", "inst_1", "Institution", "{}"),
+            ("paper_1", "Paper", "USED_DATASET", "ds_1", "Dataset", "{}"),
+            ("paper_1", "Paper", "PUBLISHED_IN", "journal_1", "JournalConference", "{}"),
+            ("concept_1", "Concept", "SUBCLASS_OF", "concept_2", "Concept", "{}"),
+        ]
+        
+        self.graph_repo.get_paper.side_effect = lambda pid: Paper(id=pid, title=f"Title {pid}")
+        self.graph_repo.get_author.side_effect = lambda aid: MagicMock(name=f"Author {aid}")
+        self.graph_repo.get_concept.side_effect = lambda cid: MagicMock(name=f"Concept {cid}")
+        self.graph_repo.get_node_properties.side_effect = lambda nid: {"name": f"Node {nid}"}
+        
+        self.reranker.predict.return_value = [0.9] * 8
+        mock_response = EvidenceListResponse(
+            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
+        )
+        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        
+        self.expander.expand("query", initial_chunks)
+
 if __name__ == "__main__":
     unittest.main()

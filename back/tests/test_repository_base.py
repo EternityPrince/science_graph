@@ -78,6 +78,15 @@ class TestRepositoryBase(unittest.TestCase):
         with repo.transaction():
             pass
 
+    def test_graph_repository_get_neighbors_batch_fallback(self):
+        repo = DummyGraphRepository()
+        repo.get_neighbors = MagicMock(return_value=[("src", "Paper", "CITES", "tgt", "Paper", "{}")])
+        res = repo.get_neighbors_batch(["node1", "node2"])
+        self.assertEqual(len(res), 2)
+        self.assertEqual(repo.get_neighbors.call_count, 2)
+        repo.get_neighbors.assert_any_call("node1", max_depth=1)
+        repo.get_neighbors.assert_any_call("node2", max_depth=1)
+
     def test_vector_repository_save_chunks_bulk(self):
         repo = DummyVectorRepository()
         chunk1 = MagicMock(spec=Chunk)

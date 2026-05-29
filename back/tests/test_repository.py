@@ -211,5 +211,78 @@ class TestSQLiteRepositories(unittest.TestCase):
         self.assertIn("indexed_p", non_placeholders)
         self.assertNotIn("placeholder_p", non_placeholders)
 
+    def test_get_neighbors_batch(self):
+        paper1 = Paper(id="bp1", title="Batch Paper 1", authors=["Author A"], year=2021)
+        paper2 = Paper(id="bp2", title="Batch Paper 2", authors=["Author B"], year=2022)
+        self.graph_repo_temp.save_paper(paper1)
+        self.graph_repo_temp.save_paper(paper2)
+        
+        self.graph_repo_temp.add_edge("bp1", "bp2", "CITES")
+        
+        neighbors = self.graph_repo_temp.get_neighbors_batch(["bp1", "bp2"])
+        self.assertTrue(len(neighbors) >= 1)
+        
+        empty_neighbors = self.graph_repo_temp.get_neighbors_batch([])
+        self.assertEqual(empty_neighbors, [])
+
+    def test_search_with_metadata_filters(self):
+        paper1 = Paper(
+            id="p_filt1", 
+            title="Deep Learning in 2021", 
+            authors=["Alice Smith"], 
+            year=2021,
+            properties={"journal": "JMLR"}
+        )
+        paper2 = Paper(
+            id="p_filt2", 
+            title="Transformer Networks in 2024", 
+            authors=["Bob Jones"], 
+            year=2024,
+            properties={"journal": "NeurIPS"}
+        )
+        self.graph_repo_temp.save_paper(paper1)
+        self.graph_repo_temp.save_paper(paper2)
+        
+        chunk1 = Chunk(
+            id="p_filt1#0",
+            paper_id="p_filt1",
+            text_content="A review of modern neural networks.",
+            page_number=1,
+            embedding=[1.0, 0.0]
+        )
+        chunk2 = Chunk(
+            id="p_filt2#0",
+            paper_id="p_filt2",
+            text_content="An optimization of self-attention mechanics.",
+            page_number=1,
+            embedding=[0.0, 1.0]
+        )
+        self.vector_repo_temp.save_chunks([chunk1, chunk2])
+        
+        # Dense search with filters
+        res_year = self.vector_repo_temp.search_similar_chunks([1.0, 0.0], limit=5, filters={"year_start": 2023})
+        self.assertEqual(len(res_year), 1)
+        self.assertEqual(res_year[0][0].id, "p_filt2#0")
+        
+        res_year2 = self.vector_repo_temp.search_similar_chunks([1.0, 0.0], limit=5, filters={"year_end": 2022})
+        self.assertEqual(len(res_year2), 1)
+        self.assertEqual(res_year2[0][0].id, "p_filt1#0")
+        
+        res_author = self.vector_repo_temp.search_similar_chunks([1.0, 0.0], limit=5, filters={"author": "Alice"})
+        self.assertEqual(len(res_author), 1)
+        self.assertEqual(res_author[0][0].id, "p_filt1#0")
+        
+        res_venue = self.vector_repo_temp.search_similar_chunks([1.0, 0.0], limit=5, filters={"venue": "NeurIPS"})
+        self.assertEqual(len(res_venue), 1)
+        self.assertEqual(res_venue[0][0].id, "p_filt2#0")
+        
+        # FTS5 search with filters
+        res_fts_author = self.vector_repo_temp.search_text_fts5("networks", limit=5, filters={"author": "Bob"})
+        self.assertEqual(len(res_fts_author), 0)
+        
+        res_fts_author2 = self.vector_repo_temp.search_text_fts5("networks", limit=5, filters={"author": "Alice"})
+        self.assertEqual(len(res_fts_author2), 1)
+        self.assertEqual(res_fts_author2[0][0].id, "p_filt1#0")
+
 if __name__ == "__main__":
     unittest.main()

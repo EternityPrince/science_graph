@@ -32,7 +32,8 @@ class RAGService:
         vector_repo: VectorRepository,
         embedding_engine: EmbeddingEngine,
         llm_engine: BaseLLMEngine,
-        expander: Optional[Any] = None
+        expander: Optional[Any] = None,
+        warmup: bool = False
     ):
         self.graph_repo = graph_repo
         self.vector_repo = vector_repo
@@ -40,6 +41,18 @@ class RAGService:
         self.llm_engine = llm_engine
         self.expander = expander
         self._reranker = None
+        if warmup:
+            try:
+                embedding_engine.get_embedding("warmup query")
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Eager embedding engine warmup failed: {e}")
+            try:
+                self._get_reranker()
+                self._reranker.predict([("warmup query", "warmup context")])
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Eager reranker warmup failed: {e}")
 
     def _get_reranker(self):
         if self._reranker is not None:
@@ -179,17 +192,77 @@ class RAGService:
         if total_tokens <= tokens_limit:
             return current_text, current_graph, current_chunks
 
-        # Iteratively trim least relevant chunks (from tail)
-        # Note: final_chunks is already sorted by relevance descending after reranker
-        while len(current_chunks) > 1 and total_tokens > tokens_limit:
-            current_chunks.pop()
-            current_text, current_graph = self.build_context(current_chunks)
-            total_tokens = get_total_tokens(current_text, current_graph)
+        # Group chunks by paper_id to keep document context unified
+        paper_chunks = {}
+        for chunk, score in final_chunks:
+            paper_chunks.setdefault(chunk.paper_id, []).append((chunk, score))
 
-        # Log warning if chunks were trimmed
-        num_trimmed = len(final_chunks) - len(current_chunks)
-        if num_trimmed > 0:
-            con.warning(f"Trimmed to {len(current_chunks)} chunks ({total_tokens} tokens)")
+        # Sort chunks within each paper by page_number (restores chronological flow)
+        for pid in paper_chunks:
+            paper_chunks[pid].sort(key=lambda x: x[0].page_number)
+
+        # Order papers by their highest chunk score
+        sorted_papers = sorted(
+            paper_chunks.items(),
+            key=lambda x: max(score for _, score in x[1]),
+            reverse=True
+        )
+
+        from copy import copy
+        current_papers = [
+            [pid, [(copy(c), s) for c, s in chs]]
+            for pid, chs in sorted_papers
+        ]
+
+        # Get papers map to resolve names when rebuilding
+        paper_ids = list({c.paper_id for c, _ in final_chunks})
+        papers_map = self.graph_repo.get_papers_batch(paper_ids)
+
+        while total_tokens > tokens_limit:
+            # Try to prune from the least relevant paper (last in sorted list)
+            pruned = False
+            for i in range(len(current_papers) - 1, -1, -1):
+                chunks_list = current_papers[i][1]
+                if len(chunks_list) > 0:
+                    # Prune a sentence from the last chunk.
+                    # First and last sentences are preserved; starting with the middle.
+                    last_chunk, score = chunks_list[-1]
+                    sentences = last_chunk.text_content.strip().split(". ")
+                    sentences = [s.strip() for s in sentences if s.strip()]
+                    if len(sentences) > 2:
+                        # Soft trim: remove the second-to-last sentence (from the middle)
+                        sentences.pop(-2)
+                        new_text = ". ".join(sentences)
+                        if not any(new_text.endswith(p) for p in [".", "?", "!"]):
+                            new_text += "."
+                        last_chunk.text_content = new_text
+                    elif len(sentences) == 2:
+                        # Soft trim: remove the last sentence (since only 2 sentences left, no middle exists)
+                        sentences.pop()
+                        new_text = sentences[0]
+                        if not any(new_text.endswith(p) for p in [".", "?", "!"]):
+                            new_text += "."
+                        last_chunk.text_content = new_text
+                    else:
+                        # Hard trim: remove the entire chunk if only 1 sentence left
+                        chunks_list.pop()
+                    pruned = True
+                    break
+
+            if not pruned:
+                break
+
+            # Rebuild context and recalculate tokens
+            flat_active = []
+            for _, chs in current_papers:
+                flat_active.extend(chs)
+
+            if not flat_active:
+                break
+
+            current_text, current_graph = self.build_context(flat_active)
+            current_chunks = flat_active
+            total_tokens = get_total_tokens(current_text, current_graph)
 
         # If even 1 chunk is left but still exceeds limit, trim context_graph
         if len(current_chunks) == 1 and total_tokens > tokens_limit:
@@ -218,44 +291,132 @@ class RAGService:
         if max_expanded <= 1 or len(query) > 200:
             return [query]
 
-        try:
-            prompt = (
-                "<|im_start|>system\n"
-                "You are a search query expansion assistant for a scientific knowledge base.\n"
-                "Given a user query, generate 2-3 alternative phrasings that capture the same\n"
-                "research intent but use different terminology. Output as a JSON list of strings.\n"
-                "Keep each variant under 15 words. Do NOT output anything else.\n"
-                "<|im_end|>\n"
-                "<|im_start|>user\n"
-                f"Query: {query}\n"
-                "<|im_end|>\n"
-                "<|im_start|>assistant"
-            )
-            max_tokens = min(config.llm_max_tokens, 200)
-            response = self.llm_engine.generate_response(prompt, max_tokens=max_tokens)
+        variants = []
+        seen = {query.lower()}
+
+        # 1. Short Query Concept/Synonym Lookup from Graph Ontology
+        if len(query.strip().split()) <= 2:
+            try:
+                aliases_map = self.graph_repo.get_concept_aliases()
+                canonical = aliases_map.get(query.strip().lower())
+                if canonical:
+                    concept_node = self.graph_repo.get_concept(canonical)
+                    if concept_node:
+                        props = concept_node.properties if hasattr(concept_node, "properties") else {}
+                        aliases = props.get("aliases") or []
+                        names = [props.get("name_en"), props.get("name_ru"), props.get("name")]
+                        extra_variants = [canonical] + aliases + names
+                        for ev in extra_variants:
+                            if isinstance(ev, str) and ev.strip():
+                                ev_clean = ev.strip()
+                                if ev_clean.lower() not in seen:
+                                    variants.append(ev_clean)
+                                    seen.add(ev_clean.lower())
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Short query concept enrichment failed: {e}")
+
+        # 2. If we still need more variants, call the LLM
+        if len(variants) < max_expanded - 1:
+            try:
+                # Detect language & generate variants on the same language
+                is_cyrillic = bool(re.search('[а-яА-ЯёЁ]', query))
+                language = "Russian" if is_cyrillic else "English"
+                prompt = prompts.get_prompt("rag", "query_expander", query=query, language=language)
+                
+                max_tokens = min(config.llm_max_tokens, 200)
+                response = self.llm_engine.generate_response(prompt, max_tokens=max_tokens)
+                
+                clean_json = self.llm_engine.extract_json(response)
+                parsed = json.loads(clean_json)
+                
+                if isinstance(parsed, list):
+                    for v in parsed:
+                        if isinstance(v, str):
+                            v_clean = v.strip()
+                            if v_clean and v_clean.lower() not in seen:
+                                variants.append(v_clean)
+                                seen.add(v_clean.lower())
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Query expansion failed: {e}")
+                
+        limit_variants = max_expanded - 1
+        return [query] + variants[:limit_variants]
+
+    def _classify_intent_and_extract_filters(self, query: str) -> Tuple[str, Optional[dict]]:
+        import re
+        import datetime
+        
+        time_keywords = ["год", "лет", "last", "year", "recent", "новые", "newest", "старые", "oldest"]
+        author_keywords = ["автор", "by ", "author", "написал", "wrote"]
+        venue_keywords = ["journal", "conference", "журнал", "конференция", "venue"]
+        
+        query_lower = query.lower()
+        has_time = any(w in query_lower for w in time_keywords) or bool(re.search(r'\b\d{4}\b', query))
+        has_author = any(w in query_lower for w in author_keywords)
+        has_venue = any(w in query_lower for w in venue_keywords)
+        
+        if not (has_time or has_author or has_venue):
+            return query, None
             
+        current_year = datetime.datetime.now().year
+        
+        prompt = (
+            f"You are a scientific database query analyzer. The current year is {current_year}.\n"
+            "Given a user query, extract metadata filters and return a JSON object with fields:\n"
+            "- search_query: clean search query without relative/filter terms\n"
+            "- year_start: start year (integer or null)\n"
+            "- year_end: end year (integer or null)\n"
+            "- author: author name (string or null)\n"
+            "- venue: journal/conference name (string or null)\n"
+            "Example: 'статьи за последние 2 года о сверточных сетях'\n"
+            f"Output: {{\"search_query\": \"сверточные сети\", \"year_start\": {current_year - 2}, \"year_end\": {current_year}, \"author\": null, \"venue\": null}}\n"
+            f"Query: {query}\n"
+            "Return ONLY JSON."
+        )
+        
+        try:
+            response = self.llm_engine.generate_response(prompt)
             clean_json = self.llm_engine.extract_json(response)
             parsed = json.loads(clean_json)
             
-            if isinstance(parsed, list):
-                variants = []
-                seen = {query.lower()}
-                for v in parsed:
-                    if isinstance(v, str):
-                        v_clean = v.strip()
-                        if v_clean and v_clean.lower() not in seen:
-                            variants.append(v_clean)
-                            seen.add(v_clean.lower())
-                
-                limit_variants = max_expanded - 1
-                return [query] + variants[:limit_variants]
+            filters = {}
+            for k in ["year_start", "year_end", "author", "venue"]:
+                if parsed.get(k) is not None:
+                    filters[k] = parsed[k]
+                    
+            clean_q = parsed.get("search_query", query)
+            con.success(f"Extracted filters: {filters} | Clean query: '{clean_q}'")
+            return clean_q, filters if filters else None
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"Query expansion failed: {e}")
-            
-        return [query]
+            logging.getLogger(__name__).warning(f"Query intent classification failed: {e}")
+            return query, None
 
-    def retrieve_relevant_chunks(self, query: str, limit: int = 5, paper_id: Optional[str] = None) -> List[tuple[Chunk, float]]:
+    def _validate_and_repair_citations(self, response: str, retrieved_chunks: list) -> str:
+        """
+        Parses LLM response for bracketed numeric citations (e.g., [1], [2])
+        and cross-checks them against the available metadata. Removes hallucinated
+        citations or maps them to correct document indexes.
+        """
+        import re
+        max_idx = len(retrieved_chunks)
+        citation_regex = re.compile(r"\[(?:Block\s+)?(\d+)\]|Block\s+(\d+)", re.IGNORECASE)
+        
+        def replace_citation(match):
+            val = match.group(1) or match.group(2)
+            cit_idx = int(val)
+            if 1 <= cit_idx <= max_idx:
+                return match.group(0)
+            return ""
+            
+        repaired = citation_regex.sub(replace_citation, response)
+        repaired = re.sub(r"\[\s*\]", "", repaired)
+        repaired = re.sub(r"\s+", " ", repaired).strip()
+        return repaired
+
+    def retrieve_relevant_chunks(self, query: str, limit: int = 5, paper_id: Optional[str] = None, filters: Optional[dict] = None) -> List[tuple[Chunk, float]]:
         # Focused document RAG: cosine similarity search directly over document chunks in Python
         if paper_id:
             import numpy as np
@@ -282,17 +443,23 @@ class RAGService:
             except Exception as e:
                 return scored[:limit]
 
+        # 1. Run Query Intent Classifier if no explicit filters are passed
+        if filters is None:
+            query, filters = self._classify_intent_and_extract_filters(query)
+
         # Dense + FTS5 + RRF + Rerank
         expanded_queries = self._expand_query(query)
         
         # Determine dense retrieval limit per query.
-        # If query expansion is disabled or not used (i.e. only 1 query), use limit * 2 for backward compatibility.
         dense_limit = limit * 2 if len(expanded_queries) == 1 else limit
         
         all_dense_results = {}
         for variant in expanded_queries:
             variant_emb = self.emb_engine.get_embedding(variant)
-            dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit)
+            if filters:
+                dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit, filters=filters)
+            else:
+                dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit)
             for chunk, score in dense_res:
                 if chunk.id not in all_dense_results:
                     all_dense_results[chunk.id] = (chunk, score)
@@ -305,7 +472,10 @@ class RAGService:
         # Sort dense results by score descending to assign proper ranks for RRF
         dense_results.sort(key=lambda x: x[1], reverse=True)
 
-        fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2)
+        if filters:
+            fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2, filters=filters)
+        else:
+            fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2)
         
         if not dense_results and not fts5_results:
             return []
@@ -316,12 +486,25 @@ class RAGService:
         for chunk, _ in fts5_results:
             id_to_chunk[chunk.id] = chunk
 
+        # Dynamic alpha blending based on FTS5 match strength
+        fts_weight = 1.0
+        if fts5_results:
+            max_bm25 = max(score for _, score in fts5_results)
+            if max_bm25 < 1.0: # Very weak keyword matches
+                fts_weight = 0.2
+            elif max_bm25 < 3.0:
+                fts_weight = 0.5
+        else:
+            fts_weight = 0.0
+            
+        dense_weight = 1.0
+
         rrf_scores = {}
         for rank, (chunk, _) in enumerate(dense_results, start=1):
-            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + (1.0 / (60.0 + rank))
+            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + dense_weight * (1.0 / (60.0 + rank))
             
         for rank, (chunk, _) in enumerate(fts5_results, start=1):
-            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + (1.0 / (60.0 + rank))
+            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + fts_weight * (1.0 / (60.0 + rank))
             
         sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
         candidate_ids = sorted_ids[:limit * 2]
@@ -334,15 +517,32 @@ class RAGService:
             reranker = self._get_reranker()
             pairs = [(query, c.text_content) for c in candidates]
             scores = reranker.predict(pairs)
-            scored_candidates = list(zip(candidates, scores))
+            
+            # Blend normalized Reranker score + normalized RRF score to prevent dense-only bias
+            min_r = min(scores)
+            max_r = max(scores)
+            range_r = max_r - min_r if max_r > min_r else 1.0
+            norm_r = [(s - min_r) / range_r for s in scores]
+            
+            rrf_vals = [rrf_scores[c.id] for c in candidates]
+            min_rrf = min(rrf_vals)
+            max_rrf = max(rrf_vals)
+            range_rrf = max_rrf - min_rrf if max_rrf > min_rrf else 1.0
+            norm_rrf = [(rrf_scores[c.id] - min_rrf) / range_rrf for c in candidates]
+            
+            scored_candidates = []
+            for idx, c in enumerate(candidates):
+                blended_score = 0.7 * norm_r[idx] + 0.3 * norm_rrf[idx]
+                scored_candidates.append((c, blended_score, float(scores[idx])))
+                
             scored_candidates.sort(key=lambda x: x[1], reverse=True)
-            return [(chunk, float(score)) for chunk, score in scored_candidates[:limit]]
+            return [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:limit]]
         except Exception as e:
             con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
             return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
 
-    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None) -> str:
-        final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id)
+    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None) -> str:
+        final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters)
         if not final_chunks:
             return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."  # noqa: E501
 
@@ -377,7 +577,14 @@ class RAGService:
             prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=query)
 
         con.search_msg("Generating answer …")
-        return self.llm_engine.generate_response(prompt)
+        raw_response = self.llm_engine.generate_response(prompt)
+        
+        try:
+            return self._validate_and_repair_citations(raw_response, trimmed_chunks)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
+            return raw_response
 
     async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None) -> AsyncGenerator[dict, None]:
         import queue

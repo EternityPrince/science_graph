@@ -44,6 +44,7 @@ def split_text_to_chunks(paper_id: str, file_path: str, chunk_size: int = None, 
     """
     Reads PDF page by page and splits it into overlapping text chunks using sentence-aware boundary detection.
     Preserves page number references for each chunk.
+    Keeps Markdown tables and LaTeX equations intact using structure-aware block extraction.
     """
     import logging
     t0 = time.perf_counter()
@@ -57,83 +58,148 @@ def split_text_to_chunks(paper_id: str, file_path: str, chunk_size: int = None, 
     
     for page_num, page in enumerate(doc, start=1):
         text = page.get_text()
+        
+        # 1. Pre-extract non-splittable structures (Markdown tables & LaTeX equations)
+        # Markdown tables
+        table_pattern = re.compile(r'((?:\n\|[^\n]+\|\s*)+)', re.MULTILINE)
+        tables = table_pattern.findall(text)
+        
+        # LaTeX equations (explicitly marked block/inline: $$, \begin{equation}, \[, \()
+        equation_pattern = re.compile(
+            r'(\$\$.*?\$\$|\\begin\{equation\}.*?\\end\{equation\}|\\\[.*?\\\]|\\\(.*?\\\))', 
+            re.DOTALL
+        )
+        equations = equation_pattern.findall(text)
+        
+        # Replace non-splittable blocks with placeholders to protect them from splitting
+        non_splittable = []
+        text_clean = text
+        
+        for idx, table in enumerate(tables):
+            placeholder = f" __STRUCT_BLOCK_TABLE_{idx}__ "
+            non_splittable.append((placeholder.strip(), table))
+            text_clean = text_clean.replace(table, placeholder)
+            
+        for idx, eq in enumerate(equations):
+            placeholder = f" __STRUCT_BLOCK_EQ_{idx}__ "
+            non_splittable.append((placeholder.strip(), eq))
+            text_clean = text_clean.replace(eq, placeholder)
+
+        # Inline dollar equations $...$ with filtering
+        inline_dollar_pattern = re.compile(r'\$([^\$\n]+)\$')
+        inline_dollar_idx = 0
+        
+        def is_valid_latex_inline(content: str) -> bool:
+            if not content.strip():
+                return False
+            # Simple number or currency matching (e.g. 100, 10.50, 100,000, 50k, 20m)
+            if re.match(r'^\s*\d+[\d\s\.,]*(?:[kKmMbB]|\s*billion|\s*million)?\s*$', content):
+                return False
+            if ' ' in content:
+                # If it has spaces, it must contain mathematical operators, brackets or backslashes
+                math_indicators = r'[\+\-\*/=\\_^<>\(\)\[\]\{\}\\\|~]'
+                if not re.search(math_indicators, content):
+                    return False
+            return True
+
+        def dollar_replacer(match):
+            nonlocal inline_dollar_idx
+            content = match.group(1)
+            if is_valid_latex_inline(content):
+                placeholder = f" __STRUCT_BLOCK_INLINE_DOLLAR_{inline_dollar_idx}__ "
+                non_splittable.append((placeholder.strip(), match.group(0)))
+                inline_dollar_idx += 1
+                return placeholder
+            return match.group(0)
+
+        text_clean = inline_dollar_pattern.sub(dollar_replacer, text_clean)
+            
         # Basic cleanup: replace multiple spaces/newlines
-        text_clean = re.sub(r'\s+', ' ', text).strip()
+        text_clean = re.sub(r'\s+', ' ', text_clean).strip()
         
         if not text_clean:
             continue
             
         # If the page text is shorter than chunk_size, keep it as one chunk
+        page_chunks = []
+        
         if len(text_clean) <= chunk_size:
-            chunks.append(Chunk(
+            page_chunks.append(Chunk(
                 id=f"{paper_id}#{chunk_idx}",
                 paper_id=paper_id,
                 text_content=text_clean,
                 page_number=page_num
             ))
             chunk_idx += 1
-            continue
+        else:
+            # Split on sentence boundaries
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text_clean) if s.strip()]
             
-        # Split on sentence boundaries
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text_clean) if s.strip()]
-        
-        current_chunk = []
-        current_len = 0
-        for sentence in sentences:
-            sentence_len = len(sentence)
-            if current_len + sentence_len > chunk_size and current_chunk:
+            current_chunk = []
+            current_len = 0
+            for sentence in sentences:
+                sentence_len = len(sentence)
+                if current_len + sentence_len > chunk_size and current_chunk:
+                    chunk_text = " ".join(current_chunk)
+                    page_chunks.append(Chunk(
+                        id=f"{paper_id}#{chunk_idx}",
+                        paper_id=paper_id,
+                        text_content=chunk_text,
+                        page_number=page_num
+                    ))
+                    chunk_idx += 1
+                    
+                    # Setup overlap sentences
+                    overlap_sentences = []
+                    overlap_len = 0
+                    for s in reversed(current_chunk):
+                        s_len = len(s)
+                        if overlap_len + s_len + (1 if overlap_sentences else 0) <= chunk_overlap:
+                            overlap_sentences.insert(0, s)
+                            overlap_len += s_len + (1 if overlap_sentences else 0)
+                        else:
+                            break
+                    current_chunk = overlap_sentences + [sentence]
+                    current_len = sum(len(s) for s in current_chunk) + len(current_chunk) - 1
+                else:
+                    if sentence_len > chunk_size:
+                        # Split extremely long sentences into character-based sub-chunks
+                        start = 0
+                        while start < sentence_len:
+                            end = start + chunk_size
+                            sub_text = sentence[start:end].strip()
+                            if sub_text:
+                                page_chunks.append(Chunk(
+                                    id=f"{paper_id}#{chunk_idx}",
+                                    paper_id=paper_id,
+                                    text_content=sub_text,
+                                    page_number=page_num
+                                ))
+                                chunk_idx += 1
+                            start += (chunk_size - chunk_overlap)
+                        current_chunk = []
+                        current_len = 0
+                    else:
+                        current_chunk.append(sentence)
+                        current_len += sentence_len + (1 if len(current_chunk) > 1 else 0)
+                    
+            if current_chunk:
                 chunk_text = " ".join(current_chunk)
-                chunks.append(Chunk(
+                page_chunks.append(Chunk(
                     id=f"{paper_id}#{chunk_idx}",
                     paper_id=paper_id,
                     text_content=chunk_text,
                     page_number=page_num
                 ))
                 chunk_idx += 1
-                
-                # Setup overlap sentences
-                overlap_sentences = []
-                overlap_len = 0
-                for s in reversed(current_chunk):
-                    s_len = len(s)
-                    if overlap_len + s_len + (1 if overlap_sentences else 0) <= chunk_overlap:
-                        overlap_sentences.insert(0, s)
-                        overlap_len += s_len + (1 if overlap_sentences else 0)
-                    else:
-                        break
-                current_chunk = overlap_sentences + [sentence]
-                current_len = sum(len(s) for s in current_chunk) + len(current_chunk) - 1
-            else:
-                if sentence_len > chunk_size:
-                    # Split extremely long sentences into character-based sub-chunks
-                    start = 0
-                    while start < sentence_len:
-                        end = start + chunk_size
-                        sub_text = sentence[start:end].strip()
-                        if sub_text:
-                            chunks.append(Chunk(
-                                id=f"{paper_id}#{chunk_idx}",
-                                paper_id=paper_id,
-                                text_content=sub_text,
-                                page_number=page_num
-                            ))
-                            chunk_idx += 1
-                        start += (chunk_size - chunk_overlap)
-                    current_chunk = []
-                    current_len = 0
-                else:
-                    current_chunk.append(sentence)
-                    current_len += sentence_len + (1 if len(current_chunk) > 1 else 0)
-                
-        if current_chunk:
-            chunk_text = " ".join(current_chunk)
-            chunks.append(Chunk(
-                id=f"{paper_id}#{chunk_idx}",
-                paper_id=paper_id,
-                text_content=chunk_text,
-                page_number=page_num
-            ))
-            chunk_idx += 1
+
+        # 2. Substitute non-splittable structures back into chunks
+        for chunk in page_chunks:
+            for placeholder, block in non_splittable:
+                if placeholder in chunk.text_content:
+                    # Resolve placeholder to original structure block
+                    chunk.text_content = chunk.text_content.replace(placeholder, block)
+            chunks.append(chunk)
 
     dt = time.perf_counter() - t0
     logging.debug(f"split_text_to_chunks for paper {paper_id} completed in {dt:.6f}s")
