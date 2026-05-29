@@ -5,6 +5,7 @@ class QueryRequest(BaseModel):
     question: str
     limit: Optional[int] = 5
     cloud: Optional[bool] = False
+    paper_id: Optional[str] = None
 
 class NoteCreate(BaseModel):
     title: str

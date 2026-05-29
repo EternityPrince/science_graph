@@ -11,11 +11,12 @@ import { motion, AnimatePresence } from "framer-motion";
 interface DetailSheetProps {
   paperId: string | null;
   onClose: () => void;
+  onOpenReader?: (id: string) => void;
 }
 
-export default function DetailSheet({ paperId, onClose }: DetailSheetProps) {
+export default function DetailSheet({ paperId, onClose, onOpenReader }: DetailSheetProps) {
   const router = useRouter();
-  const { setView, setSelectedNodeId, askAbout } = useStore();
+  const { setView, setSelectedNodeId } = useStore();
   const [details, setDetails] = useState<PaperDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [fileStatus, setFileStatus] = useState<string | null>(null);
@@ -67,7 +68,10 @@ export default function DetailSheet({ paperId, onClose }: DetailSheetProps) {
 
   const handleAskAI = () => {
     if (!details) return;
-    askAbout(details.title);
+    const store = useStore.getState();
+    store.setActiveDocument(details.id, details.title);
+    store.setChatInput(`Проанализируй эту статью и выдели основные тезисы.`);
+    store.setView("chat");
     router.push("/");
   };
 
@@ -444,6 +448,25 @@ export default function DetailSheet({ paperId, onClose }: DetailSheetProps) {
                     💬 Спросить AI (RAG)
                   </button>
                 </div>
+                {onOpenReader && !details.properties?.is_placeholder && (
+                  <button
+                    className="btn btn-primary"
+                    style={{
+                      width: "100%",
+                      backgroundColor: "var(--accent)",
+                      color: "#fff",
+                      textTransform: "uppercase",
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontWeight: "bold",
+                    }}
+                    onClick={() => onOpenReader(details.id)}
+                  >
+                    📖 Режим чтения (Reader Mode)
+                  </button>
+                )}
                 {details.file_path && (
                   <button
                     className="btn btn-ghost"

@@ -3,7 +3,7 @@
 import { useStore } from "@/lib/store";
 
 export default function ChronologyPanel() {
-  const graphNodes = useStore((state) => state.graphData?.nodes || []);
+  const graphNodes = useStore((state) => state.graphData?.nodes) || [];
   const heatmapDate = useStore((state) => state.heatmapDate);
   const setHeatmapDate = useStore((state) => state.setHeatmapDate);
   const fromDate = useStore((state) => state.fromDate);

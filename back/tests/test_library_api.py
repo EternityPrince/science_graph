@@ -182,3 +182,19 @@ def test_get_documents_search_query_q(client, graph_repo, vector_repo):
     r = client.get("/api/documents?q=gravity")
     assert r.json()["total"] == 1
     assert r.json()["results"][0]["id"] == "p2"
+
+def test_get_documents_only_indexed(client, graph_repo):
+    p1 = create_paper(id="p1", title="Indexed Paper", properties={"is_placeholder": False})
+    p2 = create_paper(id="p2", title="Placeholder Paper", properties={"is_placeholder": True})
+
+    graph_repo.save_paper(p1)
+    graph_repo.save_paper(p2)
+
+    # default (only_indexed=False) -> both
+    r = client.get("/api/documents")
+    assert r.json()["total"] == 2
+
+    # only_indexed=true -> only p1
+    r = client.get("/api/documents?only_indexed=true")
+    assert r.json()["total"] == 1
+    assert r.json()["results"][0]["id"] == "p1"

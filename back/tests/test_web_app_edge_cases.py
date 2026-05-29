@@ -150,7 +150,7 @@ class TestWebAppEdgeCases:
     @patch("src.web_app.get_rag_service")
     def test_query_rag_stream_exception_midstream(self, mock_get_rag_service):
         """Verify RAG query SSE stream reports errors in SSE format if generated during stream."""
-        async def throwing_stream(question, limit):
+        async def throwing_stream(question, limit, **kwargs):
             yield {"token": "First word"}
             raise Exception("Model context exhausted")
 

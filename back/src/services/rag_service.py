@@ -249,7 +249,33 @@ class RAGService:
             
         return [query]
 
-    def retrieve_relevant_chunks(self, query: str, limit: int = 5) -> List[tuple[Chunk, float]]:
+    def retrieve_relevant_chunks(self, query: str, limit: int = 5, paper_id: Optional[str] = None) -> List[tuple[Chunk, float]]:
+        # Focused document RAG: cosine similarity search directly over document chunks in Python
+        if paper_id:
+            import numpy as np
+            chunks = self.vector_repo.get_chunks_for_paper(paper_id)
+            if not chunks:
+                return []
+            query_emb = np.array(self.emb_engine.get_embedding(query), dtype=np.float32)
+            scored = []
+            for c in chunks:
+                c_emb = np.array(c.embedding, dtype=np.float32)
+                sim = float(np.dot(c_emb, query_emb)) if len(c_emb) == len(query_emb) else 0.0
+                scored.append((c, sim))
+            scored.sort(key=lambda x: x[1], reverse=True)
+            
+            # Apply reranking on candidate chunks if reranker is available
+            candidates = [s[0] for s in scored[:limit * 2]]
+            try:
+                reranker = self._get_reranker()
+                pairs = [(query, c.text_content) for c in candidates]
+                scores = reranker.predict(pairs)
+                scored_candidates = list(zip(candidates, scores))
+                scored_candidates.sort(key=lambda x: x[1], reverse=True)
+                return [(chunk, float(score)) for chunk, score in scored_candidates[:limit]]
+            except Exception as e:
+                return scored[:limit]
+
         # Dense + FTS5 + RRF + Rerank
         expanded_queries = self._expand_query(query)
         
@@ -309,8 +335,8 @@ class RAGService:
             con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
             return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
 
-    def ask(self, query: str, limit: int = 5, history_str: str = "") -> str:
-        final_chunks = self.retrieve_relevant_chunks(query, limit)
+    def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None) -> str:
+        final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id)
         if not final_chunks:
             return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."  # noqa: E501
 
@@ -347,12 +373,12 @@ class RAGService:
         con.search_msg("Generating answer …")
         return self.llm_engine.generate_response(prompt)
 
-    async def generate_stream(self, question: str, limit: int = 5) -> AsyncGenerator[dict, None]:
+    async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None) -> AsyncGenerator[dict, None]:
         import queue
         import threading
 
         try:
-            final_chunks = await asyncio.to_thread(self.retrieve_relevant_chunks, question, limit)
+            final_chunks = await asyncio.to_thread(self.retrieve_relevant_chunks, question, limit, paper_id)
         except Exception as e:
             yield {"type": "error", "text": f"Retrieval failed: {e}"}
             return

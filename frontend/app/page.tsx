@@ -41,7 +41,9 @@ export default function HomePage() {
     setPhysicsSolver,
     edgeLabels,
     setEdgeLabels,
-    setSelectedNodeId
+    setSelectedNodeId,
+    maxNodeDegree,
+    setMaxNodeDegree,
   } = useStore();
 
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -135,6 +137,7 @@ export default function HomePage() {
               <div className="graph-search-input-wrap">
                 <span className="graph-search-icon">🔍</span>
                 <input
+                  id="graph-search-input"
                   type="text"
                   value={graphSearch}
                   onChange={(e) => setGraphSearch(e.target.value)}
@@ -253,6 +256,25 @@ export default function HomePage() {
                     step="10"
                     value={edgeLength}
                     onChange={(e) => setEdgeLength(parseInt(e.target.value))}
+                  />
+                </div>
+
+                {/* Max Node Degree Slider */}
+                <div className="settings-group">
+                  <div className="slider-label-row">
+                    <label htmlFor="max-degree-range">Макс. связей у узла (0 - без лимита)</label>
+                    <span className="slider-value">
+                      {maxNodeDegree === 0 ? "∞" : maxNodeDegree}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    id="max-degree-range"
+                    min="0"
+                    max="200"
+                    step="5"
+                    value={maxNodeDegree}
+                    onChange={(e) => setMaxNodeDegree(parseInt(e.target.value))}
                   />
                 </div>
 

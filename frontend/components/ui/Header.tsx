@@ -138,6 +138,7 @@ export default function Header() {
       <div className="search-wrap">
         <span className="search-icon">🔍</span>
         <input 
+          id="search-input"
           type="text" 
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}

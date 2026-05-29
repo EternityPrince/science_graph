@@ -108,14 +108,8 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
     <div
       className={`library-card ${isExpanded ? "expanded" : ""}`}
       style={{
-        display: "flex",
-        flexDirection: "column",
         height: "100%",
         fontFamily: "'JetBrains Mono', monospace",
-        border: isExpanded ? "2px solid var(--accent)" : "2px solid #222632",
-        backgroundColor: "var(--surface)",
-        padding: "20px",
-        position: "relative",
         boxSizing: "border-box",
       }}
     >
@@ -196,9 +190,8 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
         {item.concepts.slice(0, 2).map((concept) => (
           <span
             key={concept}
-            className="tag"
+            className="tag tag-concept"
             onClick={(e) => handleConceptClick(e, concept)}
-            style={{ borderColor: "var(--col-concept)", color: "var(--col-concept)" }}
           >
             {concept}
           </span>
@@ -206,9 +199,8 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
         {item.tags.slice(0, 1).map((tag) => (
           <span
             key={tag}
-            className="tag"
+            className="tag tag-tag"
             onClick={(e) => handleTagClick(e, tag)}
-            style={{ borderColor: "var(--col-tag)", color: "var(--col-tag)" }}
           >
             {tag}
           </span>
@@ -305,12 +297,10 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
                         {details.concepts.slice(0, 8).map((c) => (
                           <span
                             key={c.id}
+                            className="tag tag-concept"
                             style={{
                               fontSize: "9px",
                               padding: "1px 4px",
-                              border: "1px solid var(--border)",
-                              color: "var(--text2)",
-                              cursor: "pointer",
                             }}
                             onClick={(e) => handleConceptClick(e, c.name)}
                           >
@@ -378,7 +368,8 @@ export default function WorkCard({ item, isExpanded, onToggleExpand, onOpenDetai
           onClick={(e) => {
             e.stopPropagation();
             setActiveDocument(item.id, item.title);
-            askAbout(item.title);
+            const store = useStore.getState();
+            store.setChatInput(`Проанализируй эту статью и выдели основные тезисы.`);
             setView("chat");
             router.push("/");
           }}

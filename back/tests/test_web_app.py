@@ -110,7 +110,7 @@ class TestWebAppEndpoints:
 
     @patch("src.web_app.get_rag_service")
     def test_query_rag_stream(self, mock_get_rag_service):
-        async def dummy_stream(question, limit):
+        async def dummy_stream(question, limit, **kwargs):
             yield {"token": "Hello"}
             yield {"token": " World"}
             yield {"status": "done"}
@@ -150,3 +150,21 @@ class TestWebAppEndpoints:
         assert mock_index_url.call_count == 2
         calls = [args[0][0] for args in mock_index_url.call_args_list]
         assert calls == ["https://a.com", "https://b.com"]
+
+    def test_get_paper_text(self):
+        from src.models import Chunk
+        self.mock_vector_repo.get_chunks_for_paper.return_value = [
+            Chunk(id="c2", paper_id="p1", text_content="chunk 2 content", page_number=2, embedding=[]),
+            Chunk(id="c1", paper_id="p1", text_content="chunk 1 content", page_number=1, embedding=[]),
+        ]
+        
+        response = self.client.get("/api/paper-text?paper_id=p1")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["paper_id"] == "p1"
+        assert len(data["chunks"]) == 2
+        # Check sorting: page 1 first
+        assert data["chunks"][0]["id"] == "c1"
+        assert data["chunks"][0]["text_content"] == "chunk 1 content"
+        assert data["chunks"][1]["id"] == "c2"
+        assert data["chunks"][1]["text_content"] == "chunk 2 content"

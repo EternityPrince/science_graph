@@ -916,6 +916,14 @@ p, span, label, button, input, textarea, code, pre {
   text-transform: uppercase;
 }
 .tag:hover { border-color: var(--accent); color: var(--accent); }
+.tag-concept {
+  border-color: var(--col-concept);
+  color: var(--col-concept);
+}
+.tag-tag {
+  border-color: var(--col-tag);
+  color: var(--col-tag);
+}
 
 .abstract-text {
   font-size: 12.5px; color: var(--text2); line-height: 1.7;
@@ -1480,6 +1488,9 @@ textarea.form-control {
 .library-card:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow);
+}
+.library-card.expanded {
+  border-color: var(--accent);
 }
 .library-card-header {
   display: flex;

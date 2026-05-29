@@ -447,6 +447,27 @@ async def get_paper(
         }
 
 
+@app.get("/api/paper-text")
+async def get_paper_text(
+    paper_id: str = Query(...),
+    vector_repo: SQLiteVectorRepository = Depends(get_vector_repo)
+):
+    """Fetch text chunks of a paper sorted by page number."""
+    chunks = await asyncio.to_thread(vector_repo.get_chunks_for_paper, paper_id)
+    chunks.sort(key=lambda x: (x.page_number or 0, x.id))
+    return {
+        "paper_id": paper_id,
+        "chunks": [
+            {
+                "id": c.id,
+                "text_content": c.text_content,
+                "page_number": c.page_number
+            }
+            for c in chunks
+        ]
+    }
+
+
 # ── /api/search ──
 
 @app.get("/api/search", response_model=SearchResponse)
@@ -482,10 +503,13 @@ async def get_documents(
     tag: Optional[List[str]] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
+    only_indexed: bool = Query(False),
     graph_repo: SQLiteGraphRepository = Depends(get_graph_repo)
 ):
     """Paginated list of papers/notes/books with search and concepts."""
     conditions = ["label IN ('Paper', 'UserNote')"]
+    if only_indexed:
+        conditions.append("is_placeholder = 0")
     params = []
 
     if q:
@@ -496,8 +520,14 @@ async def get_documents(
         params.extend([like_pat, like_pat])
 
     if source_type:
+        type_conds = []
         placeholders = ", ".join("?" for _ in source_type)
-        conditions.append(f"json_extract(properties, '$.source_type') IN ({placeholders})")
+        type_conds.append(f"json_extract(properties, '$.source_type') IN ({placeholders})")
+        if "paper" in source_type:
+            type_conds.append("(label = 'Paper' AND json_extract(properties, '$.source_type') IS NULL)")
+        if "note" in source_type:
+            type_conds.append("(label = 'UserNote' AND json_extract(properties, '$.source_type') IS NULL)")
+        conditions.append("(" + " OR ".join(type_conds) + ")")
         params.extend(source_type)
 
     if from_date:
@@ -645,7 +675,7 @@ async def query_rag(
         raise HTTPException(status_code=503, detail="LLM engine is not available.")
 
     async def event_stream() -> AsyncGenerator[dict, None]:
-        async for event in rag_service.generate_stream(body.question, body.limit):
+        async for event in rag_service.generate_stream(body.question, body.limit, paper_id=body.paper_id):
             yield {"data": json.dumps(event)}
 
     return EventSourceResponse(event_stream())

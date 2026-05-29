@@ -20,7 +20,7 @@ export default function ChatInterface() {
 
   const chatInput = useStore((state) => state.chatInput);
   const setChatInput = useStore((state) => state.setChatInput);
-  const graphNodes = useStore((state) => state.graphData?.nodes || []);
+  const graphNodes = useStore((state) => state.graphData?.nodes) || [];
   const setSelectedNodeId = useStore((state) => state.setSelectedNodeId);
   const setView = useStore((state) => state.setView);
   const activeDocumentId = useStore((state) => state.activeDocumentId);
@@ -69,6 +69,7 @@ export default function ChatInterface() {
           question: q,
           limit: 5,
           cloud: provider === "cloud",
+          paper_id: activeDocumentId || undefined,
         }),
       });
 
@@ -263,6 +264,7 @@ export default function ChatInterface() {
           </select>
           
           <textarea 
+            id="chat-input"
             ref={textareaRef}
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}

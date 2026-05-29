@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import LibraryPage from "@/components/ui/LibraryPage";
 
 async function getInitialLibraryData() {
@@ -6,6 +7,7 @@ async function getInitialLibraryData() {
     const url = new URL(`${backendUrl}/api/documents`);
     url.searchParams.set("page", "1");
     url.searchParams.set("limit", "100");
+    url.searchParams.set("only_indexed", "true");
     ["paper", "note", "book", "video", "webpage"].forEach((t) =>
       url.searchParams.append("source_type", t)
     );
@@ -24,5 +26,9 @@ async function getInitialLibraryData() {
 
 export default async function LibraryRoutePage() {
   const initialData = await getInitialLibraryData();
-  return <LibraryPage initialData={initialData} />;
+  return (
+    <Suspense fallback={<div className="loading-text" style={{ padding: "40px", color: "var(--accent)" }}>Загрузка библиотеки...</div>}>
+      <LibraryPage initialData={initialData} />
+    </Suspense>
+  );
 }

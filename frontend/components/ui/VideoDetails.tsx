@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useRef } from "react";
 import { PaperDetailResponse } from "@/lib/types";
 import { useStore } from "@/lib/store";
@@ -10,10 +11,12 @@ interface Props {
 }
 
 export default function VideoDetails({ details }: Props) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"overview" | "themes" | "outline" | "transcript">("overview");
-  const graphNodes = useStore((state) => state.graphData?.nodes || []);
+  const graphNodes = useStore((state) => state.graphData?.nodes) || [];
   const setSelectedNodeId = useStore((state) => state.setSelectedNodeId);
   const setView = useStore((state) => state.setView);
+  const askAbout = useStore((state) => state.askAbout);
 
   const props = details.properties || {};
   const videoId = props.video_id || "";
@@ -187,7 +190,7 @@ export default function VideoDetails({ details }: Props) {
           <h3>🧠 Концепты</h3>
           <div className="tag-list" style={{ marginTop: "10px" }}>
             {details.concepts.map((c) => (
-              <span key={c.id} className="tag" onClick={() => setSelectedNodeId(c.id)}>
+              <span key={c.id} className="tag tag-concept" onClick={() => setSelectedNodeId(c.id)}>
                 {c.name}
               </span>
             ))}
@@ -200,13 +203,29 @@ export default function VideoDetails({ details }: Props) {
           <h3>🏷️ Теги</h3>
           <div className="tag-list" style={{ marginTop: "10px" }}>
             {details.tags.map((t) => (
-              <span key={t.id} className="tag" style={{ borderColor: "var(--col-tag)", color: "var(--col-tag)" }} onClick={() => setSelectedNodeId(t.id)}>
+              <span key={t.id} className="tag tag-tag" onClick={() => setSelectedNodeId(t.id)}>
                 {t.name}
               </span>
             ))}
           </div>
         </div>
       )}
+
+      <button 
+        className="btn btn-ghost" 
+        style={{ width: "100%", marginTop: "8px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+        onClick={() => router.push("/library?id=" + details.id)}
+      >
+        📚 Показать в библиотеке
+      </button>
+
+      <button 
+        className="btn btn-primary" 
+        style={{ width: "100%", marginTop: "8px" }}
+        onClick={() => askAbout(details.title)}
+      >
+        💬 Спросить об этом видео
+      </button>
     </div>
   );
 }

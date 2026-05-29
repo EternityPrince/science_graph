@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { GraphNode, GraphEdge } from "@/lib/types";
 
@@ -9,8 +9,7 @@ export default function GraphCanvas() {
   const networkRef = useRef<any>(null);
   const nodesDatasetRef = useRef<any>(null);
   const edgesDatasetRef = useRef<any>(null);
-  const nodesViewRef = useRef<any>(null);
-  const edgesViewRef = useRef<any>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const {
     graphData,
@@ -27,80 +26,21 @@ export default function GraphCanvas() {
     selectedNodeId,
     setSelectedNodeId,
     setPhysicsEnabled,
+    maxNodeDegree,
   } = useStore();
 
-  // Helper check for node visibility
-  const isNodeVisible = (n: GraphNode) => {
-    let isVisible = filters.has(n.group);
-
-    if (isVisible && n.created_at && ['paper', 'note', 'book', 'video', 'webpage', 'reference'].includes(n.group)) {
-      const docDate = n.created_at.substring(0, 10); // YYYY-MM-DD
-      if (heatmapDate) {
-        if (docDate !== heatmapDate) {
-          isVisible = false;
-        }
-      } else {
-        if (fromDate && docDate < fromDate) isVisible = false;
-        if (toDate && docDate > toDate) isVisible = false;
-      }
-    }
-    return isVisible;
-  };
-
-  const isEdgeVisible = (e: GraphEdge) => {
-    if (!nodesDatasetRef.current) return false;
-    const fromNode = nodesDatasetRef.current.get(e.from);
-    const toNode = nodesDatasetRef.current.get(e.to);
-    return fromNode && isNodeVisible(fromNode) && toNode && isNodeVisible(toNode);
-  };
-
-  // Initialize Network
+  // 1. Initialize Network with empty datasets
   useEffect(() => {
     if (!containerRef.current || !graphData || graphData.nodes.length === 0) return;
 
     let destroyed = false;
 
     const initNetwork = async () => {
-      const { Network, DataSet, DataView } = await import("vis-network/standalone");
+      const { Network, DataSet } = await import("vis-network/standalone");
       if (destroyed) return;
 
-      const processedNodes = graphData.nodes.map(n => ({
-        ...n,
-        opacity: 1.0,
-        font: { color: '#c9cde0', size: 12, face: 'Inter' }
-      }));
-
-      const processedEdges = graphData.edges.map(e => {
-        const originalLabel = e.label || "";
-        const originalColor = e.color || { color: "rgba(255, 255, 255, 0.15)", highlight: "#6366f1" };
-        
-        let customLength = edgeLength;
-        if (originalLabel === "MENTIONS_CONCEPT") {
-          customLength = edgeLength * 1.4;
-        } else if (originalLabel === "HAS_TAG") {
-          customLength = edgeLength * 1.5;
-        } else if (originalLabel === "AUTHORED") {
-          customLength = edgeLength * 1.1;
-        } else if (originalLabel === "CITES") {
-          customLength = edgeLength * 1.6;
-        }
-
-        return {
-          ...e,
-          id: e.id || `${e.from}-${e.to}-${originalLabel}`,
-          originalLabel,
-          label: edgeLabels ? originalLabel : "",
-          originalColor,
-          length: customLength,
-          font: { color: 'rgba(201, 205, 224, 0.6)', size: 8, align: 'top' }
-        };
-      });
-
-      nodesDatasetRef.current = new DataSet(processedNodes);
-      edgesDatasetRef.current = new DataSet(processedEdges);
-
-      nodesViewRef.current = new DataView(nodesDatasetRef.current, { filter: isNodeVisible });
-      edgesViewRef.current = new DataView(edgesDatasetRef.current, { filter: isEdgeVisible });
+      nodesDatasetRef.current = new DataSet([]);
+      edgesDatasetRef.current = new DataSet([]);
 
       const options = {
         nodes: {
@@ -142,11 +82,12 @@ export default function GraphCanvas() {
 
       const network = new Network(
         containerRef.current!,
-        { nodes: nodesViewRef.current, edges: edgesViewRef.current },
+        { nodes: nodesDatasetRef.current, edges: edgesDatasetRef.current },
         options
       );
 
       networkRef.current = network;
+      setIsInitialized(true);
 
       // Stabilization hook
       network.on("stabilized", () => {
@@ -176,6 +117,7 @@ export default function GraphCanvas() {
 
     return () => {
       destroyed = true;
+      setIsInitialized(false);
       if (networkRef.current) {
         networkRef.current.destroy();
         networkRef.current = null;
@@ -183,82 +125,153 @@ export default function GraphCanvas() {
     };
   }, [graphData]);
 
-  // Handle selection updates (highlight selected neighbors, dim rest)
+  // 2. Synchronize filters, date, maxNodeDegree, selection, edge label toggle, and edge length updates
   useEffect(() => {
+    if (!isInitialized || !graphData || !nodesDatasetRef.current || !edgesDatasetRef.current || !networkRef.current) return;
+
     const network = networkRef.current;
-    const nodesDs = nodesDatasetRef.current;
-    const edgesDs = edgesDatasetRef.current;
 
-    if (!network || !nodesDs || !edgesDs) return;
+    // Count degrees for nodes from edges
+    const degreesCount: Record<string, number> = {};
+    graphData.edges.forEach(e => {
+      degreesCount[e.from] = (degreesCount[e.from] || 0) + 1;
+      degreesCount[e.to] = (degreesCount[e.to] || 0) + 1;
+    });
 
-    if (!selectedNodeId) {
-      // Reset Highlight
-      const nodes = nodesDs.get();
-      const nodeUpdates = nodes.map((n: any) => ({
-        id: n.id,
-        opacity: 1.0,
-        font: { color: "#c9cde0" },
-      }));
-      nodesDs.update(nodeUpdates);
-
-      const edges = edgesDs.get();
-      const edgeUpdates = edges.map((e: any) => ({
-        id: e.id,
-        color: e.originalColor,
-        font: { color: "rgba(201, 205, 224, 0.6)" },
-      }));
-      edgesDs.update(edgeUpdates);
-
-      network.selectNodes([]);
-      return;
+    const connectedToSelected = new Set<string>();
+    if (selectedNodeId) {
+      connectedToSelected.add(selectedNodeId);
+      graphData.edges.forEach((e) => {
+        if (e.from === selectedNodeId) {
+          connectedToSelected.add(e.to);
+        } else if (e.to === selectedNodeId) {
+          connectedToSelected.add(e.from);
+        }
+      });
     }
 
-    // Select target node
-    network.selectNodes([selectedNodeId]);
+    const isNodeVisible = (n: GraphNode) => {
+      let isVisible = filters.has(n.group);
 
-    // Center camera on focused node
-    network.focus(selectedNodeId, {
-      scale: 1.2,
-      animation: { duration: 500, easingFunction: "easeInOutQuad" },
-    });
+      if (isVisible && n.created_at && ['paper', 'note', 'book', 'video', 'webpage', 'reference'].includes(n.group)) {
+        const docDate = n.created_at.substring(0, 10); // YYYY-MM-DD
+        if (heatmapDate) {
+          if (docDate !== heatmapDate) {
+            isVisible = false;
+          }
+        } else {
+          if (fromDate && docDate < fromDate) isVisible = false;
+          if (toDate && docDate > toDate) isVisible = false;
+        }
+      }
 
-    const connectedNodes = new Set<string>(network.getConnectedNodes(selectedNodeId));
-    connectedNodes.add(selectedNodeId);
+      const degree = degreesCount[n.id] || 0;
+      if (isVisible && maxNodeDegree > 0 && degree > maxNodeDegree) {
+        if (selectedNodeId && connectedToSelected.has(n.id)) {
+          // Keep it visible if it's connected to the selected node
+        } else {
+          isVisible = false;
+        }
+      }
 
-    const connectedEdges = new Set<string>(network.getConnectedEdges(selectedNodeId));
+      return isVisible;
+    };
 
-    // Update nodes visibility
-    const nodes = nodesDs.get();
-    const nodeUpdates = nodes.map((n: any) => {
-      const isConnected = connectedNodes.has(n.id);
+    const processedNodes = graphData.nodes.map(n => ({
+      ...n,
+      degree: degreesCount[n.id] || 0,
+      opacity: 1.0,
+      font: { color: '#c9cde0', size: 12, face: 'Inter' }
+    }));
+
+    const visibleNodes = processedNodes.filter(isNodeVisible);
+    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+
+    const processedEdges = graphData.edges.map(e => {
+      const originalLabel = e.label || "";
+      const originalColor = e.color || { color: "rgba(255, 255, 255, 0.15)", highlight: "#6366f1" };
+      
+      let customLength = edgeLength;
+      if (originalLabel === "MENTIONS_CONCEPT") {
+        customLength = edgeLength * 1.4;
+      } else if (originalLabel === "HAS_TAG") {
+        customLength = edgeLength * 1.5;
+      } else if (originalLabel === "AUTHORED") {
+        customLength = edgeLength * 1.1;
+      } else if (originalLabel === "CITES") {
+        customLength = edgeLength * 1.6;
+      }
+
       return {
-        id: n.id,
-        opacity: isConnected ? 1.0 : 0.15,
-        font: {
-          color: isConnected ? "#c9cde0" : "rgba(201, 205, 224, 0.15)",
-        },
+        ...e,
+        id: e.id || `${e.from}-${e.to}-${originalLabel}`,
+        originalLabel,
+        label: edgeLabels ? originalLabel : "",
+        originalColor,
+        length: customLength,
+        font: { color: 'rgba(201, 205, 224, 0.6)', size: 8, align: 'top' }
       };
     });
-    nodesDs.update(nodeUpdates);
 
-    // Update edges visibility
-    const edges = edgesDs.get();
-    const edgeUpdates = edges.map((e: any) => {
-      const isConnected = connectedEdges.has(e.id);
-      return {
-        id: e.id,
-        color: isConnected
-          ? e.originalColor
-          : { color: "rgba(173, 181, 189, 0.12)", highlight: "rgba(116, 192, 252, 0.12)" },
-        font: {
-          color: isConnected ? "rgba(201, 205, 224, 0.6)" : "rgba(201, 205, 224, 0.1)",
-        },
-      };
-    });
-    edgesDs.update(edgeUpdates);
-  }, [selectedNodeId]);
+    const visibleEdges = processedEdges.filter(e => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to));
 
-  // Synchronize options change
+    // Clear and batch load Vis.js DataSet
+    nodesDatasetRef.current.clear();
+    nodesDatasetRef.current.add(visibleNodes);
+
+    edgesDatasetRef.current.clear();
+    edgesDatasetRef.current.add(visibleEdges);
+
+    // Apply selection highlighting / dimming
+    if (!selectedNodeId) {
+      network.selectNodes([]);
+    } else {
+      if (visibleNodeIds.has(selectedNodeId)) {
+        network.selectNodes([selectedNodeId]);
+
+        // Focus camera
+        network.focus(selectedNodeId, {
+          scale: 1.2,
+          animation: { duration: 500, easingFunction: "easeInOutQuad" },
+        });
+
+        const connectedNodes = new Set<string>(network.getConnectedNodes(selectedNodeId));
+        connectedNodes.add(selectedNodeId);
+
+        const connectedEdges = new Set<string>(network.getConnectedEdges(selectedNodeId));
+
+        // Update nodes opacity
+        const nodesUpdates = visibleNodes.map((n) => {
+          const isConnected = connectedNodes.has(n.id);
+          return {
+            id: n.id,
+            opacity: isConnected ? 1.0 : 0.15,
+            font: {
+              color: isConnected ? "#c9cde0" : "rgba(201, 205, 224, 0.15)",
+            },
+          };
+        });
+        nodesDatasetRef.current.update(nodesUpdates);
+
+        // Update edges opacity
+        const edgesUpdates = visibleEdges.map((e) => {
+          const isConnected = connectedEdges.has(e.id || "");
+          return {
+            id: e.id,
+            color: isConnected
+              ? e.originalColor
+              : { color: "rgba(173, 181, 189, 0.12)", highlight: "rgba(116, 192, 252, 0.12)" },
+            font: {
+              color: isConnected ? "rgba(201, 205, 224, 0.6)" : "rgba(201, 205, 224, 0.1)",
+            },
+          };
+        });
+        edgesDatasetRef.current.update(edgesUpdates);
+      }
+    }
+  }, [isInitialized, graphData, filters, heatmapDate, fromDate, toDate, maxNodeDegree, selectedNodeId, edgeLength, edgeLabels]);
+
+  // 3. Synchronize physics options change
   useEffect(() => {
     if (!networkRef.current) return;
     networkRef.current.setOptions({
@@ -276,28 +289,6 @@ export default function GraphCanvas() {
       },
     });
   }, [physicsEnabled, physicsSolver, spacing, gravity, edgeLength]);
-
-  // Toggle edge labels
-  useEffect(() => {
-    if (!edgesDatasetRef.current) return;
-    const edges = edgesDatasetRef.current.get();
-    const updates = edges.map((e: any) => {
-      const originalLabel = e.originalLabel !== undefined ? e.originalLabel : (e.label || "");
-      return {
-        id: e.id,
-        label: edgeLabels ? originalLabel : "",
-      };
-    });
-    edgesDatasetRef.current.update(updates);
-  }, [edgeLabels]);
-
-  // Re-filter elements on active filters change
-  useEffect(() => {
-    if (nodesViewRef.current && edgesViewRef.current) {
-      nodesViewRef.current.refresh();
-      edgesViewRef.current.refresh();
-    }
-  }, [filters, heatmapDate, fromDate, toDate]);
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>

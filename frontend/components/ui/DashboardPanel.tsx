@@ -159,6 +159,7 @@ export default function DashboardPanel() {
             </p>
             <form onSubmit={handleQuickAsk} className="quick-ask-input-wrap">
               <input
+                id="quick-ask-input"
                 type="text"
                 value={quickQuery}
                 onChange={(e) => setQuickQuery(e.target.value)}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { PaperDetailResponse } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { parseWikiLinks } from "@/utils/wikiLinks";
@@ -11,9 +12,10 @@ interface Props {
 }
 
 export default function PaperDetails({ details }: Props) {
+  const router = useRouter();
   const setSelectedNodeId = useStore((state) => state.setSelectedNodeId);
   const setView = useStore((state) => state.setView);
-  const graphNodes = useStore((state) => state.graphData?.nodes || []);
+  const graphNodes = useStore((state) => state.graphData?.nodes) || [];
   const showReferences = useStore((state) => state.showReferences);
   const setShowReferences = useStore((state) => state.setShowReferences);
   const askAbout = useStore((state) => state.askAbout);
@@ -139,7 +141,7 @@ export default function PaperDetails({ details }: Props) {
           <h3>🧠 Концепты</h3>
           <div className="tag-list" style={{ marginTop: "10px" }}>
             {details.concepts.map((c) => (
-              <span key={c.id} className="tag" onClick={() => setSelectedNodeId(c.id)}>
+              <span key={c.id} className="tag tag-concept" onClick={() => setSelectedNodeId(c.id)}>
                 {c.name}
               </span>
             ))}
@@ -152,7 +154,7 @@ export default function PaperDetails({ details }: Props) {
           <h3>🏷️ Теги</h3>
           <div className="tag-list" style={{ marginTop: "10px" }}>
             {details.tags.map((t) => (
-              <span key={t.id} className="tag" style={{ borderColor: "var(--col-tag)", color: "var(--col-tag)" }} onClick={() => setSelectedNodeId(t.id)}>
+              <span key={t.id} className="tag tag-tag" onClick={() => setSelectedNodeId(t.id)}>
                 {t.name}
               </span>
             ))}
@@ -215,6 +217,14 @@ export default function PaperDetails({ details }: Props) {
           📂 {localFileStatus || "Открыть локальный файл"}
         </button>
       )}
+
+      <button 
+        className="btn btn-ghost" 
+        style={{ width: "100%", marginTop: "8px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+        onClick={() => router.push("/library?id=" + details.id)}
+      >
+        📚 Показать в библиотеке
+      </button>
 
       <button 
         className="btn btn-primary" 
