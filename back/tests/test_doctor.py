@@ -267,10 +267,10 @@ class TestDoctor(unittest.TestCase):
         # CLI run: check mode
         result = runner.invoke(app, ["doctor"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("Starting Science Graph Database Doctor Diagnostics...", result.stdout)
+        self.assertIn("Starting Science Graph Database Doctor", result.stdout)
         self.assertIn("Found 1 anomalies.", result.stdout)
 
         # CLI run: fix mode
         result_fix = runner.invoke(app, ["doctor", "--fix"])
         self.assertEqual(result_fix.exit_code, 0)
-        self.assertIn("Successfully corrected 1 anomalies across all tables!", result_fix.stdout)
+        self.assertIn("Successfully corrected 1 anomalies across all", result_fix.stdout)

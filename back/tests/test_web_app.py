@@ -169,14 +169,15 @@ class TestWebAppEndpoints:
         assert data["chunks"][1]["id"] == "c2"
         assert data["chunks"][1]["text_content"] == "chunk 2 content"
 
-    @patch("os.path.exists", return_value=True)
-    def test_get_paper_pdf(self, mock_exists):
+    def test_get_paper_pdf(self):
+        import tempfile
         from src.models import Paper
-        paper = Paper(id="p1", title="Title One", file_path="/valid/file.pdf")
-        self.mock_graph_repo.get_paper.return_value = paper
-        
-        response = self.client.get("/api/paper-pdf/p1")
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "application/pdf"
-        assert "inline" in response.headers["content-disposition"]
+        with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+            paper = Paper(id="p1", title="Title One", file_path=tmp.name)
+            self.mock_graph_repo.get_paper.return_value = paper
+            
+            response = self.client.get("/api/paper-pdf/p1")
+            assert response.status_code == 200
+            assert response.headers["content-type"] == "application/pdf"
+            assert "inline" in response.headers["content-disposition"]
 

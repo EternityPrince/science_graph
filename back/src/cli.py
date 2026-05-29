@@ -1146,6 +1146,6 @@ def export_db(
         yaml.safe_dump(export_data, sys.stdout, default_flow_style=False, allow_unicode=True)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     app()
 
