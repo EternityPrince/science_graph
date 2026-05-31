@@ -17,7 +17,7 @@ Compared to generic vector search databases or typical RAG frameworks, **Science
 1. **Graph-Augmented RAG (not just flat vectors)**: Instead of treating your library as disconnected text chunks, Science Graph structures them into a queryable semantic graph connecting `Paper` ↔ `Author` ↔ `Concept` ↔ `Tag` nodes. The LLM receives both textual context and relational context (citations, co-authors, and tag chains).
 2. **Concept Ontology & SpaCy Lemmatization**: Extracted concepts are processed through spaCy for multilingual lemmatization and alias matching. Synonyms (e.g., *"convolutional network"*, *"сверточная сеть"*, and *"CNN"*) are automatically resolved to a single canonical `Concept` node, preventing graph fragmentation.
 3. **Local Apple Silicon Optimizations**: Built with native support for [MLX](https://github.com/ml-explore/mlx) to run Gemma, Qwen, and LLaMA models directly on macOS GPUs with high speed and zero inference latency or cloud subscription fees.
-4. **Multimodal local parsers**: Ingests Markdown (Obsidian-style `[[wikilinks]]`), PDFs, EPUBs, and YouTube videos. For videos, it extracts the audio track, runs local **Whisper** transcription, and filters transcript chunks to discard conversational fluff before indexing.
+4. **Multimodal local parsers**: Ingests Markdown (Obsidian-style `[[wikilinks]]`), PDFs, EPUBs, and YouTube videos. For PDFs, it uses the high-performance **Marker** parser by default with local OCR and layout analysis to convert PDFs into structured Markdown with LaTeX math and tables (Russian and English languages supported). For videos, it extracts the audio track, runs local **Whisper** transcription, and filters transcript chunks to discard conversational fluff before indexing.
 5. **Hybrid Retrieval with Reciprocal Rank Fusion (RRF)**: Combines dense embeddings search (`USearch` HNSW index) and sparse keyword matches (SQLite `FTS5`) with adaptive BM25 weighting based on match strength.
 6. **Smart Context Trimming**: To ensure inputs fit local LLM context limits (e.g. 4k/8k tokens), the system dynamically prunes context. It groups chunks by paper, soft-trims sentences from the *middle* of paragraphs (retaining critical intro/conclusion sentences), and drops low-importance graph edges last.
 7. **Model Context Protocol (MCP) Server**: Ships with a built-in MCP server. Agents like Claude Desktop, Cursor, or peer AIs can connect to it to query, explore, index files, or manage research notes directly.
@@ -156,7 +156,7 @@ The `index` command processes local files or URLs. Rather than running a simple 
 
 1. **Duplicate Detection & Shingle Matching**: Extracted text signatures are generated via shingles. Science Graph computes Jaccard similarity and checks existing database titles/IDs. If a duplicate is detected, it terminates the process early, saving computation and LLM tokens.
 2. **Parser Selection**:
-   - **PDFs**: Parsed via `PyMuPDF`.
+   - **PDFs**: Parsed via **Marker** (default, layout-aware Markdown and LaTeX formulas converter) or **PyMuPDF** (legacy fast parser).
    - **Markdown notes**: Loaded with front-matter extraction (supporting Obsidian-style `[[wiki-links]]` for creating related Concept/Paper nodes).
    - **EPUBs**: Parsed using `ebooklib`.
    - **YouTube videos**: Ingested via `yt-dlp`. The audio track is downloaded, transcribed locally using `faster-whisper`, and the resulting text chunks are filtered for database relevance.
@@ -272,8 +272,11 @@ Run any command using `uv run graph <command>`:
 #### Indexing Documents
 
 ```bash
-# Index a single local PDF
+# Index a single local PDF (using the default Marker parser)
 uv run graph index paper.pdf
+
+# Index a single local PDF using the legacy Fitz (PyMuPDF) parser
+uv run graph index paper.pdf --legacy-pdf
 
 # Ingest an arXiv paper link directly (downloads PDF, queries metadata)
 uv run graph index https://arxiv.org/abs/1706.03762
@@ -367,6 +370,9 @@ db_path: "~/.local/share/pdf-graph-analyzer/graph.db"
 
 # Directory where local archives of websites/PDFs are stored
 archive_dir: "~/.local/share/pdf-graph-analyzer/archive"
+
+# PDF parser to use: 'marker' (default, layout-aware OCR/Markdown) or 'fitz' (legacy fast PyMuPDF)
+pdf_parser: "marker"
 
 # HuggingFace token for downloading gated models/embeddings (optional)
 hf_token: ""
