@@ -68,10 +68,11 @@ class DoctorService:
     Checks and fixes unapplied formatters and LLM artifacts.
     """
 
-    def __init__(self, graph_repo: GraphRepository, vector_repo: VectorRepository, llm_engine: Any = None):
+    def __init__(self, graph_repo: GraphRepository, vector_repo: VectorRepository, llm_engine: Any = None, emb_engine: Any = None):
         self.graph_repo = graph_repo
         self.vector_repo = vector_repo
         self.llm_engine = llm_engine
+        self.emb_engine = emb_engine
         self.normalizer = NormalizationPipeline()
 
     def run_diagnostics(self, fix: bool = False) -> Dict[str, Any]:
@@ -249,11 +250,17 @@ class DoctorService:
                                     pass
                             
                             # Update the existing node properties
-                            self.graph_repo.update_node_properties(new_id, {
-                                **props, 
-                                "name": new_name, 
-                                "description": merged_desc
-                            })
+                            updated_props = {
+                                 **props, 
+                                 "name": new_name, 
+                                 "description": merged_desc
+                            }
+                            if self.emb_engine and new_name != name:
+                                try:
+                                    updated_props["embedding"] = self.emb_engine.get_embedding(new_name, is_query=False)
+                                except Exception as ex:
+                                    logger.error(f"Failed to regenerate embedding during concept merge: {ex}")
+                            self.graph_repo.update_node_properties(new_id, updated_props)
                             
                             # Migrate edges
                             edges = get_edges_for_node(concept_id)
@@ -276,6 +283,11 @@ class DoctorService:
                         if fix:
                             # Create new node
                             new_props = {**props, "name": new_name, "description": new_desc}
+                            if self.emb_engine and new_name != name:
+                                try:
+                                    new_props["embedding"] = self.emb_engine.get_embedding(new_name, is_query=False)
+                                except Exception as ex:
+                                    logger.error(f"Failed to regenerate embedding during concept migration: {ex}")
                             new_concept = Concept(id=new_id, name=new_name, properties=new_props)
                             self.graph_repo.save_concept(new_concept)
                             
@@ -301,6 +313,11 @@ class DoctorService:
                     })
                     if fix:
                         new_props = {**props, "name": new_name, "description": new_desc}
+                        if self.emb_engine and new_name != name:
+                            try:
+                                new_props["embedding"] = self.emb_engine.get_embedding(new_name, is_query=False)
+                            except Exception as ex:
+                                logger.error(f"Failed to regenerate embedding during concept update: {ex}")
                         self.graph_repo.update_node_properties(concept_id, new_props)
 
         # ── Step 3: Sanitize Papers ───────────────────────────────────────────
@@ -321,7 +338,29 @@ class DoctorService:
                 norm_author = self.normalizer.normalize_author_name(author)
                 new_authors.append(clean_text(norm_author))
 
-            has_formatting_anomaly = (new_title != title or new_abstract != abstract or new_authors != authors)
+            # Run NER to find missing authors
+            final_authors = list(new_authors)
+            try:
+                # Find source text for NER
+                text_for_ner = new_abstract
+                if not text_for_ner:
+                    chunks = self.vector_repo.get_chunks_for_paper(paper_id)
+                    if chunks:
+                        chunks.sort(key=lambda c: (c.page_number, c.id))
+                        text_for_ner = "\n\n".join(c.text_content for c in chunks[:5])
+                
+                if text_for_ner:
+                    from src.ner_engine import extract_persons_from_text
+                    extracted_names = extract_persons_from_text(text_for_ner)
+                    for name in extracted_names:
+                        norm_name = clean_text(self.normalizer.normalize_author_name(name))
+                        if norm_name and len(norm_name) > 2 and norm_name not in final_authors:
+                            final_authors.append(norm_name)
+            except Exception as e:
+                logger.error(f"Error running NER on paper {paper_id}: {e}")
+
+            has_author_enrichment = (final_authors != new_authors)
+            has_formatting_anomaly = (new_title != title or new_abstract != abstract or new_authors != authors or has_author_enrichment)
             missing_abstract = not abstract and not is_placeholder
             missing_summary = not summary and not is_placeholder
 
@@ -334,7 +373,7 @@ class DoctorService:
                     "old_abstract": abstract[:60] + "..." if abstract else "",
                     "new_abstract": new_abstract[:60] + "..." if new_abstract else "",
                     "old_authors": authors,
-                    "new_authors": new_authors,
+                    "new_authors": final_authors,
                     "missing_abstract": missing_abstract,
                     "missing_summary": missing_summary,
                 }
@@ -345,7 +384,7 @@ class DoctorService:
                         **props,
                         "title": new_title,
                         "abstract": new_abstract,
-                        "authors": new_authors
+                        "authors": final_authors
                     }
                     updated = has_formatting_anomaly
                     paper_obj = None
@@ -389,16 +428,28 @@ class DoctorService:
                                         f"Paper Text:\n{full_text[:4000]}\n\n"
                                         "Abstract:"
                                     )
-                                    try:
-                                        generated_abstract = self.llm_engine.generate_response(prompt, task="synthesis")
-                                        if generated_abstract:
-                                            fixed_props["abstract"] = clean_text(generated_abstract)
-                                            paper_obj.abstract = fixed_props["abstract"]
-                                            updated = True
-                                            missing_abstract = False
-                                            anomaly_entry["generated_abstract"] = True
-                                    except Exception as e:
-                                        logger.error(f"Failed to generate abstract via LLM: {e}")
+                                    temps = [0.7, 0.3, 0.0]
+                                    generated_abstract = None
+                                    for attempt, temp in enumerate(temps):
+                                        try:
+                                            resp = self.llm_engine.generate_response(prompt, task="synthesis", temp=temp)
+                                            if resp:
+                                                cleaned_resp = clean_text(resp)
+                                                from src.llm_engine.base import validate_no_hallucinations
+                                                validate_no_hallucinations(cleaned_resp)
+                                                generated_abstract = cleaned_resp
+                                                break
+                                        except ValueError as ve:
+                                            logger.warning(f"Hallucination detected in generated abstract on attempt {attempt + 1}: {ve}. Retrying...")
+                                        except Exception as e:
+                                            logger.error(f"Failed to generate abstract via LLM on attempt {attempt + 1}: {e}")
+                                            
+                                    if generated_abstract:
+                                        fixed_props["abstract"] = generated_abstract
+                                        paper_obj.abstract = generated_abstract
+                                        updated = True
+                                        missing_abstract = False
+                                        anomaly_entry["generated_abstract"] = True
 
                     if missing_summary and self.llm_engine:
                         if not paper_obj:
@@ -421,18 +472,31 @@ class DoctorService:
                             full_text = "\n\n".join(c.text_content for c in chunks)
                         else:
                             full_text = ""
-                        try:
-                            summary_text = extractor.generate_summary(paper_obj, full_text)
-                            if summary_text:
-                                fixed_props["summary"] = summary_text
-                                if paper_obj.properties.get("source_type") == "video":
-                                    fixed_props["video_overview"] = paper_obj.properties.get("video_overview")
-                                    fixed_props["video_themes"] = paper_obj.properties.get("video_themes")
-                                    fixed_props["video_outline"] = paper_obj.properties.get("video_outline")
-                                updated = True
-                                anomaly_entry["generated_summary"] = True
-                        except Exception as e:
-                            logger.error(f"Failed to generate summary: {e}")
+                        
+                        temps = [0.7, 0.3, 0.0]
+                        summary_text = None
+                        for attempt, temp in enumerate(temps):
+                            try:
+                                resp = extractor.generate_summary(paper_obj, full_text, temp=temp)
+                                if resp:
+                                    cleaned_resp = clean_text(resp)
+                                    from src.llm_engine.base import validate_no_hallucinations
+                                    validate_no_hallucinations(cleaned_resp)
+                                    summary_text = cleaned_resp
+                                    break
+                            except ValueError as ve:
+                                logger.warning(f"Hallucination detected in generated summary on attempt {attempt + 1}: {ve}. Retrying...")
+                            except Exception as e:
+                                logger.error(f"Failed to generate summary on attempt {attempt + 1}: {e}")
+                                
+                        if summary_text:
+                            fixed_props["summary"] = summary_text
+                            if paper_obj.properties.get("source_type") == "video":
+                                fixed_props["video_overview"] = paper_obj.properties.get("video_overview")
+                                fixed_props["video_themes"] = paper_obj.properties.get("video_themes")
+                                fixed_props["video_outline"] = paper_obj.properties.get("video_outline")
+                            updated = True
+                            anomaly_entry["generated_summary"] = True
 
                     if updated:
                         if "abstract" in fixed_props:
@@ -440,6 +504,16 @@ class DoctorService:
                         if "summary" in fixed_props:
                             fixed_props["summary"] = clean_text(fixed_props["summary"])
                         self.graph_repo.update_node_properties(paper_id, fixed_props)
+                        
+                        # Save/create Author nodes and edges for any enriched authors
+                        if has_author_enrichment:
+                            for author_name in final_authors:
+                                if author_name not in new_authors:
+                                    author_id = slugify(author_name)
+                                    new_author = Author(id=author_id, name=author_name, properties={"name": author_name})
+                                    self.graph_repo.save_author(new_author)
+                                    self.graph_repo.add_edge(author_id, paper_id, "AUTHORED")
+                                    
                         anomaly_entry["new_abstract"] = fixed_props.get("abstract", "")[:60] + "..." if fixed_props.get("abstract") else ""
 
         # ── Step 4: Sanitize Chunks ───────────────────────────────────────────

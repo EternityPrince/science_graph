@@ -33,6 +33,7 @@ class PromptManager:
         rendered = template
         for k, v in kwargs.items():
             pattern = r"\{\{\s*" + re.escape(k) + r"\s*\}\}"
-            rendered = re.sub(pattern, str(v), rendered)
+            val = str(v)
+            rendered = re.sub(pattern, lambda m: val, rendered)
             
         return rendered.strip()

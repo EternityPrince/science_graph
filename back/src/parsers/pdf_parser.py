@@ -1,4 +1,4 @@
-import fitz  # PyMuPDF
+import fitz
 import re
 import os
 import shutil
@@ -40,17 +40,72 @@ class PDFParser(BaseParser):
         # 2. Extract Title
         title = doc.metadata.get("title", "")
         if not title or title.lower().strip() in ["untitled", "layout 1", "microsoft word", "manuscript", "pdf", ""] or ".pdf" in title.lower():
-            # Fallback to first page lines
-            lines = [line.strip() for line in first_page_text.split("\n") if line.strip()]
-            if lines:
-                # Find the first substantial line that doesn't look like journal headers
-                title_candidates = []
-                for line in lines[:5]:
-                    if len(line) > 15 and not any(w in line.lower() for w in ["arxiv", "preprint", "journal", "proceedings", "vol.", "no.", "issn", "http", "permission", "google", "grants", "copyright", "license"]):
-                        title_candidates.append(line)
-                title = " ".join(title_candidates[:2]) if title_candidates else lines[0]
+            # Fallback 1: Font size analysis on first page
+            font_title = None
+            if len(doc) > 0:
+                try:
+                    blocks = doc[0].get_text("dict")["blocks"]
+                    spans = []
+                    first_non_skipped_size = None
+                    for b in blocks:
+                        if "lines" in b:
+                            for l in b["lines"]:
+                                for s in l["spans"]:
+                                    text = s["text"].strip()
+                                    size = s["size"]
+                                    if not text:
+                                        continue
+                                    
+                                    text_lower = text.lower()
+                                    is_skipped = any(w in text_lower for w in ["arxiv", "http", "www.", "doi:", "preprint", "proceedings", "journal", "vol.", "no.", "issn", "isbn", "copyright", "©", "all rights reserved", "permission", "grants", "reproduce", "scholarly", "journalistic", "attribution"])
+                                    
+                                    if is_skipped:
+                                        if first_non_skipped_size is not None:
+                                            # We already started collecting title, but hit a skipped span. Stop.
+                                            raise StopIteration
+                                        continue
+                                    
+                                    if first_non_skipped_size is None:
+                                        first_non_skipped_size = size
+                                    
+                                    if size < first_non_skipped_size - 0.5:
+                                        # Smaller font size. Stop.
+                                        raise StopIteration
+                                        
+                                    if abs(size - first_non_skipped_size) < 0.5:
+                                        spans.append(text)
+                                    else:
+                                        # Different font size. Stop.
+                                        raise StopIteration
+                except StopIteration:
+                    pass
+                except Exception:
+                    pass
+                
+                if spans:
+                    font_title = " ".join(spans).strip()
+
+            if font_title:
+                title = font_title
             else:
-                title = os.path.basename(source).replace(".pdf", "")
+                # Fallback 2: Line-based heuristics using word boundaries for forbidden words
+                lines = [line.strip() for line in first_page_text.split("\n") if line.strip()]
+                if lines:
+                    title_candidates = []
+                    forbidden_exact = {"preprint", "journal", "proceedings", "permission", "google", "grants", "copyright", "license"}
+                    forbidden_subs = ["arxiv", "vol.", "no.", "issn", "http", "www.", "doi:", "scholarly", "journalistic", "attribution"]
+                    for line in lines[:5]:
+                        line_lower = line.lower()
+                        if len(line) > 15:
+                            if any(sub in line_lower for sub in forbidden_subs):
+                                continue
+                            words = re.findall(r'\b\w+\b', line_lower)
+                            if any(w in forbidden_exact for w in words):
+                                continue
+                            title_candidates.append(line)
+                    title = " ".join(title_candidates[:2]) if title_candidates else lines[0]
+                else:
+                    title = os.path.basename(source).replace(".pdf", "")
         
         # 3. Extract Authors
         author_meta = doc.metadata.get("author", "")
@@ -79,7 +134,7 @@ class PDFParser(BaseParser):
             )
             NAME_TOKEN_RE = re.compile(r'[A-Z][a-zé-]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-zé-]+){0,2}')
             
-            search_start = max(0, title_idx)
+            search_start = max(0, title_idx + 1)
             for line in lines[search_start:search_start + 10]:
                 clean_line = re.sub(r'[\d\*†‡§]+', '', line).strip()
                 if len(clean_line) < 5 or len(clean_line) > 300:

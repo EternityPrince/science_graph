@@ -15,9 +15,17 @@ def reset_spacy_state():
     orig_attempted = norm_module._spacy_attempted
     norm_module._nlp = None
     norm_module._spacy_attempted = False
+    from src.config import config
+    spacy_cfg = config.data.setdefault("spacy", {})
+    orig_model_name = spacy_cfg.get("model_name")
+    spacy_cfg["model_name"] = "en_core_web_sm"
     yield
     norm_module._nlp = orig_nlp
     norm_module._spacy_attempted = orig_attempted
+    if orig_model_name is not None:
+        config.data["spacy"]["model_name"] = orig_model_name
+    else:
+        config.data["spacy"].pop("model_name", None)
 
 
 @patch("spacy.load")
@@ -221,3 +229,51 @@ def test_normalize_extraction_response_all_fields():
     assert len(norm.concept_relations) == 1
     assert norm.concept_relations[0].source == "Reinforcement Learning"
     assert norm.concept_relations[0].target == "Generative Adversarial Network"
+
+
+def test_scientific_concept_normalization_and_name_validation():
+    """Test new rules for concept lemmatization and human name validation."""
+    pipeline = NormalizationPipeline()
+    
+    # 1. Concept lemmatization rules
+    # Modifiers should not be lemmatized to verbs/nouns (supervised, distributed, post, action)
+    # Gerunds/nouns ending in -ing should be preserved (learning, training, sampling, tuning)
+    assert pipeline.normalize_concept_name("supervised learning") == "Supervised Learning"
+    assert pipeline.normalize_concept_name("distributed learning") == "Distributed Learning"
+    assert pipeline.normalize_concept_name("action sampling") == "Action Sampling"
+    assert pipeline.normalize_concept_name("hyperparameter tuning") == "Hyperparameter Tuning"
+    assert pipeline.normalize_concept_name("post-training") == "Post-Training"
+    
+    # Plural -ings should become singular -ing
+    assert pipeline.normalize_concept_name("embeddings") == "Embedding"
+    assert pipeline.normalize_concept_name("image embeddings") == "Image Embedding"
+    
+    # Normal plural nouns should still be lemmatized to singular
+    assert pipeline.normalize_concept_name("neural networks") == "Neural Network"
+    assert pipeline.normalize_concept_name("decision trees") == "Decision Tree"
+    assert pipeline.normalize_concept_name("large language models") == "Large Language Model"
+    
+    # 2. Surnames ending in 's' should be preserved if capitalized in original text
+    assert pipeline.normalize_concept_name("Cathy Williams") == "Cathy Williams"
+    assert pipeline.normalize_concept_name("Alice Johnson") == "Alice Johnson"
+    assert pipeline.normalize_concept_name("Bob Lee") == "Bob Lee"
+    
+    # 3. Test is_likely_name from ner_engine
+    from src.ner_engine import is_likely_name
+    
+    # Plausible names
+    assert is_likely_name("Ashish Vaswani") is True
+    assert is_likely_name("Aidan N. Gomez") is True
+    assert is_likely_name("Sam Stephens") is True
+    assert is_likely_name("Cathy Williams") is True
+    
+    # Imposter names (institutions, concepts, locations) should be rejected
+    assert is_likely_name("Scientific Inc") is False
+    assert is_likely_name("San Francisco") is False
+    assert is_likely_name("Stanford University") is False
+    assert is_likely_name("Dementia Research Institute") is False
+    assert is_likely_name("Mass Spectrometry") is False
+    assert is_likely_name("Universal Verifier") is False
+    assert is_likely_name("Process Reward Model") is False
+    assert is_likely_name("Neural Information Processing Systems") is False
+

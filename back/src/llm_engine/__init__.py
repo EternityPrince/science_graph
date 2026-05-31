@@ -8,6 +8,7 @@ from src.llm_engine.base import (
     ResilientParser,
     retry_with_temp_decay,
     retry_with_temp_decay_async,
+    StructuredOutput,
 )
 from src.llm_engine.mlx_impl import MlxLLMEngine, ConstrainedLogitsProcessor, build_mlx_tokenizer_data
 from src.llm_engine.openai_impl import OpenAILLMEngine, AsyncRateLimiter
@@ -28,4 +29,6 @@ __all__ = [
     "ConstrainedLogitsProcessor",
     "build_mlx_tokenizer_data",
     "AsyncRateLimiter",
+    "StructuredOutput",
 ]
+

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import os
 
 from src.ner_engine import (
-    _is_likely_name,
+    is_likely_name,
     _is_model_cached,
     NEREngine,
     get_ner_engine,
@@ -17,19 +17,20 @@ from src.ner_engine import (
 class TestNEREngineFunctions(unittest.TestCase):
     def test_is_likely_name(self):
         # Valid names
-        self.assertTrue(_is_likely_name("Ashish Vaswani"))
-        self.assertTrue(_is_likely_name("Aidan N. Gomez"))
-        self.assertTrue(_is_likely_name("Linus Torvalds"))
-        self.assertTrue(_is_likely_name("Guido van Rossum"))
+        self.assertTrue(is_likely_name("Ashish Vaswani"))
+        self.assertTrue(is_likely_name("Aidan N. Gomez"))
+        self.assertTrue(is_likely_name("Linus Torvalds"))
+        self.assertTrue(is_likely_name("Guido van Rossum"))
 
         # Invalid names
-        self.assertFalse(_is_likely_name("Guido"))  # Too short
-        self.assertFalse(_is_likely_name("A B C D E F"))  # Too long
-        self.assertFalse(_is_likely_name("John and Bob"))  # Has conjunction
-        self.assertFalse(_is_likely_name("John 3 Doe"))  # Has digit
-        self.assertFalse(_is_likely_name("Deep Learning"))  # Stopword
-        self.assertFalse(_is_likely_name("Google Brain"))  # Stopword
-        self.assertFalse(_is_likely_name("A" * 25 + " " + "B" * 30))  # Too long length (>50 chars, but has 2 words)
+        self.assertFalse(is_likely_name("Guido"))  # Too short
+        self.assertFalse(is_likely_name("A B C D E F"))  # Too long
+        self.assertFalse(is_likely_name("John and Bob"))  # Has conjunction
+        self.assertFalse(is_likely_name("John 3 Doe"))  # Has digit
+        self.assertFalse(is_likely_name("Deep Learning"))  # Stopword
+        self.assertFalse(is_likely_name("Google Brain"))  # Stopword
+        self.assertFalse(is_likely_name("A" * 25 + " " + "B" * 30))  # Too long length (>50 chars, but has 2 words)
+
 
     @patch("huggingface_hub.try_to_load_from_cache")
     def test_is_model_cached(self, mock_load):

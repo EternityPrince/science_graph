@@ -219,11 +219,15 @@ def index_orchestrator(
     use_llm: bool,
     trace: bool,
     cloud: bool,
-    chunk_pool_size: Optional[int] = None
+    chunk_pool_size: Optional[int] = None,
+    pdf_parser_type: Optional[str] = None
 ):
     from src.services.indexing_orchestrator import run_batch_index
     try:
-        session_traces = run_batch_index(target, use_llm, trace, cloud, chunk_pool_size)
+        kwargs = {}
+        if pdf_parser_type is not None:
+            kwargs["pdf_parser_type"] = pdf_parser_type
+        session_traces = run_batch_index(target, use_llm, trace, cloud, chunk_pool_size, **kwargs)
     except Exception as e:
         con.error(f"Failed during batch indexing: {e}")
         raise typer.Exit(1)
@@ -243,9 +247,12 @@ def index(
     trace: bool = typer.Option(False, "--trace", "-t", help="Show detailed execution trace with timing and token count"),
     cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
     chunk_pool: Optional[int] = typer.Option(1, "--chunk-pool", help="Number of concurrent chunks to process in parallel via LLM"),
+    pdf_parser: Optional[str] = typer.Option(None, "--pdf-parser", help="PDF parser to use ('marker' or 'fitz')"),
+    legacy_pdf: bool = typer.Option(False, "--legacy-pdf", help="Use legacy Fitz (PyMuPDF) PDF parser (shortcut for --pdf-parser fitz)"),
 ):
     """Index PDF papers, Markdown notes (.md), EPUB books, or URLs into the knowledge graph."""
-    index_orchestrator(target, use_llm, trace, cloud, chunk_pool)
+    parser_type = "fitz" if legacy_pdf else pdf_parser
+    index_orchestrator(target, use_llm, trace, cloud, chunk_pool, parser_type)
 
 
 # ── reindex ───────────────────────────────────────────────────────────────────
@@ -292,6 +299,8 @@ def reindex_full(
     use_llm: bool = typer.Option(False, "--use-llm", help="Use LLM for extracting concepts/tags (slower)"),
     cloud: bool = typer.Option(False, "--cloud", help="Use cloud provider instead of local model"),
     chunk_pool: Optional[int] = typer.Option(1, "--chunk-pool", help="Number of concurrent chunks to process in parallel via LLM"),
+    pdf_parser: Optional[str] = typer.Option(None, "--pdf-parser", help="PDF parser to use ('marker' or 'fitz')"),
+    legacy_pdf: bool = typer.Option(False, "--legacy-pdf", help="Use legacy Fitz (PyMuPDF) PDF parser (shortcut for --pdf-parser fitz)"),
 ):
     """Fully re-index papers (re-chunk and recreate embeddings) by re-ingesting original files/URLs."""
     if cloud:
@@ -305,12 +314,14 @@ def reindex_full(
         con.warning("Proceeding with regex fallback extraction because LLM engine failed to load.")
     indexer = Indexer(graph_repo, vector_repo, embedding_engine, llm_engine)
 
+    parser_type = "fitz" if legacy_pdf else pdf_parser
     try:
         indexer.reindex_full_batch(
             all_papers=all_papers,
             paper_id=paper_id,
             limit=limit,
             chunk_pool_size=chunk_pool,
+            pdf_parser_type=parser_type,
         )
     except ValueError as e:
         con.error(str(e))
@@ -958,7 +969,7 @@ def doctor(
     Scan database through the repository layer, detecting and fixing LLM output artifacts,
     unapplied formatting, and incorrect identifiers due to formatting anomalies.
     """
-    graph_repo, vector_repo, _, llm_engine = get_services(load_llm=fix, load_embeddings=False, use_cloud=cloud)
+    graph_repo, vector_repo, embedding_engine, llm_engine = get_services(load_llm=fix, load_embeddings=fix, use_cloud=cloud)
     
     from src.services.doctor_service import DoctorService
     
@@ -970,7 +981,7 @@ def doctor(
         
     con.blank()
     
-    doctor_service = DoctorService(graph_repo, vector_repo, llm_engine=llm_engine)
+    doctor_service = DoctorService(graph_repo, vector_repo, llm_engine=llm_engine, emb_engine=embedding_engine)
     report = doctor_service.run_diagnostics(fix=fix)
     
     # 1. Print Stats Table

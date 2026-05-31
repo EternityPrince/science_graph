@@ -16,7 +16,8 @@ def run_batch_index(
     use_llm: bool,
     trace: bool,
     cloud: bool,
-    chunk_pool_size: Optional[int] = None
+    chunk_pool_size: Optional[int] = None,
+    pdf_parser_type: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Orchestrates dependency loading and target splitting for batch ingestion.
@@ -49,9 +50,14 @@ def run_batch_index(
     if not targets:
         raise ValueError("No targets provided to index.")
 
+    kwargs = {}
+    if pdf_parser_type is not None:
+        kwargs["pdf_parser_type"] = pdf_parser_type
+
     return indexer.index_batch(
         targets=targets,
         use_llm=use_llm,
         trace=trace,
-        chunk_pool_size=chunk_pool_size
+        chunk_pool_size=chunk_pool_size,
+        **kwargs
     )

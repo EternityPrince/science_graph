@@ -101,6 +101,15 @@ class MlxLLMEngine(BaseLLMEngine):
                 f"  Run: python3 main.py config  to see configured paths."
             )
 
+        # Force-import mlx_lm.generate on the current (main) thread so that
+        # its module-level `generation_stream = mx.new_stream(...)` is bound
+        # to the main thread.  Without this, the Marker PDF parser can trigger
+        # the first import inside an asyncio.to_thread worker, which creates
+        # the stream on a short-lived thread; subsequent generate() calls on
+        # the main thread then crash with "There is no Stream(gpu, N) in
+        # current thread" (MLX 0.31+ enforces thread-local streams).
+        import mlx_lm.generate  # noqa: F401
+
     def _ensure_model_loaded(self):
         if self.model is None:
             model_name = Path(self.model_path).name
@@ -230,3 +239,26 @@ class MlxLLMEngine(BaseLLMEngine):
             logits_processors=[logits_processor],
         )
         return strip_thinking_tokens(response)
+
+    async def generate_response_async(
+        self,
+        prompt: str,
+        max_tokens: int = None,
+        temp: float = None,
+        task: str = None,
+        model: Optional[str] = None,
+    ) -> str:
+        import asyncio
+        await asyncio.sleep(0)
+        return self.generate_response(prompt, max_tokens, temp, task, model=model)
+
+    async def generate_json_async(
+        self,
+        prompt: str,
+        schema_class: Type[BaseModel],
+        temp: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        import asyncio
+        await asyncio.sleep(0)
+        return self.generate_json(prompt, schema_class, temp, max_tokens)

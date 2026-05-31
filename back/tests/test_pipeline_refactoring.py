@@ -174,6 +174,11 @@ class TestPipelineRefactoring(unittest.TestCase):
         norm_module._nlp = None
         norm_module._spacy_attempted = False
         
+        from src.config import config
+        spacy_cfg = config.data.setdefault("spacy", {})
+        orig_model_name = spacy_cfg.get("model_name")
+        spacy_cfg["model_name"] = "en_core_web_sm"
+        
         try:
             # Setup mock_load to fail on first attempt, succeed on second attempt
             mock_nlp = MagicMock()
@@ -187,6 +192,10 @@ class TestPipelineRefactoring(unittest.TestCase):
         finally:
             norm_module._nlp = orig_nlp
             norm_module._spacy_attempted = orig_attempted
+            if orig_model_name is not None:
+                config.data["spacy"]["model_name"] = orig_model_name
+            else:
+                config.data["spacy"].pop("model_name", None)
 
     # ── 5. Token Management & Semantic Splitting ──────────────────────────────
     def test_semantic_splitting(self):

@@ -217,18 +217,21 @@ class Indexer:
             stages = trace_info.setdefault("stages", {})
             stages[stage_name] = stages.get(stage_name, 0.0) + dt
 
-    def index_pdf(self, file_path: str, trace_info: Optional[dict] = None) -> str:
+    def index_pdf(self, file_path: str, trace_info: Optional[dict] = None, pdf_parser_type: Optional[str] = None) -> str:
         """Runs the complete ingestion pipeline for a single PDF. Returns the paper ID."""
-        return asyncio.run(self.index_pdf_async(file_path, trace_info))
+        kwargs = {}
+        if pdf_parser_type is not None:
+            kwargs["pdf_parser_type"] = pdf_parser_type
+        return asyncio.run(self.index_pdf_async(file_path, trace_info, **kwargs))
 
-    async def index_pdf_async(self, file_path: str, trace_info: Optional[dict] = None) -> str:
+    async def index_pdf_async(self, file_path: str, trace_info: Optional[dict] = None, pdf_parser_type: Optional[str] = None) -> str:
         """Runs the complete ingestion pipeline for a single PDF asynchronously."""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
         con.info(f"Parsing [bold]{os.path.basename(file_path)}[/bold]")
         with self._trace_stage("Document Parsing", trace_info):
-            parser = ParserFactory.get_parser(file_path)
+            parser = ParserFactory.get_parser(file_path, pdf_parser_type=pdf_parser_type)
             paper, raw_references, full_text = parser.parse(file_path)
 
         # Determine archive path before enrichment (paper.id is stable)
@@ -421,7 +424,7 @@ class Indexer:
 
         async def _safe_get_embedding(text: str) -> Optional[List[float]]:
             try:
-                val = await asyncio.to_thread(self.emb_engine.get_embedding, text)
+                val = await asyncio.to_thread(self.emb_engine.get_embedding, text, False)
                 if isinstance(val, list):
                     return val
             except Exception:
@@ -1048,7 +1051,7 @@ class Indexer:
         con.success(f"Successfully re-indexed metadata for {(paper.title or paper.id)[:60]}")
         return True
 
-    def reindex_full(self, paper_id: str) -> bool:
+    def reindex_full(self, paper_id: str, pdf_parser_type: Optional[str] = None) -> bool:
         """
         Performs full reindexing by deleting the paper node and re-indexing the original file/URL.
         """
@@ -1074,7 +1077,10 @@ class Indexer:
             if file_path.startswith("http://") or file_path.startswith("https://"):
                 self.index_url(file_path)
             elif file_path.lower().endswith(".pdf"):
-                self.index_pdf(file_path)
+                kwargs = {}
+                if pdf_parser_type is not None:
+                    kwargs["pdf_parser_type"] = pdf_parser_type
+                self.index_pdf(file_path, **kwargs)
             elif file_path.lower().endswith(".md"):
                 self.index_markdown(file_path)
             elif file_path.lower().endswith(".epub"):
@@ -1151,6 +1157,7 @@ class Indexer:
         paper_id: Optional[str] = None,
         limit: Optional[int] = None,
         chunk_pool_size: Optional[int] = None,
+        pdf_parser_type: Optional[str] = None,
     ) -> Tuple[int, int]:
         """
         Batch fully re-indexes papers by re-ingesting original files/URLs.
@@ -1181,7 +1188,10 @@ class Indexer:
         success_count = 0
         for pid in candidates:
             try:
-                if self.reindex_full(pid):
+                kwargs = {}
+                if pdf_parser_type is not None:
+                    kwargs["pdf_parser_type"] = pdf_parser_type
+                if self.reindex_full(pid, **kwargs):
                     success_count += 1
             except Exception as e:
                 con.error(f"Failed to fully re-index {pid}: {e}")
@@ -1271,14 +1281,16 @@ class Indexer:
         targets: List[str],
         use_llm: bool = True,
         trace: bool = False,
-        chunk_pool_size: Optional[int] = None
+        chunk_pool_size: Optional[int] = None,
+        pdf_parser_type: Optional[str] = None
     ) -> List[dict]:
         """Synchronous wrapper for batch indexing."""
         return asyncio.run(self.index_batch_async(
             targets=targets,
             use_llm=use_llm,
             trace=trace,
-            chunk_pool_size=chunk_pool_size
+            chunk_pool_size=chunk_pool_size,
+            pdf_parser_type=pdf_parser_type
         ))
 
     async def index_batch_async(
@@ -1286,7 +1298,8 @@ class Indexer:
         targets: List[str],
         use_llm: bool = True,
         trace: bool = False,
-        chunk_pool_size: Optional[int] = None
+        chunk_pool_size: Optional[int] = None,
+        pdf_parser_type: Optional[str] = None
     ) -> List[dict]:
         """Unified staged batch ingestion pipeline."""
         if chunk_pool_size is not None:
@@ -1340,7 +1353,7 @@ class Indexer:
                 if t == "pdf":
                     con.info(f"Parsing [bold]{os.path.basename(tgt)}[/bold]")
                     t0 = time.perf_counter()
-                    parser = ParserFactory.get_parser(tgt)
+                    parser = ParserFactory.get_parser(tgt, pdf_parser_type=pdf_parser_type)
                     paper, raw_references, full_text = await asyncio.to_thread(parser.parse, tgt)
                     trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
 

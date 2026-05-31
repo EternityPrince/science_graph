@@ -361,13 +361,13 @@ class ExtractionService:
             
         try:
             from src.llm_schemas import LLMVerificationResponse
-            import json
+            from src.llm_engine import StructuredOutput
             
             prompt = prompts.get_prompt("evaluation", "is_chunk_relevant", doc_title=doc_title, chunk_text=chunk_text)
-            response_raw = self.llm_engine.generate_json(prompt, schema_class=LLMVerificationResponse)
-            response_json = json.loads(response_raw)
-            relevant = response_json.get("relevant", True)
-            reason = response_json.get("reason", "")
+            structured = StructuredOutput(LLMVerificationResponse)
+            validated = structured.generate(self.llm_engine, prompt)
+            relevant = validated.relevant
+            reason = validated.reason
             if not relevant:
                 con.warning(f"Skipping chunk (verified irrelevant by LLM: {reason}): '{chunk_text[:60]}...'")
                 return False
@@ -384,6 +384,7 @@ class ExtractionService:
         full_text: str,
         graph_repo: Any = None,
         trace_info: Optional[dict] = None,
+        temp: Optional[float] = None,
     ) -> Optional[str]:
         """
         Generates an LLM summary for a paper and optionally persists it.
@@ -393,6 +394,7 @@ class ExtractionService:
             full_text:  Full document text (used as context, first 4000 chars).
             graph_repo: If provided, saves the updated paper after generating summary.
             trace_info: Optional dictionary to collect timing and token metrics.
+            temp:       Optional temperature parameter for generation.
 
         Returns:
             The generated summary string, or None if LLM is unavailable or fails.
@@ -414,12 +416,13 @@ class ExtractionService:
                     tokens_dict = trace_info.setdefault("tokens", {})
                     tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
                 
-                summary_raw = self.llm_engine.generate_json(prompt, schema_class=LLMVideoSummaryResponse)
-                summary_json = json.loads(summary_raw)
+                from src.llm_engine import StructuredOutput
+                structured = StructuredOutput(LLMVideoSummaryResponse)
+                validated = structured.generate(self.llm_engine, prompt, temp=(temp if temp is not None else 0.0))
                 
-                overview = summary_json.get("overview", "")
-                themes = summary_json.get("themes", [])
-                outline = summary_json.get("outline", [])
+                overview = validated.overview
+                themes = validated.themes
+                outline = validated.outline
                 
                 paper.properties["video_overview"] = overview
                 paper.properties["video_themes"] = themes
@@ -453,7 +456,7 @@ class ExtractionService:
             if trace_info is not None:
                 tokens_dict = trace_info.setdefault("tokens", {})
                 tokens_dict["Summary Generation"] = tokens_dict.get("Summary Generation", 0) + self.llm_engine.count_tokens(prompt)
-            summary = self.llm_engine.generate_response(prompt, task="synthesis")
+            summary = self.llm_engine.generate_response(prompt, task="synthesis", temp=temp)
             if summary:
                 paper.properties["summary"] = summary
                 if graph_repo is not None:

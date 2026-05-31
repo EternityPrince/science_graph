@@ -411,15 +411,14 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         mock_config.max_expanded_queries = 3
         mock_config.llm_max_tokens = 1000
         
-        self.llm_engine.generate_response.return_value = '["cluster analysis", "grouping algorithm"]'
-        self.llm_engine.extract_json.side_effect = lambda x: x
+        self.llm_engine.generate_json.return_value = '["cluster analysis", "grouping algorithm"]'
         
         res = self.service._expand_query("clustering")
         self.assertEqual(res, ["clustering", "cluster analysis", "grouping algorithm"])
         
         # Verify prompt format/intent
-        self.llm_engine.generate_response.assert_called_once()
-        prompt = self.llm_engine.generate_response.call_args[0][0]
+        self.llm_engine.generate_json.assert_called_once()
+        prompt = self.llm_engine.generate_json.call_args[1].get("prompt") or self.llm_engine.generate_json.call_args[0][0]
         self.assertIn("You are a search query expansion assistant", prompt)
 
     @patch("src.services.rag_service.config")
@@ -427,8 +426,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         mock_config.max_expanded_queries = 3
         mock_config.llm_max_tokens = 1000
         
-        self.llm_engine.generate_response.return_value = 'invalid json'
-        self.llm_engine.extract_json.side_effect = lambda x: x
+        self.llm_engine.generate_json.return_value = 'invalid json'
         
         res = self.service._expand_query("clustering")
         self.assertEqual(res, ["clustering"])
@@ -438,7 +436,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         mock_config.max_expanded_queries = 3
         mock_config.llm_max_tokens = 1000
         
-        self.llm_engine.generate_response.side_effect = Exception("LLM unavailable")
+        self.llm_engine.generate_json.side_effect = Exception("LLM unavailable")
         
         res = self.service._expand_query("clustering")
         self.assertEqual(res, ["clustering"])

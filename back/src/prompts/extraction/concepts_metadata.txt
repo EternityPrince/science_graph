@@ -6,7 +6,7 @@ CRITICAL INSTRUCTIONS TO PREVENT HALLUCINATIONS AND LOOPS:
 - Do NOT guess, hallucinate, or invent values (e.g., fake GitHub URLs). If a value is not explicitly mentioned (such as "code_repositories" or "sponsored_by"), return an empty list [] or null.
 
 Extract the following scientific entities, properties, and relationships:
-1. Authors: A list of ONLY actual human names (e.g. "Jane Doe", "John Smith"). Do NOT include paper titles or citations here. Max 15 names.
+1. Authors: A list of ONLY actual human names of the paper's authors (e.g. "Jane Doe", "John Smith"). Do NOT include paper titles, citations, locations, cities, countries, or institutions (like "MIT", "Stanford", "Google", "San Francisco"). Verify that each entry in this list represents a person, not an organization, technology, or concept. Max 15 names.
 2. Concepts: A list of scientific concepts, algorithms, frameworks, and key formulas. These MUST be short noun phrases (1-3 words max, e.g. "Self-Attention", "Transformer"). For each concept, extract a list of synonyms and abbreviations as 'aliases' (e.g., ["LLM", "Large Language Model"]).
 3. Tags: A list of 3-7 high-level topic tags/keywords (e.g., "statistics", "deep learning").
 4. Institutions: A list of organizations, universities, or companies mentioned in the text (e.g., "MIT", "Google DeepMind").

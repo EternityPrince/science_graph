@@ -156,7 +156,6 @@ def validate_extraction_response(raw_data: dict) -> Tuple[LLMExtractionResponse,
     if not isinstance(tags_raw, list):
         warnings.append("Expected 'tags' to be a list, resetting to empty.")
         tags_raw = []
-
     # 1. Validate authors
     valid_authors = []
     for author in authors_raw:
@@ -165,17 +164,6 @@ def validate_extraction_response(raw_data: dict) -> Tuple[LLMExtractionResponse,
             continue
         cleaned = author.strip()
         if not cleaned:
-            continue
-            
-        lower_auth = cleaned.lower()
-        bad_patterns = [
-            "university", "dept", "department", "school", "college", "institute", 
-            "laboratory", "labs", "research", "academy", "corporation", "inc.", 
-            "co.", "ltd.", "et al", "http", "www", "journal", "proceeding", 
-            "vol.", "no.", "pp.", "email", "correspondence", "author", "published"
-        ]
-        if "@" in lower_auth or any(pat in lower_auth for pat in bad_patterns):
-            warnings.append(f"Filtered out institutional/noisy author entry: '{cleaned}'")
             continue
             
         cleaned = re.sub(r"\d+", "", cleaned)
@@ -187,7 +175,13 @@ def validate_extraction_response(raw_data: dict) -> Tuple[LLMExtractionResponse,
             warnings.append(f"Filtered out invalid author name format: '{author}'")
             continue
             
+        from src.ner_engine import is_likely_name
+        if not is_likely_name(cleaned):
+            warnings.append(f"Filtered out institutional/noisy/unlikely author entry: '{author}'")
+            continue
+            
         valid_authors.append(cleaned)
+
 
     # 2. Validate concepts
     valid_concepts = []
@@ -475,4 +469,9 @@ class EvidenceItem(BaseModel):
 
 class EvidenceListResponse(BaseModel):
     evidence_list: List[EvidenceItem]
+
+
+class LLMQueryExpansionResponse(RootModel[List[str]]):
+    pass
+
 

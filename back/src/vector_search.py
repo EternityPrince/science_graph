@@ -24,17 +24,36 @@ class EmbeddingEngine:
                 self.model = SentenceTransformer(self.model_name, device=device)
             con.success(f"Embeddings ready: [bold]{short}[/bold] on {device.upper()}")
 
-    def get_embedding(self, text: str) -> List[float]:
+    def get_embedding(self, text: str, is_query: bool = True) -> List[float]:
         """Generates embedding for a single text string."""
         self._ensure_model_loaded()
+        
+        # Prepend query: or passage: prefix for E5 models if not already present
+        if "e5" in self.model_name.lower():
+            prefix = "query: " if is_query else "passage: "
+            if not text.startswith(prefix):
+                text = prefix + text
+                
         emb = self.model.encode(text, convert_to_numpy=True, show_progress_bar=False)
         return emb.tolist()
 
-    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def get_embeddings(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
         """Generates embeddings for a list of text strings."""
         if not texts:
             return []
         self._ensure_model_loaded()
+        
+        # Prepend query: or passage: prefix for E5 models if not already present
+        if "e5" in self.model_name.lower():
+            prefix = "query: " if is_query else "passage: "
+            processed_texts = []
+            for t in texts:
+                if not t.startswith(prefix):
+                    processed_texts.append(prefix + t)
+                else:
+                    processed_texts.append(t)
+            texts = processed_texts
+            
         embs = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
         return embs.tolist()
 

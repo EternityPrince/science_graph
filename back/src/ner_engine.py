@@ -13,30 +13,86 @@ _NAME_PATTERN = re.compile(
     r'\b([A-Z][a-z]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-z]+){1,3})\b'
 )
 
-# Known non-person false positives for academic papers
-_STOPWORDS = {
-    "Abstract", "Introduction", "Related Work", "Conclusion", "References",
-    "Figure", "Table", "Appendix", "Neural Network", "Deep Learning",
-    "Machine Learning", "Language Model", "Attention Mechanism",
-    "Neural Networks", "Natural Language", "Artificial Intelligence",
-    "Google Brain", "Google Research", "University", "Institute",
-    "Conference", "Workshop", "Journal", "Proceedings",
+# Comprehensive list of lowercase words that cannot appear as parts of human author names.
+# Includes organization, institution, location, academic, and scientific terminology.
+_FORBIDDEN_NAME_WORDS = {
+    # Organizations / Institutions / Places indicators
+    "university", "college", "school", "dept", "department", "institute", "laboratory", 
+    "labs", "research", "academy", "corporation", "corp", "inc", "co", "ltd", "association", 
+    "society", "foundation", "trust", "hospital", "clinic", "medical", "center", "centre", 
+    "group", "team", "committee", "board", "commission", "agency", "ministry", "government", 
+    "state", "national", "federal", "international", "global", "european", "american", "british",
+    "chinese", "russian", "indian", "german", "french", "japanese", "korean", "spanish", "italian",
+    "canadian", "australian", "city", "county", "district", "region", "province", "country",
+    "san", "st", "new", "york", "california", "london", "paris", "berlin", "tokyo", "beijing", 
+    "seoul", "moscow", "boston", "chicago", "seattle", "austin", "oxford", "cambridge", "stanford", 
+    "mit", "harvard", "berkeley", "princeton", "yale", "columbia", "cornell", "caltech", "carnegie", 
+    "mellon", "santa", "barbara", "urbana", "illinois", "beach", "lake", "river", "mountain", 
+    "valley", "hill", "park", "road", "street", "avenue",
+    
+    # Academic / Publishing terms
+    "abstract", "introduction", "related", "conclusion", "references", "bibliography", "figure", 
+    "table", "appendix", "method", "methods", "result", "results", "discussion", "acknowledgement",
+    "acknowledgements", "funding", "grant", "sponsorship", "journal", "proceedings", "conference", 
+    "workshop", "symposium", "volume", "vol", "issue", "no", "pages", "pp", "doi", "arxiv", "biorxiv", 
+    "preprint", "paper", "manuscript", "article", "thesis", "dissertation", "publisher", "published", 
+    "editor", "editors", "review", "reviewer", "reviewers", "contributor", "contributors", "co-author",
+    "author", "authors", "joint", "last", "first", "second", "third", "et", "al", "creative", "commons",
+    "world", "health", "organization", "who", "ieee", "acm", "springer", "elsevier", "nature", "science",
+    
+    # Technologies / Concepts / Common Nouns
+    "network", "networks", "learning", "model", "models", "system", "systems", "algorithm", "algorithms", 
+    "process", "processes", "framework", "frameworks", "analysis", "synthesis", "evaluation", "experiment", 
+    "experiments", "experimental", "performance", "accuracy", "dataset", "datasets", "database", "databases", 
+    "data", "software", "code", "repository", "repositories", "github", "gitlab", "bitbucket", "web", "internet", 
+    "website", "online", "digital", "analog", "computer", "machine", "intelligence", "artificial", "human", 
+    "agent", "agents", "user", "users", "client", "server", "node", "nodes", "edge", "edges", "graph", "graphs", 
+    "vector", "vectors", "embedding", "embeddings", "tensor", "tensors", "matrix", "matrices", "gradient", 
+    "gradients", "loss", "losses", "optimizer", "optimizers", "attention", "transformer", "transformers", 
+    "encoder", "encoders", "decoder", "decoders", "multiplier", "multipliers", "accumulator", "accumulators", 
+    "block", "blocks", "spectrometry", "spectroscopy", "microscopy", "imaging", "chromatography", "tracing", 
+    "tracking", "sampling", "tuning", "modeling", "matching", "programming", "mapping", "clustering", "routing",
+    "compiling", "compiler", "compilers", "representation", "representations", "defaults", "synthesis", 
+    "implementation", "design", "verification", "verifier", "verifiers", "evaluator", "evaluators", "predictor", 
+    "predictors", "classifier", "classifiers", "regressor", "regressors", "outcome", "labels", "label", 
+    "expert", "experts", "chain", "chains", "path", "paths", "cycle", "cycles", "loop", "loops", "tree", "trees", 
+    "forest", "forests", "hivemind", "mixture", "mixtures", "log", "logs", "guideline", "guidelines", 
+    "construction", "acquisition", "access", "open", "closed", "public", "private", "material", "materials", 
+    "idea", "ideas", "summary", "summaries", "outline", "outlines", "generation", "defense", "survey", "surveys", 
+    "policy", "policies", "optimization", "optimizations", "experience", "experiences", "vivado", "xilinx",
+    "synopsys", "compiler", "compilers", "device", "devices", "hardware", "software", "silicon", "chip", "chips",
+    "intel", "amd", "nvidia", "arm", "apple", "google", "meta", "microsoft", "amazon", "facebook", "twitter", 
+    "ibm", "openai", "deepseek", "anthropic", "cohere", "huggingface", "run", "runs", "test", "tests", "testing",
+    "development", "production"
 }
 
 
-def _is_likely_name(text: str) -> bool:
+def is_likely_name(text: str) -> bool:
     """Heuristic check: is this string a plausible human name?"""
-    words = text.split()
+    # Clean up whitespace and outer quotes
+    text_clean = text.strip().strip(".,;:!?()[]{}'\"")
+    words = text_clean.split()
     if len(words) < 2 or len(words) > 5:
         return False
-    if any(w.lower() in {"and", "or", "the", "of", "in", "for", "with", "at"} for w in words):
+    
+    # Check for minor grammatical words that don't belong in names
+    if any(w.lower() in {"and", "or", "the", "of", "in", "for", "with", "at", "to", "by", "from", "on"} for w in words):
         return False
-    if any(char.isdigit() for char in text):
+        
+    # Names should not contain digits
+    if any(char.isdigit() for char in text_clean):
         return False
-    if text in _STOPWORDS:
+        
+    # Check each word against forbidden name words
+    for w in words:
+        # Clean word from punctuation before checking
+        w_clean = w.strip(".,;:!?()[]{}'\"").lower()
+        if w_clean in _FORBIDDEN_NAME_WORDS:
+            return False
+            
+    if len(text_clean) > 50:
         return False
-    if len(text) > 50:
-        return False
+        
     return True
 
 
@@ -118,7 +174,7 @@ class NEREngine:
                         name = text[start:end].strip()
                     else:
                         name = re.sub(r'^#+', '', word).strip()
-                    if _is_likely_name(name) and name not in persons:
+                    if is_likely_name(name) and name not in persons:
                         persons.append(name)
             return persons
         except Exception:
@@ -130,7 +186,7 @@ class NEREngine:
         seen = set()
         result = []
         for name in found:
-            if _is_likely_name(name) and name not in seen:
+            if is_likely_name(name) and name not in seen:
                 seen.add(name)
                 result.append(name)
         return result

@@ -254,7 +254,9 @@ class TestDoctor(unittest.TestCase):
 
     @patch("src.cli.get_services")
     def test_cli_doctor_command(self, mock_get_services):
-        mock_get_services.return_value = (self.graph_repo, self.vector_repo, MagicMock(), MagicMock())
+        mock_emb = MagicMock()
+        mock_emb.get_embedding.return_value = [0.1] * 384
+        mock_get_services.return_value = (self.graph_repo, self.vector_repo, mock_emb, MagicMock())
 
         # Setup uncleaned concept
         concept = Concept(
@@ -274,3 +276,118 @@ class TestDoctor(unittest.TestCase):
         result_fix = runner.invoke(app, ["doctor", "--fix"])
         self.assertEqual(result_fix.exit_code, 0)
         self.assertIn("Successfully corrected 1 anomalies across all", result_fix.stdout)
+
+    def test_doctor_concept_lemmatization_embedding_regeneration(self):
+        # Create a concept
+        concept = Concept(
+            id="non_lemmatized_concept",
+            name="Computers",
+            properties={"description": "Some description"}
+        )
+        self.graph_repo.save_concept(concept)
+
+        mock_emb = MagicMock()
+        mock_emb.get_embedding.return_value = [0.9] * 384
+        self.doctor_service.emb_engine = mock_emb
+
+        # Mock the normalizer to return a different name to force a change
+        with patch.object(self.doctor_service.normalizer, "normalize_concept_name", return_value="Computer"):
+            report = self.doctor_service.run_diagnostics(fix=True)
+
+        # Assertions
+        self.assertEqual(report["stats"]["concepts_migrated"], 1)
+        mock_emb.get_embedding.assert_called_with("Computer", is_query=False)
+        
+        # Verify the new concept in DB has the new name and regenerated embedding
+        c_fixed = self.graph_repo.get_concept("computer")
+        self.assertIsNotNone(c_fixed)
+        self.assertEqual(c_fixed.name, "Computer")
+        self.assertEqual(c_fixed.properties.get("embedding"), [0.9] * 384)
+
+    def test_doctor_hallucination_retry_loop(self):
+        # Create a paper with missing abstract
+        paper = Paper(
+            id="p_hallucinate",
+            title="A Good Title",
+            authors=["Some Author"],
+            abstract="",  # Missing
+            properties={"summary": "A Good Summary"}
+        )
+        self.graph_repo.save_paper(paper)
+        
+        # Save a chunk so there is full text to extract abstract from
+        chunk = Chunk(
+            id="p_hallucinate#0",
+            paper_id="p_hallucinate",
+            text_content="Some chunk text content of the paper",
+            page_number=1,
+            embedding=[0.1] * 384
+        )
+        self.vector_repo.save_chunks([chunk])
+        
+        # Configure LLM engine to hallucinate on first call, succeed on second call
+        mock_llm = MagicMock()
+        mock_llm.generate_response.side_effect = [
+            "Abstract abstract abstract abstract abstract.", 
+            "This is a clean valid abstract without repetitions."
+        ]
+        self.doctor_service.llm_engine = mock_llm
+        
+        # Mock metadata enricher to not return anything
+        with patch("src.services.metadata_enricher.MetadataEnricher.enrich", return_value=None):
+            report = self.doctor_service.run_diagnostics(fix=True)
+            
+        # Assertions
+        self.assertEqual(report["stats"]["papers_fixed"], 1)
+        self.assertEqual(mock_llm.generate_response.call_count, 2)
+        
+        # The first call should have been at temp=0.7, second at temp=0.3
+        call_args_list = mock_llm.generate_response.call_args_list
+        self.assertAlmostEqual(call_args_list[0].kwargs["temp"], 0.7)
+        self.assertAlmostEqual(call_args_list[1].kwargs["temp"], 0.3)
+        
+        # Verify paper has the clean abstract saved
+        p_fixed = self.graph_repo.get_paper("p_hallucinate")
+        self.assertEqual(p_fixed.abstract, "This is a clean valid abstract without repetitions.")
+
+    @patch("src.ner_engine.extract_persons_from_text")
+    def test_doctor_ner_author_enrichment(self, mock_extract_persons):
+        # Create a paper with one author and an abstract
+        paper = Paper(
+            id="p_ner",
+            title="A Great Title",
+            authors=["Jane Smith"],
+            abstract="In this paper we discuss things by John Doe and Jane Smith.",
+            properties={"summary": "A Good Summary"}
+        )
+        self.graph_repo.save_paper(paper)
+        
+        # Existing author node
+        jane = Author(id="jane_smith", name="Jane Smith")
+        self.graph_repo.save_author(jane)
+        self.graph_repo.add_edge("jane_smith", "p_ner", "AUTHORED")
+        
+        # Mock extract_persons_from_text to return John Doe and Jane Smith
+        mock_extract_persons.return_value = ["John Doe", "Jane Smith"]
+        
+        # Run diagnostics in FIX mode
+        report = self.doctor_service.run_diagnostics(fix=True)
+        
+        # Assertions
+        self.assertEqual(report["stats"]["papers_fixed"], 1)
+        
+        # Verify the paper's authors metadata has been enriched
+        p_fixed = self.graph_repo.get_paper("p_ner")
+        self.assertIn("John Doe", p_fixed.authors)
+        self.assertIn("Jane Smith", p_fixed.authors)
+        
+        # Verify that John Doe author node and AUTHORED edge have been created
+        john = self.graph_repo.get_node_by_id("john_doe")
+        self.assertIsNotNone(john)
+        
+        edges = self.graph_repo.get_all_edges()
+        authored_edge_exists = any(
+            src == "john_doe" and tgt == "p_ner" and etype == "AUTHORED"
+            for src, tgt, etype, _ in edges
+        )
+        self.assertTrue(authored_edge_exists)

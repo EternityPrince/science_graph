@@ -147,17 +147,61 @@ class NormalizationPipeline:
         return text
 
     def _lemmatize(self, text: str) -> str:
-        """Converts words in the text to their base singular forms using spaCy."""
+        """Converts words in the text to their base singular forms using spaCy, preserving scientific terms and proper nouns."""
         nlp = get_spacy_nlp()
         if not nlp:
             return text
 
-        # Lowercase text to help spaCy correctly identify singular nouns
-        doc = nlp(text.strip().lower())
-        lemmas = [token.lemma_ for token in doc]
-        joined = " ".join(lemmas)
+        words = text.strip().split()
+        if not words:
+            return ""
+
+        # Blacklist of common surnames ending in 's' that should not be singularized
+        surnames_ending_in_s = {
+            "williams", "stevens", "stephens", "jones", "harris", "davis", "evans", 
+            "roberts", "rogers", "hughes", "morris", "james", "adams", "phillips", 
+            "thomas", "baboshina", "skovina", "nagornov"
+        }
+
+        lemmatized_words = []
+        for i, word in enumerate(words):
+            is_last = (i == len(words) - 1)
+            
+            # Clean punctuation from word for lookup
+            clean_word = word.strip(".,;:!?()[]{}'\"")
+            lower_word = clean_word.lower()
+            
+            # 1. Do not lemmatize modifiers (non-last words) to preserve "supervised", "distributed", etc.
+            if not is_last:
+                lemmatized_words.append(lower_word)
+                continue
+                
+            # 2. Preserve common scientific -ing suffixes (but not -ings)
+            if lower_word.endswith("ing") and not lower_word.endswith("ings"):
+                lemmatized_words.append(lower_word)
+                continue
+                
+            # 3. Singularize plural "ings" to "ing"
+            if lower_word.endswith("ings"):
+                lemmatized_words.append(lower_word[:-1])
+                continue
+
+            # 4. Preserve known surnames ending in 's'
+            if lower_word in surnames_ending_in_s:
+                lemmatized_words.append(lower_word)
+                continue
+                
+            # 5. Fallback: lemmatize using spaCy
+            doc = nlp(lower_word)
+            if doc and len(doc) > 0:
+                lemmatized_words.extend([t.lemma_ for t in doc])
+            else:
+                lemmatized_words.append(lower_word)
+
+        joined = " ".join(lemmatized_words)
         import re
         return re.sub(r'\s*-\s*', '-', joined)
+
 
     def normalize_concept_name(self, name: str) -> str:
         """

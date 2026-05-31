@@ -504,3 +504,88 @@ class BaseLLMEngine:
             import logging
             logging.getLogger(__name__).warning(f"Section synthesis failed for '{section_name}': {e}")
             return f"*[Generation failed for this section: {e}]*"
+
+
+class StructuredOutput:
+    """
+    A validation and retry wrapper class for LLM structured outputs.
+    Accepts a Pydantic schema class, manages queries to LLM engines,
+    performs JSON extraction, and validates the response against the schema.
+    If validation fails, decays temperature and retries up to max_retries.
+    """
+    def __init__(self, schema_class: Type[BaseModel], max_retries: int = 3):
+        self.schema_class = schema_class
+        self.max_retries = max_retries
+
+    def generate(
+        self,
+        engine: BaseLLMEngine,
+        prompt: str,
+        temp: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> BaseModel:
+        initial_temp = temp if temp is not None else 0.0
+        last_err = None
+        for attempt in range(self.max_retries + 1):
+            if attempt == 0:
+                current_temp = initial_temp
+            elif attempt == self.max_retries:
+                current_temp = 0.0
+            else:
+                current_temp = initial_temp * (1.0 - attempt / self.max_retries)
+            
+            try:
+                response = engine.generate_json(
+                    prompt=prompt,
+                    schema_class=self.schema_class,
+                    temp=current_temp,
+                    max_tokens=max_tokens,
+                )
+                clean_json = ResilientParser.extract_json(response)
+                parsed = json.loads(clean_json)
+                validate_no_hallucinations(parsed)
+                return self.schema_class.model_validate(parsed)
+            except Exception as e:
+                last_err = e
+                con.warning(
+                    f"StructuredOutput validation attempt {attempt + 1} failed: {e}. "
+                    f"Retrying with decayed temperature {current_temp:.2f}..."
+                )
+        raise last_err
+
+    async def generate_async(
+        self,
+        engine: BaseLLMEngine,
+        prompt: str,
+        temp: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> BaseModel:
+        initial_temp = temp if temp is not None else 0.0
+        last_err = None
+        for attempt in range(self.max_retries + 1):
+            if attempt == 0:
+                current_temp = initial_temp
+            elif attempt == self.max_retries:
+                current_temp = 0.0
+            else:
+                current_temp = initial_temp * (1.0 - attempt / self.max_retries)
+            
+            try:
+                response = await engine.generate_json_async(
+                    prompt=prompt,
+                    schema_class=self.schema_class,
+                    temp=current_temp,
+                    max_tokens=max_tokens,
+                )
+                clean_json = ResilientParser.extract_json(response)
+                parsed = json.loads(clean_json)
+                validate_no_hallucinations(parsed)
+                return self.schema_class.model_validate(parsed)
+            except Exception as e:
+                last_err = e
+                con.warning(
+                    f"StructuredOutput validation async attempt {attempt + 1} failed: {e}. "
+                    f"Retrying with decayed temperature {current_temp:.2f}..."
+                )
+        raise last_err
+

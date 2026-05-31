@@ -9,6 +9,7 @@ CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.yaml"
 DEFAULT_CONFIG = {
     "db_path": str(DEFAULT_DATA_DIR / "graph.db"),
     "archive_dir": str(DEFAULT_DATA_DIR / "archive"),
+    "pdf_parser": "marker",
     "hf_token": "",
     "llm": {
         "provider": "mlx",
@@ -92,6 +93,9 @@ db_path: "{DEFAULT_CONFIG['db_path']}"
 
 # Directory where local archives of websites/PDFs are stored
 archive_dir: "{DEFAULT_CONFIG['archive_dir']}"
+
+# PDF parser to use: 'marker' (modern OCR/Markdown converter) or 'fitz' (legacy PyMuPDF)
+pdf_parser: "{DEFAULT_CONFIG['pdf_parser']}"
 
 # HuggingFace token for downloading gated models/embeddings (optional)
 hf_token: ""
@@ -239,6 +243,10 @@ pdf_compression:
     @property
     def archive_dir(self) -> str:
         return self.data["archive_dir"]
+
+    @property
+    def pdf_parser(self) -> str:
+        return self.data.get("pdf_parser", "marker")
 
     @property
     def llm_provider(self) -> str:

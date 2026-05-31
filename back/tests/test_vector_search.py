@@ -151,3 +151,53 @@ class TestVectorSearch:
         results2 = bm25.score("reward")
         assert results2[0][0] == "c2"
         assert results2[0][1] > 0.0
+
+    @patch("sentence_transformers.SentenceTransformer")
+    def test_embedding_engine_prefixes_non_e5(self, mock_sentence_transformer):
+        mock_model = mock_sentence_transformer.return_value
+        import numpy as np
+        mock_model.encode.return_value = np.array([0.1, 0.2])
+        
+        engine = EmbeddingEngine(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        
+        # Single query
+        emb = engine.get_embedding("hello", is_query=True)
+        mock_model.encode.assert_called_with("hello", convert_to_numpy=True, show_progress_bar=False)
+        assert emb == [0.1, 0.2]
+        
+        # Batch passage
+        engine.get_embeddings(["world"], is_query=False)
+        mock_model.encode.assert_called_with(["world"], convert_to_numpy=True, show_progress_bar=False)
+
+    @patch("sentence_transformers.SentenceTransformer")
+    def test_embedding_engine_prefixes_e5(self, mock_sentence_transformer):
+        mock_model = mock_sentence_transformer.return_value
+        import numpy as np
+        mock_model.encode.return_value = np.array([0.3, 0.4])
+        
+        engine = EmbeddingEngine(model_name="intfloat/multilingual-e5-base")
+        
+        # Single query defaults to is_query=True -> query: prefix
+        engine.get_embedding("hello")
+        mock_model.encode.assert_called_with("query: hello", convert_to_numpy=True, show_progress_bar=False)
+        
+        # Single query with prefix already present -> no duplicate prefix
+        engine.get_embedding("query: hello")
+        mock_model.encode.assert_called_with("query: hello", convert_to_numpy=True, show_progress_bar=False)
+
+        # Single passage -> passage: prefix
+        engine.get_embedding("hello", is_query=False)
+        mock_model.encode.assert_called_with("passage: hello", convert_to_numpy=True, show_progress_bar=False)
+
+        # Single passage with prefix already present -> no duplicate prefix
+        engine.get_embedding("passage: hello", is_query=False)
+        mock_model.encode.assert_called_with("passage: hello", convert_to_numpy=True, show_progress_bar=False)
+
+        # Batch passages defaults to is_query=False -> passage: prefix
+        engine.get_embeddings(["world", "passage: already"])
+        mock_model.encode.assert_called_with(["passage: world", "passage: already"], convert_to_numpy=True, show_progress_bar=False)
+
+        # Batch queries -> query: prefix
+        engine.get_embeddings(["world", "query: already"], is_query=True)
+        mock_model.encode.assert_called_with(["query: world", "query: already"], convert_to_numpy=True, show_progress_bar=False)
+

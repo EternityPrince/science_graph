@@ -324,12 +324,14 @@ class RAGService:
                 language = "Russian" if is_cyrillic else "English"
                 prompt = prompts.get_prompt("rag", "query_expander", query=query, language=language)
                 
+                from src.llm_schemas import LLMQueryExpansionResponse
+                from src.llm_engine import StructuredOutput
+
                 max_tokens = min(config.llm_max_tokens, 200)
-                response = self.llm_engine.generate_response(prompt, max_tokens=max_tokens)
-                
-                clean_json = self.llm_engine.extract_json(response)
-                parsed = json.loads(clean_json)
-                
+                structured = StructuredOutput(LLMQueryExpansionResponse)
+                validated = structured.generate(self.llm_engine, prompt, max_tokens=max_tokens)
+                parsed = validated.root
+
                 if isinstance(parsed, list):
                     for v in parsed:
                         if isinstance(v, str):
