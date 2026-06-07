@@ -217,9 +217,6 @@ class RAGService:
             for pid, chs in sorted_papers
         ]
 
-        # Get papers map to resolve names when rebuilding
-        paper_ids = list({c.paper_id for c, _ in final_chunks})
-        papers_map = self.graph_repo.get_papers_batch(paper_ids)
 
         while total_tokens > tokens_limit:
             # Try to prune from the least relevant paper (last in sorted list)
@@ -446,7 +443,7 @@ class RAGService:
                     scored_candidates = list(zip(candidates, scores))
                     scored_candidates.sort(key=lambda x: x[1], reverse=True)
                     return [(chunk, float(score)) for chunk, score in scored_candidates[:limit]]
-                except Exception as e:
+                except Exception:
                     return scored[:limit]
             else:
                 return scored[:limit]

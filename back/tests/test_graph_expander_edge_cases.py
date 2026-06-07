@@ -1,6 +1,6 @@
 import json
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.models import Chunk, Paper, Concept
 from src.services.graph_expander import ExperimentalGraphExpander

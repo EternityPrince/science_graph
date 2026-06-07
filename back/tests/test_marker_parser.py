@@ -1,8 +1,6 @@
-import os
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 
 from src.models import Paper
 from src.parsers.marker_parser import MarkerPDFParser, get_marker_models

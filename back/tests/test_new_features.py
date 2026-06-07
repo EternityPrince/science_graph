@@ -3,9 +3,9 @@ import os
 import tempfile
 import datetime
 import asyncio
-from typing import Dict, Any, List
+from typing import Any, List
 
-from src.models import Paper, Concept, Institution, Dataset, CodeRepository, JournalConference, UserNote, slugify, Chunk
+from src.models import Paper, Concept, Institution, Chunk
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 from src.indexer import Indexer
 from src.services.graph_expander import ExperimentalGraphExpander

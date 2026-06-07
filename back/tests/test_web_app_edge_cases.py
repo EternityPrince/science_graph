@@ -1,4 +1,3 @@
-import json
 import pytest
 import subprocess
 from unittest.mock import MagicMock, patch
@@ -193,7 +192,7 @@ class TestWebAppEdgeCases:
 
     def test_get_paper_details_paper_success(self):
         """Test /api/paper/{paper_id} resolves Paper nodes with citations, authors, and concepts."""
-        from src.models import Paper, Concept
+        from src.models import Paper
         # Setup Paper
         paper = Paper(
             id="p_main",

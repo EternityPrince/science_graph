@@ -85,8 +85,7 @@ class TestPDFParser:
             if os.path.exists(pdf_path):
                 os.remove(pdf_path)
 
-    @patch("src.parsers.pdf_parser.con")
-    def test_parse_ner_authors_fallback(self, mock_con, parser):
+    def test_parse_ner_authors_fallback(self, parser):
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             pdf_path = tmp.name
 

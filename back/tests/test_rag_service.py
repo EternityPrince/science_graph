@@ -1,8 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import json
-import asyncio
-from typing import AsyncGenerator
 
 from src.models import Chunk, Paper, Author, Concept
 from src.services.rag_service import RAGService

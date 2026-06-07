@@ -1,9 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch, PropertyMock
 import os
-import json
 
-from src.models import Chunk, Paper, Author, Concept
+from src.models import Chunk
 from src.services.rag_service import RAGService
 from src.config import config
 

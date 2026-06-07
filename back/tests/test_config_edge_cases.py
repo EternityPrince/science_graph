@@ -3,7 +3,6 @@ import tempfile
 import yaml
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import pytest
 
 from src.config import Config, DEFAULT_CONFIG
 

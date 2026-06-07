@@ -739,7 +739,7 @@ class ExperimentalGraphExpander:
         else:
             ingest_branch.add("No new chunks loaded (all papers were already represented in initial chunks)")
 
-        filter_branch = tree.add(f"[bold cyan]⚖️ Semantic Filtering (LLM Evidence List Review)[/bold cyan]")
+        filter_branch = tree.add("[bold cyan]⚖️ Semantic Filtering (LLM Evidence List Review)[/bold cyan]")
         ess_count = len(telemetry["filtering"]["essential_ids"])
         tot_count = len(telemetry["filtering"]["facts_evaluated"])
         filter_branch.add(f"LLM evaluated {tot_count} facts -> Selected {ess_count} as [bold green]ESSENTIAL[/bold green]")

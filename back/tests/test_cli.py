@@ -292,7 +292,6 @@ class TestCLI(unittest.TestCase):
         mock_file.exists.return_value = True
         mock_path.return_value = mock_file
         
-        import os
         with patch.dict("os.environ", {"HF_TOKEN": "mock-token", "HF_HUB_VERBOSITY": "debug", "TOKENIZERS_PARALLELISM": "true"}):
             result = runner.invoke(app, ["config"])
             
@@ -479,7 +478,6 @@ class TestCLI(unittest.TestCase):
 
     def test_cli_import_warnings(self):
         import importlib
-        import sys
         import os
         
         with patch.dict(os.environ, {"PYTHONWARNINGS": "ignore:some_other_warning"}):
@@ -968,7 +966,6 @@ class TestCLI(unittest.TestCase):
     @patch("typer.Typer.__call__")
     def test_cli_main_entrypoint(self, mock_typer_call):
         import runpy
-        import sys
         import pathlib
         
         cli_path = pathlib.Path(__file__).parent.parent / "src" / "cli.py"

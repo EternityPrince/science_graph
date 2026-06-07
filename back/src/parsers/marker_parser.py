@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 from src.models import Paper, slugify
 from src.parsers.base import BaseParser

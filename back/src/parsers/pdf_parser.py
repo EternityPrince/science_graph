@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import List, Tuple
 from src.models import Paper, slugify
 from src.parsers.base import BaseParser
-from src import console as con
 
 # Regex patterns
 DOI_REGEX = re.compile(r'(10\.\d{4,9}/[-._;()/:A-Z0-9]+)', re.IGNORECASE)
@@ -47,12 +46,12 @@ class PDFParser(BaseParser):
                     blocks = doc[0].get_text("dict")["blocks"]
                     spans = []
                     first_non_skipped_size = None
-                    for b in blocks:
-                        if "lines" in b:
-                            for l in b["lines"]:
-                                for s in l["spans"]:
-                                    text = s["text"].strip()
-                                    size = s["size"]
+                    for block in blocks:
+                        if "lines" in block:
+                            for line in block["lines"]:
+                                for span in line["spans"]:
+                                    text = span["text"].strip()
+                                    size = span["size"]
                                     if not text:
                                         continue
                                     
@@ -128,10 +127,6 @@ class PDFParser(BaseParser):
                     title_idx = idx
                     break
 
-            AUTHOR_LINE_RE = re.compile(
-                r'^([A-Z][a-zé-]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-zé-]+){0,3}[,\*\d]*'
-                r'(?:\s*,\s*[A-Z][a-zé-]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-zé-]+){0,3}[,\*\d]*)*)$'
-            )
             NAME_TOKEN_RE = re.compile(r'[A-Z][a-zé-]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-zé-]+){0,2}')
             
             search_start = max(0, title_idx + 1)
@@ -297,9 +292,6 @@ def _compress_worker(
     # This runs in a separate process to isolate PyMuPDF segfaults from the main process
     import fitz
     import os
-    import shutil
-    import tempfile
-    from pathlib import Path
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     
@@ -331,7 +323,7 @@ def _compress_worker(
             return
         else:
             raise RuntimeError("Aggressive PDF compression resulted in a corrupted file.")
-    except Exception as aggressive_err:
+    except Exception:
         # If document wasn't closed yet, close it
         try:
             doc.close()

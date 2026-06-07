@@ -1,8 +1,7 @@
 import re
-import math
 import time
 import fitz
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict
 from rank_bm25 import BM25Okapi
 from src.config import config
 from src.models import Chunk

@@ -1,9 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import json
-import asyncio
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel
+from typing import List
 
 from src.config import config
 from src.llm_engine.base import (

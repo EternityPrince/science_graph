@@ -4,7 +4,6 @@ Unit tests for NER Engine.
 
 import unittest
 from unittest.mock import MagicMock, patch
-import os
 
 from src.ner_engine import (
     is_likely_name,

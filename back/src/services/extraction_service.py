@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.config import config
-from src.models import Paper, slugify, Institution, Dataset, CodeRepository, JournalConference, UserNote
+from src.models import Paper, slugify
 from src import console as con
 from src.services.normalization_pipeline import NormalizationPipeline
 from src.prompts import prompts
@@ -408,7 +408,6 @@ class ExtractionService:
             con.dim(f"Generating structured summary for video [bold]{paper.title[:60]}[/bold] via LLM …")
             try:
                 from src.llm_schemas import LLMVideoSummaryResponse
-                import json
                 
                 sample_text = full_text[:6000] if full_text else ""
                 prompt = prompts.get_prompt("synthesis", "video_summary", title=(paper.title or paper.id), sample_text=sample_text)

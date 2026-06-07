@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import MagicMock, patch
-import sys
 from pydantic import BaseModel
 
 from src.config import config

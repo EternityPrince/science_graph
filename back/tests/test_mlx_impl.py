@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import MagicMock, patch
-import numpy as np
 from pydantic import BaseModel
 
 from src.config import config

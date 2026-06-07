@@ -7,7 +7,7 @@ import re
 import functools
 import inspect
 import asyncio
-from typing import Optional, Type, Any, Dict, List
+from typing import Optional, Type, Any
 
 from pydantic import BaseModel, ValidationError
 from src.config import config
