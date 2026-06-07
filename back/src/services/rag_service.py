@@ -161,9 +161,12 @@ class RAGService:
         context_text = "\n\n".join(text_blocks)
 
         # 2. Format Graph Subgraph using helper
-        scored_lines = self._get_scored_graph_lines(paper_ids)
-        graph_lines = [line for line, _ in scored_lines]
-        context_graph = "\n".join(graph_lines) if graph_lines else "No direct graph relations found."
+        if config.rag_components.get("graph_expansion", True):
+            scored_lines = self._get_scored_graph_lines(paper_ids)
+            graph_lines = [line for line, _ in scored_lines]
+            context_graph = "\n".join(graph_lines) if graph_lines else "No direct graph relations found."
+        else:
+            context_graph = "Graph enrichment disabled."
         return context_text, context_graph
 
     def trim_context(
@@ -295,7 +298,7 @@ class RAGService:
         seen = {query.lower()}
 
         # 1. Short Query Concept/Synonym Lookup from Graph Ontology
-        if len(query.strip().split()) <= 2:
+        if config.rag_components.get("graph_ontology_lookup", True) and len(query.strip().split()) <= 2:
             try:
                 aliases_map = self.graph_repo.get_concept_aliases()
                 canonical = aliases_map.get(query.strip().lower())
@@ -317,7 +320,7 @@ class RAGService:
                 logging.getLogger(__name__).warning(f"Short query concept enrichment failed: {e}")
 
         # 2. If we still need more variants, call the LLM
-        if len(variants) < max_expanded - 1:
+        if config.rag_components.get("llm_query_expansion", True) and len(variants) < max_expanded - 1:
             try:
                 # Detect language & generate variants on the same language
                 is_cyrillic = bool(re.search('[а-яА-ЯёЁ]', query))
@@ -435,18 +438,21 @@ class RAGService:
             
             # Apply reranking on candidate chunks if reranker is available
             candidates = [s[0] for s in scored[:limit * 2]]
-            try:
-                reranker = self._get_reranker()
-                pairs = [(query, c.text_content) for c in candidates]
-                scores = reranker.predict(pairs)
-                scored_candidates = list(zip(candidates, scores))
-                scored_candidates.sort(key=lambda x: x[1], reverse=True)
-                return [(chunk, float(score)) for chunk, score in scored_candidates[:limit]]
-            except Exception as e:
+            if config.rag_components.get("reranker", True):
+                try:
+                    reranker = self._get_reranker()
+                    pairs = [(query, c.text_content) for c in candidates]
+                    scores = reranker.predict(pairs)
+                    scored_candidates = list(zip(candidates, scores))
+                    scored_candidates.sort(key=lambda x: x[1], reverse=True)
+                    return [(chunk, float(score)) for chunk, score in scored_candidates[:limit]]
+                except Exception as e:
+                    return scored[:limit]
+            else:
                 return scored[:limit]
 
         # 1. Run Query Intent Classifier if no explicit filters are passed
-        if filters is None:
+        if filters is None and config.rag_components.get("intent_classifier", True):
             query, filters = self._classify_intent_and_extract_filters(query)
 
         # Dense + FTS5 + RRF + Rerank
@@ -456,77 +462,81 @@ class RAGService:
         dense_limit = limit * 2 if len(expanded_queries) == 1 else limit
         
         all_dense_results = {}
-        for variant in expanded_queries:
-            variant_emb = self.emb_engine.get_embedding(variant)
-            if filters:
-                dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit, filters=filters)
-            else:
-                dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit)
-            for chunk, score in dense_res:
-                if chunk.id not in all_dense_results:
-                    all_dense_results[chunk.id] = (chunk, score)
+        if config.rag_components.get("dense_search", True):
+            for variant in expanded_queries:
+                variant_emb = self.emb_engine.get_embedding(variant)
+                if filters:
+                    dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit, filters=filters)
                 else:
-                    existing_chunk, existing_score = all_dense_results[chunk.id]
-                    if score > existing_score:
+                    dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit)
+                for chunk, score in dense_res:
+                    if chunk.id not in all_dense_results:
                         all_dense_results[chunk.id] = (chunk, score)
+                    else:
+                        existing_chunk, existing_score = all_dense_results[chunk.id]
+                        if score > existing_score:
+                            all_dense_results[chunk.id] = (chunk, score)
 
-        # 2. Run HyDE (Hypothetical Document Embeddings) if enabled
-        if config.hyde_enabled:
-            # Resolve hyde_responses parameter
-            if hyde_responses is None:
-                # Check sys.argv for --hyde
-                import sys
-                argv_hyde = None
-                for idx, arg in enumerate(sys.argv):
-                    if arg == "--hyde":
-                        if idx + 1 < len(sys.argv):
+            # 2. Run HyDE (Hypothetical Document Embeddings) if enabled
+            if config.hyde_enabled and config.rag_components.get("hyde", True):
+                # Resolve hyde_responses parameter
+                if hyde_responses is None:
+                    # Check sys.argv for --hyde
+                    import sys
+                    argv_hyde = None
+                    for idx, arg in enumerate(sys.argv):
+                        if arg == "--hyde":
+                            if idx + 1 < len(sys.argv):
+                                try:
+                                    argv_hyde = int(sys.argv[idx + 1])
+                                except ValueError:
+                                    pass
+                        elif arg.startswith("--hyde="):
                             try:
-                                argv_hyde = int(sys.argv[idx + 1])
+                                argv_hyde = int(arg.split("=", 1)[1])
                             except ValueError:
                                 pass
-                    elif arg.startswith("--hyde="):
-                        try:
-                            argv_hyde = int(arg.split("=", 1)[1])
-                        except ValueError:
-                            pass
-                if argv_hyde is not None:
-                    hyde_responses = argv_hyde
-                else:
-                    hyde_responses = getattr(config, "hyde_count", 1)
-
-            for _ in range(hyde_responses):
-                try:
-                    hypothetical = self.llm_engine.generate_response(
-                        prompt=prompts.get_prompt("rag", "hyde", query=query),
-                        max_tokens=config.hyde_max_tokens
-                    )
-                    con.debug(f"Generated hypothetical answer: {hypothetical}")
-                    
-                    hyp_emb = self.emb_engine.get_embedding(hypothetical)
-                    if filters:
-                        hyde_res = self.vector_repo.search_similar_chunks(hyp_emb, limit=limit * 2, filters=filters)
+                    if argv_hyde is not None:
+                        hyde_responses = argv_hyde
                     else:
-                        hyde_res = self.vector_repo.search_similar_chunks(hyp_emb, limit=limit * 2)
+                        hyde_responses = getattr(config, "hyde_count", 1)
+
+                for _ in range(hyde_responses):
+                    try:
+                        hypothetical = self.llm_engine.generate_response(
+                            prompt=prompts.get_prompt("rag", "hyde", query=query),
+                            max_tokens=config.hyde_max_tokens
+                        )
+                        con.debug(f"Generated hypothetical answer: {hypothetical}")
                         
-                    for chunk, score in hyde_res:
-                        if chunk.id not in all_dense_results:
-                            all_dense_results[chunk.id] = (chunk, score)
+                        hyp_emb = self.emb_engine.get_embedding(hypothetical)
+                        if filters:
+                            hyde_res = self.vector_repo.search_similar_chunks(hyp_emb, limit=limit * 2, filters=filters)
                         else:
-                            existing_chunk, existing_score = all_dense_results[chunk.id]
-                            if score > existing_score:
+                            hyde_res = self.vector_repo.search_similar_chunks(hyp_emb, limit=limit * 2)
+                            
+                        for chunk, score in hyde_res:
+                            if chunk.id not in all_dense_results:
                                 all_dense_results[chunk.id] = (chunk, score)
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning(f"HyDE generation failed: {e}")
-                        
+                            else:
+                                existing_chunk, existing_score = all_dense_results[chunk.id]
+                                if score > existing_score:
+                                    all_dense_results[chunk.id] = (chunk, score)
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"HyDE generation failed: {e}")
+                            
         dense_results = list(all_dense_results.values())
         # Sort dense results by score descending to assign proper ranks for RRF
         dense_results.sort(key=lambda x: x[1], reverse=True)
 
-        if filters:
-            fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2, filters=filters)
+        if config.rag_components.get("lexical_search", True):
+            if filters:
+                fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2, filters=filters)
+            else:
+                fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2)
         else:
-            fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2)
+            fts5_results = []
         
         if not dense_results and not fts5_results:
             return []
@@ -538,59 +548,91 @@ class RAGService:
             id_to_chunk[chunk.id] = chunk
 
         # Dynamic alpha blending based on FTS5 match strength
-        fts_weight = 1.0
-        if fts5_results:
-            max_bm25 = max(score for _, score in fts5_results)
-            if max_bm25 < 1.0: # Very weak keyword matches
-                fts_weight = 0.2
-            elif max_bm25 < 3.0:
-                fts_weight = 0.5
+        if config.rag_components.get("dynamic_alpha_blending", True):
+            fts_weight = 1.0
+            if fts5_results:
+                max_bm25 = max(score for _, score in fts5_results)
+                if max_bm25 < 1.0: # Very weak keyword matches
+                    fts_weight = 0.2
+                elif max_bm25 < 3.0:
+                    fts_weight = 0.5
+            else:
+                fts_weight = 0.0
         else:
-            fts_weight = 0.0
+            fts_weight = 1.0 if fts5_results else 0.0
             
         dense_weight = 1.0
 
-        rrf_scores = {}
-        for rank, (chunk, _) in enumerate(dense_results, start=1):
-            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + dense_weight * (1.0 / (60.0 + rank))
-            
-        for rank, (chunk, _) in enumerate(fts5_results, start=1):
-            rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + fts_weight * (1.0 / (60.0 + rank))
-            
-        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
-        candidate_ids = sorted_ids[:limit * 2]
-        candidates = [id_to_chunk[cid] for cid in candidate_ids if cid in id_to_chunk]
+        if config.rag_components.get("rrf", True):
+            rrf_scores = {}
+            for rank, (chunk, _) in enumerate(dense_results, start=1):
+                rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + dense_weight * (1.0 / (60.0 + rank))
+                
+            for rank, (chunk, _) in enumerate(fts5_results, start=1):
+                rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + fts_weight * (1.0 / (60.0 + rank))
+                
+            sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+            candidate_ids = sorted_ids[:limit * 2]
+            candidates = [id_to_chunk[cid] for cid in candidate_ids if cid in id_to_chunk]
+        else:
+            # Fallback when RRF is disabled: just concatenate dense and fts5 results, removing duplicates,
+            # using their relative order.
+            seen_ids = set()
+            candidates = []
+            for chunk, _ in dense_results:
+                if chunk.id not in seen_ids:
+                    seen_ids.add(chunk.id)
+                    candidates.append(chunk)
+            for chunk, _ in fts5_results:
+                if chunk.id not in seen_ids:
+                    seen_ids.add(chunk.id)
+                    candidates.append(chunk)
+            candidates = candidates[:limit * 2]
+            rrf_scores = {c.id: 1.0 for c in candidates}
+            sorted_ids = [c.id for c in candidates]
         
         if not candidates:
             return []
             
-        try:
-            reranker = self._get_reranker()
-            pairs = [(query, c.text_content) for c in candidates]
-            scores = reranker.predict(pairs)
-            
-            # Blend normalized Reranker score + normalized RRF score to prevent dense-only bias
-            min_r = min(scores)
-            max_r = max(scores)
-            range_r = max_r - min_r if max_r > min_r else 1.0
-            norm_r = [(s - min_r) / range_r for s in scores]
-            
-            rrf_vals = [rrf_scores[c.id] for c in candidates]
-            min_rrf = min(rrf_vals)
-            max_rrf = max(rrf_vals)
-            range_rrf = max_rrf - min_rrf if max_rrf > min_rrf else 1.0
-            norm_rrf = [(rrf_scores[c.id] - min_rrf) / range_rrf for c in candidates]
-            
-            scored_candidates = []
-            for idx, c in enumerate(candidates):
-                blended_score = 0.7 * norm_r[idx] + 0.3 * norm_rrf[idx]
-                scored_candidates.append((c, blended_score, float(scores[idx])))
+        if config.rag_components.get("reranker", True):
+            try:
+                reranker = self._get_reranker()
+                pairs = [(query, c.text_content) for c in candidates]
+                scores = reranker.predict(pairs)
                 
-            scored_candidates.sort(key=lambda x: x[1], reverse=True)
-            return [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:limit]]
-        except Exception as e:
-            con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
-            return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
+                # Blend normalized Reranker score + normalized RRF score to prevent dense-only bias
+                min_r = min(scores)
+                max_r = max(scores)
+                range_r = max_r - min_r if max_r > min_r else 1.0
+                norm_r = [(s - min_r) / range_r for s in scores]
+                
+                rrf_vals = [rrf_scores[c.id] for c in candidates]
+                min_rrf = min(rrf_vals)
+                max_rrf = max(rrf_vals)
+                range_rrf = max_rrf - min_rrf if max_rrf > min_rrf else 1.0
+                norm_rrf = [(rrf_scores[c.id] - min_rrf) / range_rrf for c in candidates]
+                
+                scored_candidates = []
+                for idx, c in enumerate(candidates):
+                    if config.rag_components.get("score_blending", True):
+                        blended_score = 0.7 * norm_r[idx] + 0.3 * norm_rrf[idx]
+                    else:
+                        blended_score = float(scores[idx])
+                    scored_candidates.append((c, blended_score, float(scores[idx])))
+                    
+                scored_candidates.sort(key=lambda x: x[1], reverse=True)
+                return [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:limit]]
+            except Exception as e:
+                con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
+                if config.rag_components.get("rrf", True):
+                    return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
+                else:
+                    return [(c, 1.0) for c in candidates[:limit]]
+        else:
+            if config.rag_components.get("rrf", True):
+                return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
+            else:
+                return [(c, 1.0) for c in candidates[:limit]]
 
     def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> str:
         final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)
@@ -601,25 +643,28 @@ class RAGService:
         context_text, context_graph = self.build_context(final_chunks)
 
         # Get system prompt for token counting
-        if self.expander:
+        if self.expander and config.rag_components.get("graph_expansion", True):
             system_prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block="", history_str=history_str, query=query)
         else:
             system_prompt = prompts.get_prompt("rag", "ask_no_expander", context_text="", context_graph="", history_str=history_str, query=query)
 
         model_max_context = getattr(config, "llm_model_max_context", 4096)
 
-        trimmed_text, trimmed_graph, trimmed_chunks = self.trim_context(
-            context_text=context_text,
-            context_graph=context_graph,
-            final_chunks=final_chunks,
-            query=query,
-            history_str=history_str,
-            system_prompt=system_prompt,
-            model_max_context=model_max_context,
-            reserved_tokens=500
-        )
+        if config.rag_components.get("context_trimming", True):
+            trimmed_text, trimmed_graph, trimmed_chunks = self.trim_context(
+                context_text=context_text,
+                context_graph=context_graph,
+                final_chunks=final_chunks,
+                query=query,
+                history_str=history_str,
+                system_prompt=system_prompt,
+                model_max_context=model_max_context,
+                reserved_tokens=500
+            )
+        else:
+            trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
 
-        if self.expander:
+        if self.expander and config.rag_components.get("graph_expansion", True):
             if self.expander.reranker is None:
                 self.expander.reranker = self._get_reranker()
             enrichment_block = self.expander.expand(query, trimmed_chunks)
@@ -630,11 +675,14 @@ class RAGService:
         con.search_msg("Generating answer …")
         raw_response = self.llm_engine.generate_response(prompt)
         
-        try:
-            return self._validate_and_repair_citations(raw_response, trimmed_chunks)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
+        if config.rag_components.get("citation_repair", True):
+            try:
+                return self._validate_and_repair_citations(raw_response, trimmed_chunks)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
+                return raw_response
+        else:
             return raw_response
 
     async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None, hyde_responses: Optional[int] = None) -> AsyncGenerator[dict, None]:
@@ -652,7 +700,7 @@ class RAGService:
             return
 
         try:
-            if self.expander:
+            if self.expander and config.rag_components.get("graph_expansion", True):
                 if self.expander.reranker is None:
                     self.expander.reranker = await asyncio.to_thread(self._get_reranker)
                 enrichment_block = await asyncio.to_thread(self.expander.expand, question, final_chunks)

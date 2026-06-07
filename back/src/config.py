@@ -59,6 +59,21 @@ DEFAULT_CONFIG = {
         "dpi_threshold": 151,
         "dpi_target": 150,
         "quality": 75
+    },
+    "rag_components": {
+        "intent_classifier": True,
+        "graph_ontology_lookup": True,
+        "llm_query_expansion": True,
+        "hyde": True,
+        "lexical_search": True,
+        "dense_search": True,
+        "dynamic_alpha_blending": True,
+        "rrf": True,
+        "graph_expansion": True,
+        "reranker": True,
+        "score_blending": True,
+        "context_trimming": True,
+        "citation_repair": True,
     }
 }
 
@@ -183,6 +198,22 @@ pdf_compression:
   dpi_threshold: 151
   dpi_target: 150
   quality: 75
+
+# RAG components configuration for benchmarking (Scenario 1, 2, 3)
+rag_components:
+  intent_classifier: true
+  graph_ontology_lookup: true
+  llm_query_expansion: true
+  hyde: true
+  lexical_search: true
+  dense_search: true
+  dynamic_alpha_blending: true
+  rrf: true
+  graph_expansion: true
+  reranker: true
+  score_blending: true
+  context_trimming: true
+  citation_repair: true
 """
             with open(self.config_file, "w", encoding="utf-8") as f:
                 f.write(config_template)
@@ -419,6 +450,20 @@ pdf_compression:
     @property
     def pdf_compression_quality(self) -> int:
         return self.data.get("pdf_compression", {}).get("quality", 75)
+
+    def is_component_enabled(self, name: str) -> bool:
+        # Check environment variable first (e.g. RAG_HYDE=false)
+        env_val = os.environ.get(f"RAG_{name.upper()}")
+        if env_val is not None:
+            return env_val.lower() in ("1", "true", "yes", "on")
+        # Fallback to config file
+        components = self.data.get("rag_components", {})
+        return bool(components.get(name, DEFAULT_CONFIG["rag_components"].get(name, True)))
+
+    @property
+    def rag_components(self) -> dict:
+        defaults = DEFAULT_CONFIG.get("rag_components", {})
+        return {name: self.is_component_enabled(name) for name in defaults}
 
     @property
     def taxonomy(self) -> dict:
