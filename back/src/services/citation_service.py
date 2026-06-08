@@ -39,7 +39,7 @@ class CitationService:
         Returns:
             The extracted surname/primary name, or None if input is invalid.
         """
-        if not author:
+        if not author or not author.strip():
             return None
 
         # If there's a comma, surname is typically before the comma
@@ -90,10 +90,11 @@ class CitationService:
             return ""
 
         try:
-            # Split sentences ignoring decimals, abbreviations, etc.
-            # Handles 'e.g.', '1.5', 'et al.' without splitting.
+            # Split sentences ignoring decimals, initials, and abbreviations.
+            # Handles 'e.g.', '1.5', 'A. Smith', 'et al.' without splitting.
             sentences = re.split(
-                r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<!al\.)(?<=\.|\?)\s+",
+                r"(?<!\b[A-Z]\.)(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<!al\.)"
+                r"(?<=\.|\?|!)\s+",
                 full_text,
             )
         except Exception:
@@ -123,8 +124,8 @@ class CitationService:
                 re.compile(rf"\b{re.escape(primary_author)}\b", re.IGNORECASE)
             )
 
-        for idx, sent in enumerate(sentences):
-            for pat in patterns:
+        for pat in patterns:
+            for idx, sent in enumerate(sentences):
                 try:
                     if pat.search(sent):
                         start = max(0, idx - 1)

@@ -5,78 +5,84 @@ from src.services.citation_service import CitationService, CitationInput
 from src.services.extraction_service import ExtractionService
 
 
-def test_citation_service_context_extraction():
+@pytest.fixture
+def mock_extractor() -> MagicMock:
+    """Fixture for ExtractionService mock."""
+    return MagicMock(spec=ExtractionService)
+
+
+@pytest.fixture
+def citation_service(mock_extractor: MagicMock) -> CitationService:
+    """Fixture for CitationService."""
+    return CitationService(mock_extractor)
+
+
+def test_citation_service_context_extraction(
+    citation_service: CitationService,
+):
     """Test standard citation context extraction."""
-    extractor = MagicMock(spec=ExtractionService)
-    service = CitationService(extractor)
     text = (
         "This is first sentence. We use the method described in "
         "DeepLearning Book. Third sentence."
     )
 
     # Verify regex context extraction
-    context = service.get_citation_context(text, "DeepLearning Book")
+    context = citation_service.get_citation_context(text, "DeepLearning Book")
     assert "We use the method described in DeepLearning Book." in context
 
 
-def test_citation_service_empty_inputs():
+def test_citation_service_empty_inputs(citation_service: CitationService):
     """Test that empty inputs return empty strings / lists safely."""
-    extractor = MagicMock(spec=ExtractionService)
-    service = CitationService(extractor)
-
-    assert service.get_citation_context("", "Title") == ""
-    assert service.get_citation_context("Some text.", "") == ""
+    assert citation_service.get_citation_context("", "Title") == ""
+    assert citation_service.get_citation_context("Some text.", "") == ""
 
 
 @pytest.mark.asyncio
-async def test_classify_cites_edges_empty_inputs():
+async def test_classify_cites_edges_empty_inputs(
+    citation_service: CitationService,
+):
     """Test classifying empty cites list returns empty list."""
-    extractor = MagicMock(spec=ExtractionService)
-    service = CitationService(extractor)
-    edges = await service.classify_cites_edges_async([], "Some text.")
+    edges = await citation_service.classify_cites_edges_async([], "Some text.")
     assert edges == []
 
 
-def test_author_cleaning_formats():
+def test_author_cleaning_formats(citation_service: CitationService):
     """Test cleaning of various author formats using _extract_primary_author."""
-    extractor = MagicMock(spec=ExtractionService)
-    service = CitationService(extractor)
-
-    assert service._extract_primary_author("Goodfellow, I.") == "Goodfellow"
-    assert service._extract_primary_author("Goodfellow, Ian") == "Goodfellow"
-    assert service._extract_primary_author("I. Goodfellow") == "Goodfellow"
-    assert service._extract_primary_author("Ian Goodfellow") == "Goodfellow"
-    assert service._extract_primary_author("Goodfellow") == "Goodfellow"
-    assert service._extract_primary_author("") is None
-    assert service._extract_primary_author(None) is None
+    assert citation_service._extract_primary_author("Goodfellow, I.") == "Goodfellow"
+    assert citation_service._extract_primary_author("Goodfellow, Ian") == "Goodfellow"
+    assert citation_service._extract_primary_author("I. Goodfellow") == "Goodfellow"
+    assert citation_service._extract_primary_author("Ian Goodfellow") == "Goodfellow"
+    assert citation_service._extract_primary_author("Goodfellow") == "Goodfellow"
+    assert citation_service._extract_primary_author("") is None
+    assert citation_service._extract_primary_author("   ") is None
+    assert citation_service._extract_primary_author(None) is None
 
 
-def test_short_titles():
+def test_short_titles(citation_service: CitationService):
     """Test matching for short titles and acronyms like BERT or ResNet."""
-    extractor = MagicMock(spec=ExtractionService)
-    service = CitationService(extractor)
-
     text = "Sentence one. The BERT model was evaluated on GLUE. Sentence three."
-    context = service.get_citation_context(text, "BERT")
+    context = citation_service.get_citation_context(text, "BERT")
     assert "The BERT model was evaluated on GLUE." in context
 
     text = "We compare against ResNet. It achieves lower error."
-    context = service.get_citation_context(text, "ResNet")
+    context = citation_service.get_citation_context(text, "ResNet")
     assert "We compare against ResNet." in context
 
 
-def test_sentence_splitting_anomalies():
+def test_sentence_splitting_anomalies(citation_service: CitationService):
     """Test sentence splitting with decimals, abbreviations, and et al."""
-    extractor = MagicMock(spec=ExtractionService)
-    service = CitationService(extractor)
-
-    # Decimal "1.5" and abbreviation "e.g."
+    # Decimal "1.5", abbreviation "e.g.", exclamation mark "!"
+    # and single-letter uppercase initials "A. Smith"
     text = (
-        "Pre-sentence. Version 1.5 is released. We use a cheap model, "
-        "e.g., Gemini Flash. It achieves high throughput. Post-sentence."
+        "Pre-sentence. Version 1.5 is released! We use a cheap model, "
+        "e.g., Gemini Flash as suggested by A. Smith. It achieves high "
+        "throughput. Post-sentence."
     )
-    context = service.get_citation_context(text, "Gemini Flash")
-    assert "We use a cheap model, e.g., Gemini Flash." in context
+    context = citation_service.get_citation_context(text, "Gemini Flash")
+    assert (
+        "We use a cheap model, e.g., Gemini Flash as suggested by A. Smith."
+        in context
+    )
     # It should not include "Pre-sentence." or "Post-sentence." since they
     # are outside the window.
     assert "Pre-sentence." not in context
@@ -87,27 +93,20 @@ def test_sentence_splitting_anomalies():
         "This is first sentence. Goodfellow et al. (2016) introduced a great "
         "framework. Third sentence."
     )
-    context = service.get_citation_context(
+    context = citation_service.get_citation_context(
         text, "DeepLearning Book", "Goodfellow", 2016
     )
     assert "Goodfellow et al. (2016) introduced a great framework." in context
 
 
 @pytest.mark.asyncio
-async def test_classify_cites_edges_async_properties_none():
+async def test_classify_cites_edges_async_properties_none(
+    mock_extractor: MagicMock, citation_service: CitationService
+):
     """Test classify_cites_edges_async handles properties=None safely."""
-    extractor = MagicMock(spec=ExtractionService)
-
-    async def mock_classify_citation_intent_async(
-        context: str, ref_title: str
-    ) -> str:
-        return "USES_METHOD"
-
-    extractor.classify_citation_intent_async = AsyncMock(
-        side_effect=mock_classify_citation_intent_async
+    mock_extractor.classify_citation_intent_async = AsyncMock(
+        return_value="USES_METHOD"
     )
-
-    service = CitationService(extractor)
 
     # properties is None
     cites_list: list[CitationInput] = [
@@ -120,7 +119,7 @@ async def test_classify_cites_edges_async_properties_none():
     ]
 
     text = "We use BERT for classification."
-    edges = await service.classify_cites_edges_async(cites_list, text)
+    edges = await citation_service.classify_cites_edges_async(cites_list, text)
 
     assert len(edges) == 1
     edge = edges[0]
@@ -129,4 +128,3 @@ async def test_classify_cites_edges_async_properties_none():
     assert edge[2] == "CITES"
     assert edge[3]["intent"] == "USES_METHOD"
     assert "context" in edge[3]
-
