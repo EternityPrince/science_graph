@@ -150,6 +150,7 @@ def test_author_cleaning_formats_advanced(citation_service: CitationService):
     assert citation_service._extract_primary_author("Vaswani et al.") == "Vaswani"
     assert citation_service._extract_primary_author("Goodfellow et al.") == "Goodfellow"
     assert citation_service._extract_primary_author("Vaswani and Bengio") == "Vaswani"
+    assert citation_service._extract_primary_author("Vaswani & Bengio") == "Vaswani"
     assert (
         citation_service._extract_primary_author("Vaswani, A. and Bengio, Y.")
         == "Vaswani"
@@ -291,3 +292,11 @@ def test_sentence_splitting_academic_abbreviations(citation_service: CitationSer
     assert "pp. 3-4" in context
     assert "vol. 2" not in context
     assert "ch. 5" not in context
+
+
+def test_empirical_word_splitting(citation_service: CitationService):
+    """Test that words ending in 'al.' (e.g. 'empirical.') split correctly."""
+    text = "Pre-sentence. This result is empirical. Next sentence follows."
+    context = citation_service.get_citation_context(text, "Next sentence")
+    assert "This result is empirical. Next sentence follows." in context
+    assert "Pre-sentence." not in context

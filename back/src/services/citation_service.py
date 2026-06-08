@@ -17,6 +17,17 @@ class CitationInput(TypedDict, total=False):
     properties: dict[str, Any] | None
 
 
+# Compiled regex constant to split sentences avoiding common academic abbreviations,
+# decimals, initials, and et al. without fragmentation.
+SENTENCE_SPLIT_PAT = re.compile(
+    r"(?<!\b[A-Z]\.)(?<!\w\.\w\.)(?<!\b[Ee]t\s[Aa]l\.)"
+    r"(?<!\b[Ff]ig\.)(?<!\b[Rr]ef\.)(?<!\b[Ee]q\.)(?<!\b[Vv]s\.)"
+    r"(?<!\b[Ss]ec\.)(?<!\b[Cc]f\.)(?<!\b[Pp]p\.)(?<!\b[Vv]ol\.)"
+    r"(?<!\b[Cc]h\.)(?<!\b[Nn]o\.)(?<!\b[Ee]tc\.)(?<!\b[A-Z][a-z]\.)"
+    r"(?<=\.|\?|!)\s+"
+)
+
+
 class CitationService:
     """Service to handle citation context extraction and classification."""
 
@@ -52,9 +63,9 @@ class CitationService:
             return None
 
         # Split multiple authors using 'and' or '&' to isolate the first author
-        first_author = re.split(r"\b(and|&)\b", author_clean, flags=re.IGNORECASE)[
-            0
-        ].strip()
+        first_author = re.split(
+            r"\b(?:and)\b|\s*&\s*", author_clean, flags=re.IGNORECASE
+        )[0].strip()
 
         # If there's a comma, surname is typically before the first comma (e.g., 'Goodfellow, I.')
         if "," in first_author:
@@ -109,17 +120,7 @@ class CitationService:
             if not isinstance(full_text, str) or not full_text:
                 return ""
             try:
-                # Split sentences ignoring decimals, initials, and abbreviations.
-                # Handles 'e.g.', '1.5', 'A. Smith', 'et al.' without splitting.
-                # Ignored common lowercase academic abbreviations (fig, ref, eq, vs, sec, cf, pp, vol, ch, no, etc).
-                sentences = re.split(
-                    r"(?<!\b[A-Z]\.)(?<!\w\.\w\.)(?<![A-Z][a-z]\.)(?<!al\.)"
-                    r"(?<!\b[Ff]ig\.)(?<!\b[Rr]ef\.)(?<!\b[Ee]q\.)(?<!\b[Vv]s\.)"
-                    r"(?<!\b[Ss]ec\.)(?<!\b[Cc]f\.)(?<!\b[Pp]p\.)(?<!\b[Vv]ol\.)"
-                    r"(?<!\b[Cc]h\.)(?<!\b[Nn]o\.)(?<!\b[Ee]tc\.)"
-                    r"(?<=\.|\?|!)\s+",
-                    full_text,
-                )
+                sentences = SENTENCE_SPLIT_PAT.split(full_text)
             except Exception:
                 # Handle potential regex split errors on malformed strings
                 return ""
@@ -183,18 +184,7 @@ class CitationService:
 
         # Pre-split sentences once to avoid quadratic overhead on large papers
         try:
-            sentences = (
-                re.split(
-                    r"(?<!\b[A-Z]\.)(?<!\w\.\w\.)(?<![A-Z][a-z]\.)(?<!al\.)"
-                    r"(?<!\b[Ff]ig\.)(?<!\b[Rr]ef\.)(?<!\b[Ee]q\.)(?<!\b[Vv]s\.)"
-                    r"(?<!\b[Ss]ec\.)(?<!\b[Cc]f\.)(?<!\b[Pp]p\.)(?<!\b[Vv]ol\.)"
-                    r"(?<!\b[Cc]h\.)(?<!\b[Nn]o\.)(?<!\b[Ee]tc\.)"
-                    r"(?<=\.|\?|!)\s+",
-                    full_text,
-                )
-                if full_text
-                else []
-            )
+            sentences = SENTENCE_SPLIT_PAT.split(full_text) if full_text else []
         except Exception:
             sentences = []
 
