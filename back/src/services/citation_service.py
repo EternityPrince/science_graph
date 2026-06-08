@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, TypedDict
 
 from src.services.extraction_service import ExtractionService
 
@@ -13,7 +13,7 @@ class CitationInput(TypedDict, total=False):
     title: str
     author: str
     year: int
-    properties: Optional[Dict[str, Any]]
+    properties: dict[str, Any] | None
 
 
 class CitationService:
@@ -27,7 +27,7 @@ class CitationService:
         """
         self.extractor = extractor
 
-    def _extract_primary_author(self, author: Optional[str]) -> Optional[str]:
+    def _extract_primary_author(self, author: str | None) -> str | None:
         """Extracts the primary surname from an author string.
 
         Handles formats like 'Goodfellow, I.', 'Goodfellow, Ian',
@@ -71,8 +71,8 @@ class CitationService:
         self,
         full_text: str,
         ref_title: str,
-        ref_author: Optional[str] = None,
-        ref_year: Optional[int] = None,
+        ref_author: str | None = None,
+        ref_year: int | None = None,
     ) -> str:
         """Extracts a surrounding sentence window context for a reference match.
 
@@ -93,7 +93,7 @@ class CitationService:
             # Split sentences ignoring decimals, initials, and abbreviations.
             # Handles 'e.g.', '1.5', 'A. Smith', 'et al.' without splitting.
             sentences = re.split(
-                r"(?<!\b[A-Z]\.)(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<!al\.)"
+                r"(?<!\b[A-Z]\.)(?<!\w\.\w\.)(?<![A-Z][a-z]\.)(?<!al\.)"
                 r"(?<=\.|\?|!)\s+",
                 full_text,
             )
@@ -103,19 +103,17 @@ class CitationService:
 
         patterns = []
         if ref_title and len(ref_title) >= 3:
-            words = [re.escape(w) for w in ref_title.split()[:4] if len(w) >= 3]
+            words = [re.escape(w) for w in ref_title.split()[:4]]
             if words:
                 patterns.append(
-                    re.compile(
-                        r"\b" + r"\s+".join(words) + r"\b", re.IGNORECASE
-                    )
+                    re.compile(r"\b" + r"\s+".join(words) + r"\b", re.IGNORECASE)
                 )
 
         primary_author = self._extract_primary_author(ref_author)
         if primary_author and ref_year:
             patterns.append(
                 re.compile(
-                    rf"\b{re.escape(primary_author)}.*\b{ref_year}\b",
+                    rf"(?=.*\b{re.escape(primary_author)}\b)(?=.*\b{ref_year}\b)",
                     re.IGNORECASE,
                 )
             )
@@ -136,8 +134,8 @@ class CitationService:
         return ""
 
     async def classify_cites_edges_async(
-        self, cites_list: List[CitationInput], full_text: str
-    ) -> List[Tuple[str, str, str, Dict[str, Any]]]:
+        self, cites_list: list[CitationInput], full_text: str
+    ) -> list[tuple[str, str, str, dict[str, Any]]]:
         """Takes a list of citation dicts and classifies their citation intents.
 
         Args:
@@ -174,9 +172,7 @@ class CitationService:
             if context:
                 props["context"] = context
                 tasks.append(
-                    self.extractor.classify_citation_intent_async(
-                        context, ref_title
-                    )
+                    self.extractor.classify_citation_intent_async(context, ref_title)
                 )
                 metadata.append((source_id, target_id, props))
             else:

@@ -69,6 +69,22 @@ def test_short_titles(citation_service: CitationService):
     assert "We compare against ResNet." in context
 
 
+def test_title_with_short_words(citation_service: CitationService):
+    """Test matching titles containing short words (e.g. 'is', 'all')."""
+    text = "First. We refer to Attention is all you need for details. Third."
+    context = citation_service.get_citation_context(text, "Attention is all you need")
+    assert "We refer to Attention is all you need for details." in context
+
+
+def test_author_year_order_independence(citation_service: CitationService):
+    """Test matching when year appears before the author in the sentence."""
+    text = "First. In 2017, Vaswani et al. introduced transformer. Third."
+    context = citation_service.get_citation_context(
+        text, "Attention is all you need", "Vaswani", 2017
+    )
+    assert "In 2017, Vaswani et al. introduced transformer." in context
+
+
 def test_sentence_splitting_anomalies(citation_service: CitationService):
     """Test sentence splitting with decimals, abbreviations, and et al."""
     # Decimal "1.5", abbreviation "e.g.", exclamation mark "!"
@@ -80,8 +96,7 @@ def test_sentence_splitting_anomalies(citation_service: CitationService):
     )
     context = citation_service.get_citation_context(text, "Gemini Flash")
     assert (
-        "We use a cheap model, e.g., Gemini Flash as suggested by A. Smith."
-        in context
+        "We use a cheap model, e.g., Gemini Flash as suggested by A. Smith." in context
     )
     # It should not include "Pre-sentence." or "Post-sentence." since they
     # are outside the window.
