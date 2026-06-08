@@ -72,7 +72,9 @@ def test_short_titles(citation_service: CitationService):
 def test_title_with_short_words(citation_service: CitationService):
     """Test matching titles containing short words (e.g. 'is', 'all')."""
     text = "First. We refer to Attention is all you need for details. Third."
-    context = citation_service.get_citation_context(text, "Attention is all you need")
+    context = citation_service.get_citation_context(
+        text, "Attention is all you need"
+    )
     assert "We refer to Attention is all you need for details." in context
 
 
@@ -96,7 +98,8 @@ def test_sentence_splitting_anomalies(citation_service: CitationService):
     )
     context = citation_service.get_citation_context(text, "Gemini Flash")
     assert (
-        "We use a cheap model, e.g., Gemini Flash as suggested by A. Smith." in context
+        "We use a cheap model, e.g., Gemini Flash as suggested by A. Smith."
+        in context
     )
     # It should not include "Pre-sentence." or "Post-sentence." since they
     # are outside the window.
@@ -165,7 +168,9 @@ def test_author_cleaning_formats_advanced(citation_service: CitationService):
     assert citation_service._extract_primary_author("et al.") is None
 
 
-def test_sentence_splitting_lowercase_abbreviations(citation_service: CitationService):
+def test_sentence_splitting_lowercase_abbreviations(
+    citation_service: CitationService,
+):
     """Test that lowercase abbreviations like fig., ref., eq., vs., sec. do not trigger sentence splits."""
     text = (
         "We show our results in fig. 1. This matches the equation in eq. 3. "
@@ -191,7 +196,9 @@ async def test_classify_cites_edges_async_invalid_inputs(
 ):
     """Test that invalid types in cites_list are safely ignored."""
     cites_list = [None, "invalid_str", {"source_id": "a", "target_id": "b"}]
-    edges = await citation_service.classify_cites_edges_async(cites_list, "Some text.")
+    edges = await citation_service.classify_cites_edges_async(
+        cites_list, "Some text."
+    )
     # The dictionary one is valid, others are skipped.
     assert len(edges) == 1
     assert edges[0][0] == "a"
@@ -221,7 +228,9 @@ async def test_classify_cites_edges_async_schema_consistency(
     assert props["intent"] == "BACKGROUND"
 
 
-def test_citation_service_invalid_argument_types(citation_service: CitationService):
+def test_citation_service_invalid_argument_types(
+    citation_service: CitationService,
+):
     """Test that public methods handle unexpected types without raising exceptions."""
     # _extract_primary_author
     assert citation_service._extract_primary_author(123) is None
@@ -231,7 +240,10 @@ def test_citation_service_invalid_argument_types(citation_service: CitationServi
     assert citation_service.get_citation_context(123, "BERT") == ""
     assert citation_service.get_citation_context("Some text.", 456) == ""
     assert (
-        citation_service.get_citation_context("Some text.", "BERT", sentences=123) == ""
+        citation_service.get_citation_context(
+            "Some text.", "BERT", sentences=123
+        )
+        == ""
     )
 
 
@@ -275,7 +287,9 @@ async def test_classify_cites_edges_async_resilience_to_exceptions(
     assert "GPT" in edge_c[3]["context"]
 
 
-def test_sentence_splitting_academic_abbreviations(citation_service: CitationService):
+def test_sentence_splitting_academic_abbreviations(
+    citation_service: CitationService,
+):
     """Test sentence splitting lookbehinds with additional academic abbreviations."""
     text = (
         "See details in vol. 2. Read ch. 5 for more. Refer to no. 12! "
@@ -300,3 +314,54 @@ def test_empirical_word_splitting(citation_service: CitationService):
     context = citation_service.get_citation_context(text, "Next sentence")
     assert "This result is empirical. Next sentence follows." in context
     assert "Pre-sentence." not in context
+
+
+def test_priority_author_year_over_title(citation_service: CitationService):
+    """Test that Author + Year pattern takes precedence over Title pattern."""
+    text = (
+        "Pre-sentence. We use a generic title here. This is a buffer sentence. "
+        "In 2017, Vaswani et al. introduced the transformer model. Post-sentence."
+    )
+    # Search with title matching the first sentence, and author+year matching the second.
+    # Because Author+Year is prioritized, it should return the context of the second sentence.
+    context = citation_service.get_citation_context(
+        text,
+        ref_title="generic title",
+        ref_author="Vaswani",
+        ref_year=2017,
+    )
+    assert (
+        "In 2017, Vaswani et al. introduced the transformer model." in context
+    )
+    assert "We use a generic title here." not in context
+
+
+def test_year_regex_escaping_safety(citation_service: CitationService):
+    """Test that regex characters in year are escaped safely without crashing."""
+    text = "We use some special year formats like [2017] in this text."
+    context = citation_service.get_citation_context(
+        text, ref_title="Some Title", ref_author="Special", ref_year="[2017]"
+    )
+    # Even if it matches nothing, it should not crash.
+    assert isinstance(context, str)
+
+    # Let's verify it can match when escaped correctly
+    text2 = "Special author in year [2017] says hello."
+    context2 = citation_service.get_citation_context(
+        text2, ref_title="Some Title", ref_author="Special", ref_year="[2017]"
+    )
+    assert "Special author in year [2017] says hello." in context2
+
+
+def test_comma_separated_author_lists(citation_service: CitationService):
+    """Test that comma-separated lists of authors are parsed correctly."""
+    assert (
+        citation_service._extract_primary_author("A. Vaswani, Y. Bengio")
+        == "Vaswani"
+    )
+    assert (
+        citation_service._extract_primary_author(
+            "A. Vaswani, Y. Bengio, and others"
+        )
+        == "Vaswani"
+    )
