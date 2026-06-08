@@ -127,3 +127,56 @@ def test_entity_resolver_add_to_cache():
     # Try resolving again - now it should find it in cache
     # (Since it's in the cache, and we resolve "Deep Learning", it should match slug or exact name in the cache)
     assert resolver.resolve_entity("Concept", "Deep Learning") == "deep_learning"
+
+def test_entity_resolver_embedding_dim_mismatch():
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    graph_repo.get_concept_aliases.return_value = {}
+    graph_repo.get_nodes_by_label.return_value = [
+        ("machine_learning", {"name": "Machine Learning", "embedding": [1.0, 0.0]})
+    ]
+    # Query embedding has 3 elements, but node embedding has 2 elements (dimension mismatch)
+    emb_engine.get_embedding.return_value = [0.9, 0.1, 0.2]
+    
+    resolver = EntityResolver(graph_repo, emb_engine)
+    # The dimension mismatch should be caught safely in ValueError block, falling back to string similarity
+    # difflib.SequenceMatcher ratio for "Machine Learning" and "Machine Learning!" is > 0.95, which should match
+    resolved_id = resolver.resolve_entity("Concept", "Machine Learning!")
+    assert resolved_id == "machine_learning"
+
+def test_entity_resolver_thread_safety():
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    graph_repo.get_concept_aliases.return_value = {}
+    graph_repo.get_nodes_by_label.return_value = [
+        ("machine_learning", {"name": "Machine Learning"})
+    ]
+    
+    resolver = EntityResolver(graph_repo, emb_engine)
+    
+    num_threads = 10
+    iterations = 50
+    exceptions = []
+    
+    def worker(tid):
+        try:
+            for i in range(iterations):
+                if i % 3 == 0:
+                    resolver.resolve_entity("Concept", f"Machine Learning {i}")
+                elif i % 3 == 1:
+                    resolver.add_resolved_entity_to_cache("Concept", f"concept_{tid}_{i}", f"Concept {tid} {i}")
+                else:
+                    resolver.invalidate_concept_cache()
+        except Exception as e:
+            exceptions.append(e)
+            
+    threads = [threading.Thread(target=worker, args=(t,)) for t in range(num_threads)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+        
+    assert not exceptions, f"Concurrent operations raised exceptions: {exceptions}"
+

@@ -44,16 +44,14 @@ class EntityResolver:
                 logging.debug(f"resolve_entity '{name}' resolved from aliases_map in {time.perf_counter() - t0:.6f}s")
                 return slugify(canonical)
 
-        if label not in self._entity_cache:
-            with self._lock:
-                if label not in self._entity_cache:
-                    try:
-                        self._entity_cache[label] = self.graph_repo.get_nodes_by_label(label)
-                    except Exception:
-                        self._entity_cache[label] = []
+        with self._lock:
+            if label not in self._entity_cache:
+                try:
+                    self._entity_cache[label] = self.graph_repo.get_nodes_by_label(label)
+                except Exception:
+                    self._entity_cache[label] = []
+            existing_nodes = self._entity_cache[label]
 
-        existing_nodes = self._entity_cache[label]
-        
         for eid, props in existing_nodes:
             if eid == slug:
                 return eid
@@ -74,21 +72,24 @@ class EntityResolver:
                 candidate_emb = None
 
             if candidate_emb is not None and (isinstance(candidate_emb, list) or isinstance(candidate_emb, np.ndarray)):
-                query_vec = np.array(candidate_emb, dtype=np.float32)
-                query_norm = np.linalg.norm(query_vec)
-                if query_norm > 0:
-                    node_embs = np.array([emb for _, emb in valid_candidates], dtype=np.float32)
-                    node_norms = np.linalg.norm(node_embs, axis=1)
-                    dots = np.dot(node_embs, query_vec)
-                    norms_product = query_norm * node_norms
-                    
-                    sims = np.zeros_like(dots)
-                    valid_mask = norms_product > 0
-                    sims[valid_mask] = dots[valid_mask] / norms_product[valid_mask]
-                    
-                    matching_indices = np.where(sims > 0.95)[0]
-                    if len(matching_indices) > 0:
-                        return valid_candidates[matching_indices[0]][0]
+                try:
+                    query_vec = np.array(candidate_emb, dtype=np.float32)
+                    query_norm = np.linalg.norm(query_vec)
+                    if query_norm > 0:
+                        node_embs = np.array([emb for _, emb in valid_candidates], dtype=np.float32)
+                        node_norms = np.linalg.norm(node_embs, axis=1)
+                        dots = np.dot(node_embs, query_vec)
+                        norms_product = query_norm * node_norms
+                        
+                        sims = np.zeros_like(dots)
+                        valid_mask = norms_product > 0
+                        sims[valid_mask] = dots[valid_mask] / norms_product[valid_mask]
+                        
+                        matching_indices = np.where(sims > 0.95)[0]
+                        if len(matching_indices) > 0:
+                            return valid_candidates[matching_indices[0]][0]
+                except ValueError as ve:
+                    logging.warning(f"Embedding dimension mismatch or calculation error in EntityResolver: {ve}")
 
         for eid, props in existing_nodes:
             node_name = props.get("name", "")
@@ -100,17 +101,18 @@ class EntityResolver:
         return slug
 
     def add_resolved_entity_to_cache(self, label: str, entity_id: str, name: str, embedding: Optional[List[float]] = None) -> None:
-        if label not in self._entity_cache:
-            with self._lock:
-                if label not in self._entity_cache:
-                    try:
-                        self._entity_cache[label] = self.graph_repo.get_nodes_by_label(label)
-                    except Exception:
-                        self._entity_cache[label] = []
-        
-        exists = any(eid == entity_id for eid, _ in self._entity_cache[label])
-        if not exists:
-            with self._lock:
-                self._entity_cache[label].append((entity_id, {"name": name, "embedding": embedding}))
+        with self._lock:
+            if label not in self._entity_cache:
+                try:
+                    self._entity_cache[label] = self.graph_repo.get_nodes_by_label(label)
+                except Exception:
+                    self._entity_cache[label] = []
+            
+            exists = any(eid == entity_id for eid, _ in self._entity_cache[label])
+            if not exists:
+                new_list = list(self._entity_cache[label])
+                new_list.append((entity_id, {"name": name, "embedding": embedding}))
+                self._entity_cache[label] = new_list
                 if label == "Concept":
                     self._aliases_cache = None
+
