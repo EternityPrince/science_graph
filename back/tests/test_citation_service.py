@@ -143,3 +143,151 @@ async def test_classify_cites_edges_async_properties_none(
     assert edge[2] == "CITES"
     assert edge[3]["intent"] == "USES_METHOD"
     assert "context" in edge[3]
+
+
+def test_author_cleaning_formats_advanced(citation_service: CitationService):
+    """Test cleaning of advanced author formats, including et al., and multiple authors."""
+    assert citation_service._extract_primary_author("Vaswani et al.") == "Vaswani"
+    assert citation_service._extract_primary_author("Goodfellow et al.") == "Goodfellow"
+    assert citation_service._extract_primary_author("Vaswani and Bengio") == "Vaswani"
+    assert (
+        citation_service._extract_primary_author("Vaswani, A. and Bengio, Y.")
+        == "Vaswani"
+    )
+    assert (
+        citation_service._extract_primary_author("A. Vaswani and Y. Bengio")
+        == "Vaswani"
+    )
+    assert (
+        citation_service._extract_primary_author("Vaswani, A., Bengio, Y.") == "Vaswani"
+    )
+    assert citation_service._extract_primary_author("et al.") is None
+
+
+def test_sentence_splitting_lowercase_abbreviations(citation_service: CitationService):
+    """Test that lowercase abbreviations like fig., ref., eq., vs., sec. do not trigger sentence splits."""
+    text = (
+        "We show our results in fig. 1. This matches the equation in eq. 3. "
+        "For details, see sec. 4. Our model vs. baselines is evaluated. "
+        "This is the end."
+    )
+    # Match for "matches the equation" which is in the second sentence if split correctly.
+    # If fig. 1 split the sentence, "matches the equation" would be part of a different segment.
+    # The regex splits on ". " or similar.
+    # Let's verify context extraction with a title mentioned in the text.
+    context = citation_service.get_citation_context(text, "equation in eq. 3")
+    assert (
+        "We show our results in fig. 1. This matches the equation in eq. 3. For details, see sec. 4."
+        in context
+    )
+    assert "Our model vs. baselines is evaluated." not in context
+    assert "This is the end." not in context
+
+
+@pytest.mark.asyncio
+async def test_classify_cites_edges_async_invalid_inputs(
+    citation_service: CitationService,
+):
+    """Test that invalid types in cites_list are safely ignored."""
+    cites_list = [None, "invalid_str", {"source_id": "a", "target_id": "b"}]
+    edges = await citation_service.classify_cites_edges_async(cites_list, "Some text.")
+    # The dictionary one is valid, others are skipped.
+    assert len(edges) == 1
+    assert edges[0][0] == "a"
+
+
+@pytest.mark.asyncio
+async def test_classify_cites_edges_async_schema_consistency(
+    citation_service: CitationService,
+):
+    """Test that properties dictionary always contains context and intent keys."""
+    cites_list: list[CitationInput] = [
+        {
+            "source_id": "paper_a",
+            "target_id": "paper_b",
+            "title": "BERT",
+            "properties": {"existing_key": 42},
+        }
+    ]
+    # No match context will be found, so it falls back to BACKGROUND
+    edges = await citation_service.classify_cites_edges_async(
+        cites_list, "This text has nothing to do with it."
+    )
+    assert len(edges) == 1
+    props = edges[0][3]
+    assert props["existing_key"] == 42
+    assert props["context"] == ""
+    assert props["intent"] == "BACKGROUND"
+
+
+def test_citation_service_invalid_argument_types(citation_service: CitationService):
+    """Test that public methods handle unexpected types without raising exceptions."""
+    # _extract_primary_author
+    assert citation_service._extract_primary_author(123) is None
+    assert citation_service._extract_primary_author([]) is None
+
+    # get_citation_context
+    assert citation_service.get_citation_context(123, "BERT") == ""
+    assert citation_service.get_citation_context("Some text.", 456) == ""
+    assert (
+        citation_service.get_citation_context("Some text.", "BERT", sentences=123) == ""
+    )
+
+
+@pytest.mark.asyncio
+async def test_classify_cites_edges_async_resilience_to_exceptions(
+    mock_extractor: MagicMock, citation_service: CitationService
+):
+    """Test that if a classification task raises an exception, the pipeline falls back to BACKGROUND."""
+
+    # Mocking first call to raise an exception, second call to succeed
+    mock_extractor.classify_citation_intent_async = AsyncMock(
+        side_effect=[Exception("LLM Timeout"), "USES_METHOD"]
+    )
+
+    cites_list: list[CitationInput] = [
+        {
+            "source_id": "paper_a",
+            "target_id": "paper_b",
+            "title": "BERT",
+        },
+        {
+            "source_id": "paper_a",
+            "target_id": "paper_c",
+            "title": "GPT",
+        },
+    ]
+
+    text = "We use BERT. We use GPT."
+    edges = await citation_service.classify_cites_edges_async(cites_list, text)
+
+    assert len(edges) == 2
+
+    # Check paper_b (raised exception, fallback to BACKGROUND)
+    edge_b = [e for e in edges if e[1] == "paper_b"][0]
+    assert edge_b[3]["intent"] == "BACKGROUND"
+    assert "BERT" in edge_b[3]["context"]
+
+    # Check paper_c (succeeded, should be USES_METHOD)
+    edge_c = [e for e in edges if e[1] == "paper_c"][0]
+    assert edge_c[3]["intent"] == "USES_METHOD"
+    assert "GPT" in edge_c[3]["context"]
+
+
+def test_sentence_splitting_academic_abbreviations(citation_service: CitationService):
+    """Test sentence splitting lookbehinds with additional academic abbreviations."""
+    text = (
+        "See details in vol. 2. Read ch. 5 for more. Refer to no. 12! "
+        "Also cf. the appendix. Check pp. 3-4 for details. This is etc. "
+        "The end."
+    )
+    context = citation_service.get_citation_context(text, "appendix")
+    # All of the abbreviations should be kept in the same sentence segment.
+    # The segment with "appendix" starts from "Also cf. the appendix."
+    # The preceding sentence is "Refer to no. 12!"
+    # The succeeding sentence is "Check pp. 3-4 for details."
+    assert "Also cf. the appendix." in context
+    assert "no. 12!" in context
+    assert "pp. 3-4" in context
+    assert "vol. 2" not in context
+    assert "ch. 5" not in context

@@ -1,5 +1,6 @@
 import asyncio
 import re
+import sys
 from typing import Any, TypedDict
 
 from src.services.extraction_service import ExtractionService
@@ -31,7 +32,8 @@ class CitationService:
         """Extracts the primary surname from an author string.
 
         Handles formats like 'Goodfellow, I.', 'Goodfellow, Ian',
-        'I. Goodfellow', or 'Ian Goodfellow'.
+        'I. Goodfellow', 'Ian Goodfellow', 'Vaswani et al.',
+        'Vaswani and Bengio', 'Vaswani, A. and Bengio, Y.'.
 
         Args:
             author: The raw author name string.
@@ -39,19 +41,31 @@ class CitationService:
         Returns:
             The extracted surname/primary name, or None if input is invalid.
         """
-        if not author or not author.strip():
+        if not isinstance(author, str) or not author.strip():
             return None
 
-        # If there's a comma, surname is typically before the comma
-        if "," in author:
-            surname = author.split(",")[0].strip()
+        # Clean common et al. suffixes
+        author_clean = re.sub(
+            r"\b(et\s+al\b\.?|and\s+others\b\.?)", "", author, flags=re.IGNORECASE
+        ).strip()
+        if not author_clean:
+            return None
+
+        # Split multiple authors using 'and' or '&' to isolate the first author
+        first_author = re.split(r"\b(and|&)\b", author_clean, flags=re.IGNORECASE)[
+            0
+        ].strip()
+
+        # If there's a comma, surname is typically before the first comma (e.g., 'Goodfellow, I.')
+        if "," in first_author:
+            surname = first_author.split(",")[0].strip()
             if surname:
                 return surname
 
         # Split by whitespace
-        words = author.split()
+        words = first_author.split()
         if not words:
-            return author
+            return None
 
         # Remove common initial patterns like 'I.', 'I.J.', etc.
         cleaned_words = []
@@ -73,6 +87,7 @@ class CitationService:
         ref_title: str,
         ref_author: str | None = None,
         ref_year: int | None = None,
+        sentences: list[str] | None = None,
     ) -> str:
         """Extracts a surrounding sentence window context for a reference match.
 
@@ -81,24 +96,38 @@ class CitationService:
             ref_title: The title of the referenced work.
             ref_author: The author of the referenced work.
             ref_year: The publication year of the referenced work.
+            sentences: Optional pre-split list of sentences to optimize performance.
 
         Returns:
             A string containing the matched sentence and its surrounding context,
             or an empty string if no match is found or arguments are invalid.
         """
-        if not full_text or not ref_title:
+        if not isinstance(ref_title, str):
             return ""
 
-        try:
-            # Split sentences ignoring decimals, initials, and abbreviations.
-            # Handles 'e.g.', '1.5', 'A. Smith', 'et al.' without splitting.
-            sentences = re.split(
-                r"(?<!\b[A-Z]\.)(?<!\w\.\w\.)(?<![A-Z][a-z]\.)(?<!al\.)"
-                r"(?<=\.|\?|!)\s+",
-                full_text,
-            )
-        except Exception:
-            # Handle potential regex split errors on malformed strings
+        if sentences is None:
+            if not isinstance(full_text, str) or not full_text:
+                return ""
+            try:
+                # Split sentences ignoring decimals, initials, and abbreviations.
+                # Handles 'e.g.', '1.5', 'A. Smith', 'et al.' without splitting.
+                # Ignored common lowercase academic abbreviations (fig, ref, eq, vs, sec, cf, pp, vol, ch, no, etc).
+                sentences = re.split(
+                    r"(?<!\b[A-Z]\.)(?<!\w\.\w\.)(?<![A-Z][a-z]\.)(?<!al\.)"
+                    r"(?<!\b[Ff]ig\.)(?<!\b[Rr]ef\.)(?<!\b[Ee]q\.)(?<!\b[Vv]s\.)"
+                    r"(?<!\b[Ss]ec\.)(?<!\b[Cc]f\.)(?<!\b[Pp]p\.)(?<!\b[Vv]ol\.)"
+                    r"(?<!\b[Cc]h\.)(?<!\b[Nn]o\.)(?<!\b[Ee]tc\.)"
+                    r"(?<=\.|\?|!)\s+",
+                    full_text,
+                )
+            except Exception:
+                # Handle potential regex split errors on malformed strings
+                return ""
+        else:
+            if not isinstance(sentences, list):
+                return ""
+
+        if not sentences or not ref_title:
             return ""
 
         patterns = []
@@ -147,13 +176,35 @@ class CitationService:
             A list of tuples of the form (source_id, target_id, "CITES", properties)
             where properties has context and intent updated.
         """
-        if not cites_list:
+        if not isinstance(cites_list, list):
             return []
+        if not isinstance(full_text, str):
+            full_text = ""
+
+        # Pre-split sentences once to avoid quadratic overhead on large papers
+        try:
+            sentences = (
+                re.split(
+                    r"(?<!\b[A-Z]\.)(?<!\w\.\w\.)(?<![A-Z][a-z]\.)(?<!al\.)"
+                    r"(?<!\b[Ff]ig\.)(?<!\b[Rr]ef\.)(?<!\b[Ee]q\.)(?<!\b[Vv]s\.)"
+                    r"(?<!\b[Ss]ec\.)(?<!\b[Cc]f\.)(?<!\b[Pp]p\.)(?<!\b[Vv]ol\.)"
+                    r"(?<!\b[Cc]h\.)(?<!\b[Nn]o\.)(?<!\b[Ee]tc\.)"
+                    r"(?<=\.|\?|!)\s+",
+                    full_text,
+                )
+                if full_text
+                else []
+            )
+        except Exception:
+            sentences = []
 
         tasks = []
         metadata = []
 
         for cit in cites_list:
+            if not isinstance(cit, dict):
+                continue
+
             ref_title = cit.get("title") or ""
             ref_author = cit.get("author")
             ref_year = cit.get("year")
@@ -162,15 +213,19 @@ class CitationService:
             source_id = cit.get("source_id", "")
             target_id = cit.get("target_id", "")
 
+            # Pass pre-split sentences list to optimize performance
             context = self.get_citation_context(
-                full_text, ref_title, ref_author, ref_year
+                full_text, ref_title, ref_author, ref_year, sentences=sentences
             )
 
-            # Prevent TypeError crash if "properties" is None
-            props = {**(cit.get("properties") or {})}
+            # Prevent TypeError crash if "properties" is None or invalid type
+            cit_props = cit.get("properties")
+            props = {}
+            if isinstance(cit_props, dict):
+                props = {**cit_props}
+            props["context"] = context
 
             if context:
-                props["context"] = context
                 tasks.append(
                     self.extractor.classify_citation_intent_async(context, ref_title)
                 )
@@ -180,10 +235,16 @@ class CitationService:
                 metadata.append((source_id, target_id, props))
                 tasks.append(asyncio.sleep(0, result="BACKGROUND"))
 
-        intents = await asyncio.gather(*tasks)
+        intents = await asyncio.gather(*tasks, return_exceptions=True)
 
         edges = []
         for (src, tgt, props), intent in zip(metadata, intents):
+            if isinstance(intent, Exception):
+                print(
+                    f"Warning: Citation classification failed: {intent}",
+                    file=sys.stderr,
+                )
+                intent = "BACKGROUND"
             props["intent"] = intent or "BACKGROUND"
             edges.append((src, tgt, "CITES", props))
         return edges
