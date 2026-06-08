@@ -1,11 +1,24 @@
-import re
 import asyncio
-from typing import List, Dict, Any, Tuple, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
+
 from src.services.extraction_service import ExtractionService
+
+
+class CitationInput(TypedDict, total=False):
+    """Type definition for citation dictionaries passed to the service."""
+
+    source_id: str
+    target_id: str
+    title: str
+    author: str
+    year: int
+    properties: Optional[Dict[str, Any]]
+
 
 class CitationService:
     """Service to handle citation context extraction and classification."""
-    
+
     def __init__(self, extractor: ExtractionService) -> None:
         """Initialize the CitationService with an ExtractionService instance.
 
@@ -14,12 +27,52 @@ class CitationService:
         """
         self.extractor = extractor
 
+    def _extract_primary_author(self, author: Optional[str]) -> Optional[str]:
+        """Extracts the primary surname from an author string.
+
+        Handles formats like 'Goodfellow, I.', 'Goodfellow, Ian',
+        'I. Goodfellow', or 'Ian Goodfellow'.
+
+        Args:
+            author: The raw author name string.
+
+        Returns:
+            The extracted surname/primary name, or None if input is invalid.
+        """
+        if not author:
+            return None
+
+        # If there's a comma, surname is typically before the comma
+        if "," in author:
+            surname = author.split(",")[0].strip()
+            if surname:
+                return surname
+
+        # Split by whitespace
+        words = author.split()
+        if not words:
+            return author
+
+        # Remove common initial patterns like 'I.', 'I.J.', etc.
+        cleaned_words = []
+        for w in words:
+            clean_w = w.strip(".")
+            if len(clean_w) > 1:
+                cleaned_words.append(w)
+
+        if cleaned_words:
+            # Surnames are often the last word if initials/first names are first
+            # e.g., 'Ian Goodfellow' -> 'Goodfellow'
+            return cleaned_words[-1].strip(".,")
+
+        return words[-1].strip(".,")
+
     def get_citation_context(
         self,
         full_text: str,
         ref_title: str,
         ref_author: Optional[str] = None,
-        ref_year: Optional[int] = None
+        ref_year: Optional[int] = None,
     ) -> str:
         """Extracts a surrounding sentence window context for a reference match.
 
@@ -35,31 +88,41 @@ class CitationService:
         """
         if not full_text or not ref_title:
             return ""
-        
+
         try:
-            sentences = re.split(r'(?<=[.!?])\s+', full_text)
+            # Split sentences ignoring decimals, abbreviations, etc.
+            # Handles 'e.g.', '1.5', 'et al.' without splitting.
+            sentences = re.split(
+                r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<!al\.)(?<=\.|\?)\s+",
+                full_text,
+            )
         except Exception:
             # Handle potential regex split errors on malformed strings
             return ""
-        
+
         patterns = []
-        if ref_title and len(ref_title) > 8:
-            words = [re.escape(w) for w in ref_title.split()[:4] if len(w) > 2]
+        if ref_title and len(ref_title) >= 3:
+            words = [re.escape(w) for w in ref_title.split()[:4] if len(w) >= 3]
             if words:
                 patterns.append(
-                    re.compile(r"\b" + r"\s+".join(words) + r"\b", re.IGNORECASE)
+                    re.compile(
+                        r"\b" + r"\s+".join(words) + r"\b", re.IGNORECASE
+                    )
                 )
-        if ref_author and ref_year:
+
+        primary_author = self._extract_primary_author(ref_author)
+        if primary_author and ref_year:
             patterns.append(
                 re.compile(
-                    rf"\b{re.escape(ref_author)}.*\b{ref_year}\b", re.IGNORECASE
+                    rf"\b{re.escape(primary_author)}.*\b{ref_year}\b",
+                    re.IGNORECASE,
                 )
             )
-        elif ref_author:
+        elif primary_author:
             patterns.append(
-                re.compile(rf"\b{re.escape(ref_author)}\b", re.IGNORECASE)
+                re.compile(rf"\b{re.escape(primary_author)}\b", re.IGNORECASE)
             )
-            
+
         for idx, sent in enumerate(sentences):
             for pat in patterns:
                 try:
@@ -72,15 +135,13 @@ class CitationService:
         return ""
 
     async def classify_cites_edges_async(
-        self,
-        cites_list: List[Dict[str, Any]],
-        full_text: str
+        self, cites_list: List[CitationInput], full_text: str
     ) -> List[Tuple[str, str, str, Dict[str, Any]]]:
         """Takes a list of citation dicts and classifies their citation intents.
 
         Args:
-            cites_list: A list of dictionaries representing citations, each containing
-                source_id, target_id, title, author, year, and properties.
+            cites_list: A list of dictionaries representing citations, each
+                conforming to the CitationInput TypedDict structure.
             full_text: The full text of the document containing citations.
 
         Returns:
@@ -89,23 +150,26 @@ class CitationService:
         """
         if not cites_list:
             return []
-            
+
         tasks = []
         metadata = []
-        
+
         for cit in cites_list:
             ref_title = cit.get("title") or ""
             ref_author = cit.get("author")
             ref_year = cit.get("year")
-            
+
             # Avoid potential KeyError if source_id or target_id are missing
             source_id = cit.get("source_id", "")
             target_id = cit.get("target_id", "")
-            
+
             context = self.get_citation_context(
                 full_text, ref_title, ref_author, ref_year
             )
-            props = {**cit.get("properties", {})}
+
+            # Prevent TypeError crash if "properties" is None
+            props = {**(cit.get("properties") or {})}
+
             if context:
                 props["context"] = context
                 tasks.append(
@@ -118,9 +182,9 @@ class CitationService:
                 props["intent"] = "BACKGROUND"
                 metadata.append((source_id, target_id, props))
                 tasks.append(asyncio.sleep(0, result="BACKGROUND"))
-                
+
         intents = await asyncio.gather(*tasks)
-        
+
         edges = []
         for (src, tgt, props), intent in zip(metadata, intents):
             props["intent"] = intent or "BACKGROUND"
