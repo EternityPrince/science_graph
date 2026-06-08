@@ -180,3 +180,138 @@ def test_entity_resolver_thread_safety():
         
     assert not exceptions, f"Concurrent operations raised exceptions: {exceptions}"
 
+
+def test_entity_resolver_double_checked_locking_race():
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    # We want to simulate the scenario where:
+    # 1. Thread reads _aliases_cache -> not None.
+    # 2. Invalidation happens.
+    # 3. Thread reads _aliases_cache again to assign to aliases_map -> None.
+    # In our fixed code, we only read self._aliases_cache ONCE (at the start of the method).
+    # In the unfixed code, it read it TWICE (once for checking None, and once to assign aliases_map).
+    
+    reads = []
+    class RaceResolver(EntityResolver):
+        @property
+        def _aliases_cache(self):
+            reads.append(True)
+            if len(reads) == 1:
+                return {"ml": "Machine Learning"}
+            return None
+            
+        @_aliases_cache.setter
+        def _aliases_cache(self, value):
+            pass
+            
+    resolver = RaceResolver(graph_repo, emb_engine)
+    # This should execute safely without raising TypeError
+    resolved_id = resolver.resolve_entity("Concept", "ML")
+    assert resolved_id == "machine_learning"
+
+
+def test_entity_resolver_no_caching_on_exceptions():
+    """Verify that repository exceptions are not cached and cause retries."""
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    # 1. Alias query raises exception
+    graph_repo.get_concept_aliases.side_effect = Exception("DB error")
+    resolver = EntityResolver(graph_repo, emb_engine)
+    
+    with pytest.raises(Exception, match="DB error"):
+        resolver.resolve_entity("Concept", "ML")
+        
+    # Second try should call the repo again
+    with pytest.raises(Exception, match="DB error"):
+        resolver.resolve_entity("Concept", "ML")
+        
+    assert graph_repo.get_concept_aliases.call_count == 2
+
+    # 2. Node query raises exception
+    graph_repo.get_concept_aliases.side_effect = None
+    graph_repo.get_concept_aliases.return_value = {}
+    graph_repo.get_nodes_by_label.side_effect = Exception("DB node error")
+    
+    with pytest.raises(Exception, match="DB node error"):
+        resolver.resolve_entity("Concept", "Machine Learning")
+        
+    with pytest.raises(Exception, match="DB node error"):
+        resolver.resolve_entity("Concept", "Machine Learning")
+        
+    assert graph_repo.get_nodes_by_label.call_count == 2
+
+
+def test_entity_resolver_best_match_selection():
+    """Verify that best match above 0.95 is selected among multiple matches."""
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    graph_repo.get_concept_aliases.return_value = {}
+    # Multiple candidates
+    graph_repo.get_nodes_by_label.return_value = [
+        ("ml_96", {"name": "ML 96", "embedding": [1.0, 0.0]}),
+        ("ml_99", {"name": "ML 99", "embedding": [0.0, 1.0]}),
+    ]
+    # Query: close to ml_99 (dot product with ml_99 is 0.99, ml_96 is 0.1)
+    emb_engine.get_embedding.return_value = [0.1, 0.99]
+    
+    resolver = EntityResolver(graph_repo, emb_engine)
+    res = resolver.resolve_entity("Concept", "Machine Learning")
+    assert res == "ml_99"
+
+    # For string similarity fallback:
+    # We clear cache so it re-reads
+    resolver.invalidate_cache()
+    graph_repo.get_nodes_by_label.return_value = [
+        ("ml_alpha", {"name": "Introduction to Machine Learning Alpha"}),
+        ("ml_beta", {"name": "Introduction to Machine Learning Beta"}),
+    ]
+    emb_engine.get_embedding.side_effect = Exception("No embedding")
+    res_str = resolver.resolve_entity("Concept", "Introduction to Machine Learning Bet")
+    assert res_str == "ml_beta"
+
+
+
+def test_entity_resolver_non_concept_labels():
+    """Verify cache invalidation and queries for non-concept labels."""
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    graph_repo.get_nodes_by_label.return_value = [
+        ("john_doe", {"name": "John Doe"})
+    ]
+    
+    resolver = EntityResolver(graph_repo, emb_engine)
+    # Query for "Author"
+    res1 = resolver.resolve_entity("Author", "John Doe")
+    res2 = resolver.resolve_entity("Author", "John Doe")
+    assert res1 == "john_doe"
+    assert res2 == "john_doe"
+    # Should only call repo once
+    assert graph_repo.get_nodes_by_label.call_count == 1
+    
+    # Generic cache invalidation for specific label
+    resolver.invalidate_cache("Author")
+    res3 = resolver.resolve_entity("Author", "John Doe")
+    assert res3 == "john_doe"
+    assert graph_repo.get_nodes_by_label.call_count == 2
+
+    # Clear all caches
+    resolver.invalidate_cache(None)
+    res4 = resolver.resolve_entity("Author", "John Doe")
+    assert res4 == "john_doe"
+    assert graph_repo.get_nodes_by_label.call_count == 3
+
+
+def test_entity_resolver_invalid_empty_names():
+    """Verify behavior with invalid, empty, or None names."""
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    resolver = EntityResolver(graph_repo, emb_engine)
+    assert resolver.resolve_entity("Concept", "") == ""
+    assert resolver.resolve_entity("Concept", "   ") == ""
+    assert resolver.resolve_entity("Concept", None) == ""
+
