@@ -173,8 +173,8 @@ class CitationService:
                     title_pat = title_pat + r"\b"
                 patterns.append(re.compile(title_pat, re.IGNORECASE))
 
-        # 3. Author only (lowest specificity, fallback if no year)
-        if primary_author and ref_year is None:
+        # 3. Author only (lowest specificity)
+        if primary_author:
             patterns.append(
                 re.compile(safe_bound(primary_author), re.IGNORECASE)
             )

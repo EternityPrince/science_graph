@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import MagicMock
-import numpy as np
 import threading
 from src.services.entity_resolver import EntityResolver
 from src.repository.base import GraphRepository

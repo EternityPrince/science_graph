@@ -365,3 +365,15 @@ def test_comma_separated_author_lists(citation_service: CitationService):
         )
         == "Vaswani"
     )
+
+
+def test_fallback_to_author_only(citation_service: CitationService):
+    """Test that Author only pattern acts as a fallback when Author + Year and Title fail."""
+    text = "Pre-sentence. Vaswani et al. introduced the transformer. Post-sentence."
+    context = citation_service.get_citation_context(
+        text,
+        ref_title="Attention is all you need",
+        ref_author="Vaswani",
+        ref_year=2017,
+    )
+    assert "Vaswani et al. introduced the transformer." in context
