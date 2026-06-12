@@ -200,8 +200,8 @@ def run_query_on_baseline(
     query: str, 
     baseline: str, 
     use_cloud: bool
-) -> tuple[str, list[str], dict]:
-    """Runs a query under a temporary baseline configuration and returns (answer, retrieved_papers, metrics)."""
+) -> tuple[str, list[str], dict, list[dict]]:
+    """Runs a query under a temporary baseline configuration and returns (answer, retrieved_papers, metrics, chunks)."""
     
     # Save original configurations
     orig_components = {name: config.is_component_enabled(name) for name in config.rag_components.keys()}
@@ -236,6 +236,7 @@ def run_query_on_baseline(
     collector = BenchmarkStatsCollector(rag_service)
     collector.start()
     
+    final_chunks = []
     try:
         if baseline == "B0":
             # Zero-shot bypasses RAG retrieval
@@ -265,7 +266,17 @@ def run_query_on_baseline(
         config.data["llm"]["hyde_enabled"] = orig_hyde
         rag_service.expander = None
         
-    return answer, retrieved_papers, metrics
+    chunks_info = []
+    for chunk, score in final_chunks:
+        chunks_info.append({
+            "id": chunk.id,
+            "paper_id": chunk.paper_id,
+            "page_number": chunk.page_number,
+            "text_content": chunk.text_content.strip(),
+            "score": round(score, 4)
+        })
+        
+    return answer, retrieved_papers, metrics, chunks_info
 
 
 def merge_evaluation_data(existing_data: dict, new_data: dict) -> dict:
@@ -349,7 +360,7 @@ def main():
         help="Path to golden dataset YAML file. Defaults to golden_dataset.yaml or golden_dataset.example.yaml"
     )
     parser.add_argument(
-        "--output", "-o", type=str, default="benchmarks/rag/reports/evaluation_results.yaml",
+        "--output", "-o", type=str, default="reports/evaluation_results.yaml",
         help="Path to save evaluation output results."
     )
     parser.add_argument(
@@ -423,7 +434,7 @@ def main():
             
             t0 = time.perf_counter()
             try:
-                answer, retrieved, metrics = run_query_on_baseline(
+                answer, retrieved, metrics, chunks = run_query_on_baseline(
                     rag_service, query, baseline, use_cloud=args.cloud
                 )
                 status = "success"
@@ -441,6 +452,7 @@ def main():
                     },
                     "total_io_calls": 0
                 }
+                chunks = []
                 status = "error"
                 con.error(f"    Baseline {baseline} failed: {e}")
                 
@@ -452,7 +464,8 @@ def main():
                 "retrieved_papers": retrieved,
                 "baseline_config": get_baseline_config(baseline),
                 "metrics": metrics,
-                "generated_answer": answer.strip()
+                "generated_answer": answer.strip(),
+                "retrieved_chunks": chunks
             }
             
         results.append(case_result)
@@ -514,8 +527,85 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         yaml.dump(output_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-    con.success(f"Benchmarking complete! Results saved to: {output_path.resolve()}")
+    # Save simplified LLM-judge report
+    judge_output_path = output_path.with_name(output_path.stem + "_judge" + output_path.suffix)
+    save_judge_report(output_data, judge_output_path)
+
+    # Save individual baseline judge reports
+    save_individual_judge_reports(output_data, output_path.parent, output_path.stem, output_path.suffix)
+
+    con.success(f"Benchmarking complete! Results saved to: {output_path.resolve()}, {judge_output_path.resolve()}, and {output_path.parent / 'baselines'}/")
     con.info("You can copy fragments of this file and feed them into your browser AI to analyze truthfulness and quality.")
+
+def save_judge_report(human_data: dict, judge_output_path: Path):
+    """
+    Creates and saves a simplified evaluation report for the LLM judge.
+    Removes metadata, metrics, baseline_config, latency, retrieved_papers, and retrieved_chunks,
+    keeping only id, query, golden_answer, and the generated_answer for each baseline.
+    """
+    judge_results = []
+    for case in human_data.get("results", []):
+        judge_case = {
+            "id": case.get("id"),
+            "query": case.get("query"),
+            "golden_answer": case.get("golden_answer"),
+            "baselines": {}
+        }
+        for baseline, data in case.get("baselines", {}).items():
+            judge_case["baselines"][baseline] = {
+                "generated_answer": data.get("generated_answer", "")
+            }
+        judge_results.append(judge_case)
+        
+    judge_data = {
+        "results": judge_results
+    }
+    
+    with open(judge_output_path, "w", encoding="utf-8") as f:
+        yaml.dump(judge_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+def save_individual_judge_reports(human_data: dict, output_dir: Path, output_stem: str, output_suffix: str):
+    """
+    Creates and saves individual simplified evaluation reports for each baseline.
+    Files are saved in output_dir / "baselines" / {output_stem}_judge_{baseline_lower}{output_suffix}.
+    """
+    baselines_dir = output_dir / "baselines"
+    baselines_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Extract all unique baselines present in the results
+    all_baselines = set()
+    for case in human_data.get("results", []):
+        for baseline in case.get("baselines", {}).keys():
+            all_baselines.add(baseline)
+            
+    for baseline in sorted(all_baselines):
+        judge_results = []
+        for case in human_data.get("results", []):
+            baseline_data = case.get("baselines", {}).get(baseline)
+            # Only include the case if the baseline has data/answers
+            if baseline_data:
+                judge_case = {
+                    "id": case.get("id"),
+                    "query": case.get("query"),
+                    "golden_answer": case.get("golden_answer"),
+                    "baselines": {
+                        baseline: {
+                            "generated_answer": baseline_data.get("generated_answer", "")
+                        }
+                    }
+                }
+                judge_results.append(judge_case)
+                
+        judge_data = {
+            "results": judge_results
+        }
+        
+        baseline_lower = baseline.lower()
+        baseline_file_name = f"{output_stem}_judge_{baseline_lower}{output_suffix}"
+        baseline_output_path = baselines_dir / baseline_file_name
+        
+        with open(baseline_output_path, "w", encoding="utf-8") as f:
+            yaml.dump(judge_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 if __name__ == "__main__":
     main()

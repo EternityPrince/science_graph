@@ -88,14 +88,14 @@ class TestRagBenchmark(unittest.TestCase):
         original_hyde = getattr(config, "hyde_enabled", False)
         
         # Run B0 (Zero-Shot) - should call generate_response directly
-        ans, retrieved, metrics = run_query_on_baseline(mock_rag, "Test Question B0", "B0", use_cloud=False)
+        ans, retrieved, metrics, chunks = run_query_on_baseline(mock_rag, "Test Question B0", "B0", use_cloud=False)
         self.assertEqual(ans, "Mocked Zero-Shot Answer")
         self.assertEqual(retrieved, [])
         mock_llm.generate_response.assert_called_once()
         
         # Run B1 (Pure Lexical)
         mock_retrieve.return_value = [(MagicMock(paper_id="paper1"), 0.9)]
-        ans_b1, retrieved_b1, metrics_b1 = run_query_on_baseline(mock_rag, "Test Question B1", "B1", use_cloud=False)
+        ans_b1, retrieved_b1, metrics_b1, chunks_b1 = run_query_on_baseline(mock_rag, "Test Question B1", "B1", use_cloud=False)
         self.assertEqual(ans_b1, "Mocked RAG Answer")
         self.assertEqual(retrieved_b1, ["paper1"])
         
