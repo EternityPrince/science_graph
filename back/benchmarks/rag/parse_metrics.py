@@ -543,6 +543,96 @@ def generate_markdown_report(stats: dict, output_path: Path):
     print(f"\n[+] Created beautiful Markdown report at: {output_path}")
 
 
+def export_wide_csv(stats: dict, csv_path: Path):
+    """Saves wide-format aggregated summary of metrics per baseline."""
+    import csv
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "Baseline", "Success Rate", "Recall", "Precision", 
+            "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)"
+        ])
+        for b in stats["baselines"]:
+            sr = f"{stats['summary'][b]['success_rate']:.1f}%"
+            
+            def get_val(metric_name):
+                # For B0, context metrics are N/A
+                if b == "B0" and metric_name in ["retrieval_recall", "context_precision", "faithfulness", "citation_fidelity"]:
+                    return "N/A"
+                if stats["summary"][b][metric_name]["count"] == 0:
+                    return "N/A"
+                val = stats["summary"][b][metric_name]["mean"]
+                if metric_name == "latency_sec":
+                    return f"{val:.2f}"
+                else:
+                    return f"{val:.4f}"
+            
+            writer.writerow([
+                b,
+                sr,
+                get_val("retrieval_recall"),
+                get_val("context_precision"),
+                get_val("faithfulness"),
+                get_val("answer_relevance"),
+                get_val("citation_fidelity"),
+                get_val("semantic_accuracy"),
+                get_val("latency_sec")
+            ])
+
+
+def export_detailed_csv(data: dict, stats: dict, csv_path: Path):
+    """Saves detailed case-by-case metrics for each baseline and query."""
+    import csv
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    results = data.get("results", [])
+    if not results:
+        return
+        
+    baselines = stats["baselines"]
+    
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "query_id", "category", "baseline", "status", "latency_sec",
+            "retrieval_recall", "context_precision", "faithfulness",
+            "answer_relevance", "citation_fidelity", "semantic_accuracy"
+        ])
+        
+        for r in results:
+            q_id = r.get("id", "UNKNOWN")
+            category = r.get("category", "default")
+            
+            for b in baselines:
+                b_data = r.get("baselines", {}).get(b, {})
+                if not b_data:
+                    continue
+                
+                status = b_data.get("status", "failed")
+                latency = b_data.get("latency_sec")
+                eval_metrics = b_data.get("eval_metrics", {})
+                
+                def get_metric(m_name):
+                    if b == "B0" and m_name in ["retrieval_recall", "context_precision", "faithfulness", "citation_fidelity"]:
+                        return ""
+                    val = eval_metrics.get(m_name)
+                    return val if val is not None else ""
+                
+                writer.writerow([
+                    q_id,
+                    category,
+                    b,
+                    status,
+                    latency if latency is not None else "",
+                    get_metric("retrieval_recall"),
+                    get_metric("context_precision"),
+                    get_metric("faithfulness"),
+                    get_metric("answer_relevance"),
+                    get_metric("citation_fidelity"),
+                    get_metric("semantic_accuracy")
+                ])
+
+
 def main():
     parser = argparse.ArgumentParser(description="Science Graph RAG Benchmarking Metrics Parser")
     parser.add_argument(
@@ -558,6 +648,14 @@ def main():
     parser.add_argument(
         "--csv",
         help="Path where to save raw summary stats as CSV (optional)"
+    )
+    parser.add_argument(
+        "--csv-summary",
+        help="Path where to save wide-format summary stats as CSV (optional)"
+    )
+    parser.add_argument(
+        "--csv-details",
+        help="Path where to save raw case-by-case metrics as CSV (optional)"
     )
     
     args = parser.parse_args()
@@ -594,6 +692,18 @@ def main():
                         m_stats["median"], m_stats["stdev"]
                     ])
         print(f"[+] Exported CSV successfully.")
+
+    if args.csv_summary:
+        csv_summary_path = Path(args.csv_summary)
+        print(f"[*] Exporting wide summary stats to {csv_summary_path}...")
+        export_wide_csv(stats, csv_summary_path)
+        print(f"[+] Exported summary CSV successfully.")
+
+    if args.csv_details:
+        csv_details_path = Path(args.csv_details)
+        print(f"[*] Exporting detailed case metrics to {csv_details_path}...")
+        export_detailed_csv(data, stats, csv_details_path)
+        print(f"[+] Exported detailed CSV successfully.")
 
 
 if __name__ == "__main__":

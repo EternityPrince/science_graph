@@ -241,7 +241,8 @@ class TestRagBenchmark(unittest.TestCase):
                 "run_benchmarks.py",
                 "--dataset", str(dataset_yaml),
                 "--output", str(output_yaml),
-                "--baselines", "B0"
+                "--baselines", "B0",
+                "--no-unique-dir"
             ]
             
             with patch.object(sys, "argv", test_args):
@@ -261,7 +262,8 @@ class TestRagBenchmark(unittest.TestCase):
                 "run_benchmarks.py",
                 "--dataset", str(dataset_yaml),
                 "--output", str(output_yaml),
-                "--baselines", "B1"
+                "--baselines", "B1",
+                "--no-unique-dir"
             ]
             
             with patch.object(sys, "argv", test_args_2):
@@ -276,5 +278,165 @@ class TestRagBenchmark(unittest.TestCase):
             self.assertIn("B1", second_run_data["results"][0]["baselines"])
             self.assertEqual(second_run_data["results"][0]["baselines"]["B0"]["status"], "success")
             self.assertEqual(second_run_data["results"][0]["baselines"]["B1"]["status"], "success")
+
+    def test_csv_export_functions(self):
+        """Verifies that export_wide_csv and export_detailed_csv generate correct CSV structures."""
+        from benchmarks.rag.parse_metrics import export_wide_csv, export_detailed_csv
+        import tempfile
+        import csv
+        
+        # Mock statistics data structure
+        stats = {
+            "baselines": ["B0", "B1"],
+            "summary": {
+                "B0": {
+                    "success_rate": 100.0,
+                    "retrieval_recall": {"mean": 0.0, "count": 0},
+                    "context_precision": {"mean": 0.0, "count": 0},
+                    "faithfulness": {"mean": 0.0, "count": 0},
+                    "answer_relevance": {"mean": 0.8, "count": 1},
+                    "citation_fidelity": {"mean": 0.0, "count": 0},
+                    "semantic_accuracy": {"mean": 0.75, "count": 1},
+                    "latency_sec": {"mean": 5.432, "count": 1}
+                },
+                "B1": {
+                    "success_rate": 50.0,
+                    "retrieval_recall": {"mean": 0.9, "count": 1},
+                    "context_precision": {"mean": 0.85, "count": 1},
+                    "faithfulness": {"mean": 0.95, "count": 1},
+                    "answer_relevance": {"mean": 0.9, "count": 1},
+                    "citation_fidelity": {"mean": 1.0, "count": 1},
+                    "semantic_accuracy": {"mean": 0.88, "count": 1},
+                    "latency_sec": {"mean": 12.345, "count": 1}
+                }
+            }
+        }
+        
+        # Mock results data structure
+        data = {
+            "results": [
+                {
+                    "id": "Q01",
+                    "category": "general",
+                    "baselines": {
+                        "B0": {
+                            "status": "success",
+                            "latency_sec": 5.432,
+                            "eval_metrics": {
+                                "answer_relevance": 0.8,
+                                "semantic_accuracy": 0.75
+                            }
+                        },
+                        "B1": {
+                            "status": "success",
+                            "latency_sec": 12.345,
+                            "eval_metrics": {
+                                "retrieval_recall": 0.9,
+                                "context_precision": 0.85,
+                                "faithfulness": 0.95,
+                                "answer_relevance": 0.9,
+                                "citation_fidelity": 1.0,
+                                "semantic_accuracy": 0.88
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary_csv = Path(tmpdir) / "summary.csv"
+            details_csv = Path(tmpdir) / "details.csv"
+            
+            # Export wide summary
+            export_wide_csv(stats, summary_csv)
+            self.assertTrue(summary_csv.exists())
+            
+            with open(summary_csv, "r", encoding="utf-8") as f:
+                reader = list(csv.reader(f))
+                
+            self.assertEqual(len(reader), 3) # Header + 2 baselines
+            self.assertEqual(reader[0], [
+                "Baseline", "Success Rate", "Recall", "Precision", 
+                "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)"
+            ])
+            # B0 check (N/A for context metrics)
+            self.assertEqual(reader[1], ["B0", "100.0%", "N/A", "N/A", "N/A", "0.8000", "N/A", "0.7500", "5.43"])
+            # B1 check
+            self.assertEqual(reader[2], ["B1", "50.0%", "0.9000", "0.8500", "0.9500", "0.9000", "1.0000", "0.8800", "12.35"])
+            
+            # Export detailed
+            export_detailed_csv(data, stats, details_csv)
+            self.assertTrue(details_csv.exists())
+            
+            with open(details_csv, "r", encoding="utf-8") as f:
+                reader_det = list(csv.reader(f))
+                
+            self.assertEqual(len(reader_det), 3) # Header + Q01_B0 + Q01_B1
+            self.assertEqual(reader_det[0], [
+                "query_id", "category", "baseline", "status", "latency_sec",
+                "retrieval_recall", "context_precision", "faithfulness",
+                "answer_relevance", "citation_fidelity", "semantic_accuracy"
+            ])
+            self.assertEqual(reader_det[1], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75"])
+            self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88"])
+
+    @patch("benchmarks.rag.run_pipeline.subprocess.run")
+    def test_run_pipeline_orchestration(self, mock_run):
+        """Verifies that run_pipeline.py runs all three stages in sequence with correct arguments."""
+        import sys
+        import tempfile
+        from unittest.mock import patch
+        from benchmarks.rag.run_pipeline import main as pipeline_main
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_yaml = Path(tmpdir) / "test_smoke.yaml"
+            with open(dataset_yaml, "w", encoding="utf-8") as f:
+                f.write("[]")
+                
+            test_args = [
+                "run_pipeline.py",
+                "--dataset", str(dataset_yaml),
+                "--baselines", "B0,B1",
+                "--concurrency", "5",
+                "--rpm", "100",
+                "--limit", "10",
+                "--clear-checkpoint",
+                "--no-unique-dir",
+                "--output-dir", "test_reports"
+            ]
+            
+            with patch.object(sys, "argv", test_args):
+                pipeline_main()
+                
+        self.assertEqual(mock_run.call_count, 3)
+        
+        # Verify call 1: run_benchmarks.py
+        call1_args = mock_run.call_args_list[0][0][0]
+        self.assertIn("run_benchmarks.py", call1_args[1])
+        self.assertIn("--dataset", call1_args)
+        self.assertIn(str(dataset_yaml.resolve()), call1_args)
+        self.assertIn("--output", call1_args)
+        self.assertIn("--baselines", call1_args)
+        self.assertIn("B0,B1", call1_args)
+        
+        # Verify call 2: run_evaluator.py
+        call2_args = mock_run.call_args_list[1][0][0]
+        self.assertIn("run_evaluator.py", call2_args[1])
+        self.assertIn("--concurrency", call2_args)
+        self.assertIn("5", call2_args)
+        self.assertIn("--rpm", call2_args)
+        self.assertIn("100", call2_args)
+        self.assertIn("--limit", call2_args)
+        self.assertIn("10", call2_args)
+        self.assertIn("--clear-checkpoint", call2_args)
+        
+        # Verify call 3: parse_metrics.py
+        call3_args = mock_run.call_args_list[2][0][0]
+        self.assertIn("parse_metrics.py", call3_args[1])
+        self.assertIn("--csv-summary", call3_args)
+        self.assertIn("--csv-details", call3_args)
+
+
 
 

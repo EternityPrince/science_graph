@@ -16,6 +16,55 @@ TECHNICAL_TOKEN_RE = re.compile(
     re.IGNORECASE
 )
 
+class StreamTokenCleaner:
+    def __init__(self):
+        self.in_think = False
+        self.buffer = ""
+
+    def process_token(self, token: str) -> str:
+        self.buffer += token
+        output = ""
+        
+        while self.buffer:
+            if self.in_think:
+                # Look for end of think block
+                idx = self.buffer.lower().find("</think>")
+                if idx != -1:
+                    # Found end of think block, discard it and everything before it
+                    self.buffer = self.buffer[idx + 8:]
+                    self.in_think = False
+                else:
+                    # End of think block not found yet. Keep only the last 7 characters
+                    # to handle cases where "</think>" is split across token boundaries.
+                    if len(self.buffer) > 7:
+                        self.buffer = self.buffer[-7:]
+                    break
+            else:
+                # Look for start of think block
+                idx = self.buffer.lower().find("<think>")
+                if idx != -1:
+                    # Found start of think block. Emit everything before it.
+                    output += self.buffer[:idx]
+                    self.buffer = self.buffer[idx + 7:]
+                    self.in_think = True
+                else:
+                    # Start tag not found. Keep at most 6 trailing characters
+                    # in case "<think>" is split across token boundaries.
+                    check_len = min(len(self.buffer), 6)
+                    tail = self.buffer[-check_len:]
+                    lt_idx = tail.rfind("<")
+                    if lt_idx != -1:
+                        split_idx = len(self.buffer) - check_len + lt_idx
+                        output += self.buffer[:split_idx]
+                        self.buffer = self.buffer[split_idx:]
+                        break
+                    else:
+                        output += self.buffer
+                        self.buffer = ""
+                        break
+        return output
+
+
 def count_prompt_tokens(text: str) -> int:
     if not text:
         return 0
@@ -24,6 +73,7 @@ def count_prompt_tokens(text: str) -> int:
         return len(enc.encode(text))
     except Exception:
         return len(text.split())
+
 
 class RAGService:
     def __init__(
@@ -58,11 +108,11 @@ class RAGService:
         if self._reranker is not None:
             return self._reranker
         from sentence_transformers import CrossEncoder
-        con.model_msg("Loading reranker [bold]mxbai-rerank-xsmall-v1[/bold] …")
+        con.model_msg("Loading reranker [bold]mmarco-mMiniLMv2-L12-H384-v1[/bold] …")
         with con.suppress_stderr(), con.suppress_stdout():
             import torch
             device = "mps" if torch.backends.mps.is_available() else "cpu"
-            self._reranker = CrossEncoder("mixedbread-ai/mxbai-rerank-xsmall-v1", device=device)
+            self._reranker = CrossEncoder("cross-encoder/mmarco-mMiniLMv2-L12-H384-v1", device=device)
         con.success(f"Reranker ready on {device.upper()}")
         return self._reranker
 
@@ -665,7 +715,11 @@ class RAGService:
             if self.expander.reranker is None:
                 self.expander.reranker = self._get_reranker()
             enrichment_block = self.expander.expand(query, trimmed_chunks)
-            prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str=history_str, query=query)
+            if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
+                con.warning("Graph expander found no essential facts. Falling back to raw retrieved context.")
+                prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=query)
+            else:
+                prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str=history_str, query=query)
         else:
             prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=query)
 
@@ -701,7 +755,11 @@ class RAGService:
                 if self.expander.reranker is None:
                     self.expander.reranker = await asyncio.to_thread(self._get_reranker)
                 enrichment_block = await asyncio.to_thread(self.expander.expand, question, final_chunks)
-                prompt = prompts.get_prompt("rag", "stream_expander", enrichment_block=enrichment_block, question=question)
+                if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
+                    context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks)
+                    prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=question)
+                else:
+                    prompt = prompts.get_prompt("rag", "stream_expander", enrichment_block=enrichment_block, question=question)
             else:
                 context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks)
                 prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=question)
@@ -738,6 +796,7 @@ class RAGService:
         thread = threading.Thread(target=run_mlx_stream)
         thread.start()
 
+        cleaner = StreamTokenCleaner()
         while True:
             item = await asyncio.to_thread(token_queue.get)
             if item is None:
@@ -745,7 +804,8 @@ class RAGService:
             if isinstance(item, Exception):
                 yield {"type": "error", "text": f"Generation failed: {item}"}
                 return
-            cleaned_item = TECHNICAL_TOKEN_RE.sub("", item)
+            processed_item = cleaner.process_token(item)
+            cleaned_item = TECHNICAL_TOKEN_RE.sub("", processed_item)
             if not cleaned_item and item:
                 continue
             yield {"type": "token", "text": cleaned_item}

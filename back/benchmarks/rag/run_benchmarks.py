@@ -371,6 +371,10 @@ def main():
         "--baselines", type=str, default="all",
         help="Comma-separated baselines to run (e.g. B0,B2,B6) or 'all'."
     )
+    parser.add_argument(
+        "--no-unique-dir", action="store_true",
+        help="Save reports directly to the output path without creating a unique timestamped subdirectory (enables merging of results)."
+    )
     args = parser.parse_args()
 
     # Determine dataset path
@@ -472,10 +476,34 @@ def main():
         con.success(f"[{case_id}] Completed.")
         con.blank()
 
-    # Save output results to YAML
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    from datetime import datetime
+    llm_provider = config.data["llm"]["provider"]
+    if args.cloud:
+        llm_model = config.data["llm"]["cloud"]["model_name"]
+        llm_provider_detail = f"cloud ({config.data['llm']['cloud'].get('provider', 'openai')})"
+    else:
+        llm_model = config.data["llm"]["local"]["model_path"]
+        llm_provider_detail = f"local ({llm_provider})"
+
+    def get_safe_model_name(model_name: str) -> str:
+        # Get last part if it is a path, and replace dangerous characters
+        name = Path(model_name).name
+        name = name.replace("/", "_").replace(":", "_").replace(" ", "_")
+        return name
+
+    original_output_path = Path(args.output)
+    if args.no_unique_dir:
+        output_path = original_output_path
+    else:
+        # Generate unique run directory name using timestamp and model name
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_model_name = get_safe_model_name(llm_model)
+        run_dir_name = f"run_{timestamp}_{safe_model_name}"
+        run_dir = original_output_path.parent / run_dir_name
+        output_path = run_dir / original_output_path.name
     
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Load existing file if it exists for merging
     existing_data = None
     if output_path.exists():
@@ -487,15 +515,7 @@ def main():
                     existing_data = {"metadata": {}, "results": existing_data}
         except Exception as e:
             con.warning(f"Could not load existing evaluation results for merging: {e}")
-    
-    from datetime import datetime
-    llm_provider = config.data["llm"]["provider"]
-    if args.cloud:
-        llm_model = config.data["llm"]["cloud"]["model_name"]
-        llm_provider_detail = f"cloud ({config.data['llm']['cloud'].get('provider', 'openai')})"
-    else:
-        llm_model = config.data["llm"]["local"]["model_path"]
-        llm_provider_detail = f"local ({llm_provider})"
+
         
     embedding_model = config.data["embedding"]["model_name"]
     reranker_model = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1" if config.data["rag_components"].get("reranker", True) else "disabled"

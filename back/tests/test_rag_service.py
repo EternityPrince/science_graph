@@ -21,6 +21,33 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
             self.expander
         )
 
+    def test_stream_token_cleaner(self):
+        from src.services.rag_service import StreamTokenCleaner
+        
+        # Test 1: simple tokens
+        cleaner = StreamTokenCleaner()
+        tokens = ["Hello ", "world", "!"]
+        output = [cleaner.process_token(t) for t in tokens]
+        self.assertEqual("".join(output), "Hello world!")
+
+        # Test 2: think block contained inside a token
+        cleaner = StreamTokenCleaner()
+        tokens = ["Hello ", "<think>thought process</think>world", "!"]
+        output = [cleaner.process_token(t) for t in tokens]
+        self.assertEqual("".join(output), "Hello world!")
+
+        # Test 3: think block split across tokens
+        cleaner = StreamTokenCleaner()
+        tokens = ["Hello ", "<thi", "nk>thought ", "process</th", "ink>world", "!"]
+        output = [cleaner.process_token(t) for t in tokens]
+        self.assertEqual("".join(output), "Hello world!")
+
+        # Test 4: multiple think blocks
+        cleaner = StreamTokenCleaner()
+        tokens = ["Hello ", "<think>thought 1</think>", " middle ", "<think>thought 2</think>", "world!"]
+        output = [cleaner.process_token(t) for t in tokens]
+        self.assertEqual("".join(output), "Hello  middle world!")
+
     @patch("sentence_transformers.CrossEncoder")
     def test_get_reranker(self, mock_cross_encoder):
         mock_ce_instance = MagicMock()

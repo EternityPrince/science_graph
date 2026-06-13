@@ -53,6 +53,8 @@ def strip_thinking_tokens(text: str) -> str:
         r"<</SYS>>",
         r"<pad>",
         r"<unk>",
+        r"<think>",
+        r"</think>",
     ]
     
     # Remove these tokens
@@ -64,6 +66,29 @@ def strip_thinking_tokens(text: str) -> str:
     text = re.sub(r"^(?:assistant|user|system)(?:\n|:\s*)", "", text, flags=re.IGNORECASE)
 
     return text.strip()
+
+
+def clean_llm_output(func):
+    """
+    Decorator to ensure that the return value of an LLM generation method
+    (either sync or async) is always filtered of thinking and technical tokens.
+    """
+    if inspect.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            res = await func(*args, **kwargs)
+            if isinstance(res, str):
+                return strip_thinking_tokens(res)
+            return res
+        return async_wrapper
+    else:
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            res = func(*args, **kwargs)
+            if isinstance(res, str):
+                return strip_thinking_tokens(res)
+            return res
+        return sync_wrapper
 
 
 class ResilientParser:
@@ -266,16 +291,27 @@ def validate_no_hallucinations(data: Any) -> None:
 
 
 class BaseLLMEngine:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for name in ["generate_response", "generate_response_async", "generate_json", "generate_json_async"]:
+            if name in cls.__dict__:
+                orig = cls.__dict__[name]
+                if callable(orig):
+                    setattr(cls, name, clean_llm_output(orig))
+
     @staticmethod
     def extract_json(text: str) -> str:
         return ResilientParser.extract_json(text)
 
+    @clean_llm_output
     def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         raise NotImplementedError
 
+    @clean_llm_output
     async def generate_response_async(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         return await asyncio.to_thread(self.generate_response, prompt, max_tokens, temp, task, model=model)
 
+    @clean_llm_output
     def generate_json(
         self,
         prompt: str,
@@ -285,6 +321,7 @@ class BaseLLMEngine:
     ) -> str:
         raise NotImplementedError
 
+    @clean_llm_output
     async def generate_json_async(
         self,
         prompt: str,

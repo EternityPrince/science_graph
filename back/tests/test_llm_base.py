@@ -54,9 +54,30 @@ class TestLlmBase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(strip_thinking_tokens(None), None)
         self.assertEqual(strip_thinking_tokens("hello <think>thought</think> world"), "hello  world")
         self.assertEqual(strip_thinking_tokens("hello <think>unclosed thought"), "hello")
+        self.assertEqual(strip_thinking_tokens("hello </think> world"), "hello  world")
+        self.assertEqual(strip_thinking_tokens("hello <think> world"), "hello")
         self.assertEqual(strip_thinking_tokens("<|im_start|>assistant\nhello <|im_end|>"), "hello")
         self.assertEqual(strip_thinking_tokens("[INST] hello [/INST] world"), "hello  world")
         self.assertEqual(strip_thinking_tokens("<s>hello</s>"), "hello")
+
+    def test_clean_llm_output_decorator(self):
+        class TestEngine(BaseLLMEngine):
+            def generate_response(self, prompt: str, **kwargs) -> str:
+                return "hello <think>thought</think> world"
+            
+            async def generate_response_async(self, prompt: str, **kwargs) -> str:
+                return "hello <think>thought</think> world"
+
+        engine = TestEngine()
+        
+        # Calling generate_response should return clean string
+        res = engine.generate_response("test prompt")
+        self.assertEqual(res, "hello  world")
+
+        # Calling generate_response_async should also return clean string
+        import asyncio
+        res_async = asyncio.run(engine.generate_response_async("test prompt"))
+        self.assertEqual(res_async, "hello  world")
 
     def test_resilient_json_parser(self):
         # markdown code blocks
