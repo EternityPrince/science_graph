@@ -13,6 +13,9 @@ graph = "src.cli:app"
 [tool.uv]
 workspace = { members = ["back"] }
 sources = { graph = { workspace = true } }
+override-dependencies = [
+    "transformers>=5.0.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["back/tests"]

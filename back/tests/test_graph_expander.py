@@ -255,5 +255,90 @@ class TestGraphExpander(unittest.TestCase):
         
         self.expander.expand("query", initial_chunks)
 
+    def test_reranker_sigmoid_and_threshold_filtering(self):
+        """Verify that sigmoid scales extreme raw logits and threshold filters out low scores."""
+        self.expander.p_base = 10.0
+        self.expander.gamma = 0.9
+        # 1. Setup initial chunks (Level 0)
+        c1 = Chunk(id="chunk_1", paper_id="paper_1", text_content="Starting text", page_number=1)
+        initial_chunks = [(c1, 0.9)]
+        
+        p1 = Paper(id="paper_1", title="Title One")
+        self.graph_repo.get_papers_batch.return_value = {"paper_1": p1}
+        
+        # 2. Hop 1 neighbors
+        self.graph_repo.get_neighbors.return_value = [
+            ("paper_1", "Paper", "CITES", "paper_2", "Paper", "{}"),
+            ("paper_1", "Paper", "CITES", "paper_3", "Paper", "{}"),
+        ]
+        
+        p2 = Paper(id="paper_2", title="Title Two")
+        p3 = Paper(id="paper_3", title="Title Three")
+        self.graph_repo.get_paper.side_effect = lambda pid: p2 if pid == "paper_2" else (p3 if pid == "paper_3" else None)
+        
+        # Mock reranker returns extreme logits: -100.0 (sigmoid ~0.0) and 100.0 (sigmoid ~1.0)
+        # Hop 1 candidates: paper_2 gets -100.0, paper_3 gets 100.0
+        # Chunk ingestion: chunk_3_1 gets -100.0, chunk_3_2 gets 100.0
+        self.reranker.predict.side_effect = [
+            [-100.0, 100.0],  # Hop 1 candidates
+            [-100.0, 100.0]   # Chunk ingestion
+        ]
+        
+        # 3. Vector chunks for paper_3 (paper_2 should be filtered out)
+        c3_1 = Chunk(id="chunk_3_1", paper_id="paper_3", text_content="Noise chunk from paper 3", page_number=2)
+        c3_2 = Chunk(id="chunk_3_2", paper_id="paper_3", text_content="Signal chunk from paper 3", page_number=3)
+        self.vector_repo.get_chunks_for_paper.side_effect = lambda pid: [c3_1, c3_2] if pid == "paper_3" else []
+        
+        # Mock final LLM evidence list validation
+        # All candidate facts:
+        # fact_1: paper_1 (node)
+        # fact_2: paper_1 chunk_1 (chunk)
+        # fact_3: paper_3 (node)
+        # fact_4: paper_3 chunk_3_2 (chunk) - chunk_3_1 gets filtered out by threshold 0.4 and is never sent to LLM
+        mock_response = EvidenceListResponse(
+            evidence_list=[
+                EvidenceItem(id="fact_1", score=0.9, is_essential=True),
+                EvidenceItem(id="fact_2", score=0.9, is_essential=True),
+                EvidenceItem(id="fact_3", score=0.9, is_essential=True),
+                EvidenceItem(id="fact_4", score=0.9, is_essential=True),
+            ]
+        )
+        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        
+        result = self.expander.expand("test query", initial_chunks)
+        
+        # Title Two should NOT be in result because its candidate sigmoid score is ~0.0 (< 0.4)
+        self.assertNotIn("Title Two", result)
+        
+        # Title Three should be in result because its candidate sigmoid score is ~1.0 (>= 0.4)
+        self.assertIn("Title Three", result)
+        
+        # Signal chunk from paper 3 should be in result
+        self.assertIn("Signal chunk from paper 3", result)
+        
+        # Noise chunk from paper 3 should NOT be in result because its sigmoid score is ~0.0 (< 0.4)
+        self.assertNotIn("Noise chunk from paper 3", result)
+
+    def test_safe_sigmoid_range_and_stability(self):
+        """Verify that safe_sigmoid maps inputs to the [0, 1] range properly and is numerically stable."""
+        from src.services.graph_expander import safe_sigmoid
+        
+        # Exact center maps to 0.5
+        self.assertAlmostEqual(safe_sigmoid(0.5), 0.5)
+        
+        # Values below 0.5 map close to 0
+        self.assertLess(safe_sigmoid(0.0), 1e-5)
+        self.assertGreaterEqual(safe_sigmoid(0.0), 0.0)
+        self.assertLess(safe_sigmoid(0.4), 0.1) # 1 / (1 + e^(2.5)) ~ 0.075 < 0.1
+        
+        # Values above 0.5 map close to 1
+        self.assertGreater(safe_sigmoid(1.0), 0.9999)
+        self.assertLessEqual(safe_sigmoid(1.0), 1.0)
+        self.assertGreater(safe_sigmoid(0.6), 0.9) # 1 / (1 + e^(-2.5)) ~ 0.925 > 0.9
+        
+        # Extreme values should not overflow and return correct limits
+        self.assertEqual(safe_sigmoid(-1000.0), 0.0)
+        self.assertEqual(safe_sigmoid(1000.0), 1.0)
+
 if __name__ == "__main__":
     unittest.main()

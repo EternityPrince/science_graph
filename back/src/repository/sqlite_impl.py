@@ -1235,18 +1235,15 @@ class SQLiteVectorRepository(VectorRepository):
 
     def search_text_fts5(self, query: str, limit: int = 10, filters: Optional[dict] = None) -> List[tuple[Chunk, float]]:
         import re
+        from spacy.lang.ru.stop_words import STOP_WORDS as RU_STOP_WORDS
+        from spacy.lang.en.stop_words import STOP_WORDS as EN_STOP_WORDS
+        
         words = re.findall(r'\w+', query)
         if not words:
             return []
             
-        STOP_WORDS = {
-            # Russian stop words
-            "и", "в", "во", "не", "что", "он", "на", "я", "с", "со", "как", "а", "то", "все", "она", "так", "его", "но", "да", "ты", "к", "ко", "у", "же", "за", "бы", "по", "только", "ее", "мне", "было", "вот", "от", "меня", "еще", "нет", "о", "из", "ему", "теперь", "тоже", "даже", "был", "или", "быль", "вас", "если", "раз", "это", "как", "под", "будет", "ж", "тогда", "кто", "этот", "мы", "вдруг", "лишь", "уже", "него", "до", "нибудь", "сразу", "будто", "чего", "им", "здесь", "один", "вам", "при", "совсем", "чтобы", "надо", "вплоть", "без", "после", "около", "вокруг", "перед", "возле", "мимо", "сквозь", "через", "вдоль", "против", "благодаря", "вопреки", "согласно", "для", "почему", "какой", "какие", "какая", "какое", "были", "был", "была", "было", "быть", "именно", "этого", "этой", "этом", "эти", "этих", "очень", "даже", "там", "тут", "где", "когда", "куда", "откуда", "потому", "поэтому",
-            # English stop words
-            "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren", "arent", "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", "can", "cannot", "could", "couldn", "did", "didn", "do", "does", "doesn", "doing", "don", "dont", "down", "during", "each", "few", "for", "from", "further", "had", "hadn", "has", "hasn", "have", "haven", "having", "he", "her", "here", "hers", "herself", "him", "himself", "his", "how", "if", "in", "into", "is", "isn", "it", "its", "itself", "me", "more", "most", "mustn", "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only", "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own", "same", "she", "should", "shouldn", "so", "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves", "then", "there", "these", "they", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "wasn", "we", "were", "werent", "what", "when", "where", "which", "while", "who", "whom", "why", "with", "won", "wont", "would", "wouldn", "you", "your", "yours", "yourself", "yourselves"
-        }
-        
-        filtered_words = [w for w in words if w.lower() not in STOP_WORDS]
+        stop_words = RU_STOP_WORDS.union(EN_STOP_WORDS)
+        filtered_words = [w for w in words if w.lower() not in stop_words]
         if not filtered_words:
             filtered_words = words
             

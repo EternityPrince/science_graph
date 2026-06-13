@@ -1,5 +1,6 @@
 import threading
 import time
+import math
 from typing import List, Tuple, Dict, Any, Optional
 from rich.table import Table
 from rich.panel import Panel
@@ -13,6 +14,14 @@ from src.repository.base import GraphRepository, VectorRepository
 from src.llm_engine import BaseLLMEngine
 from src.llm_schemas import EvidenceListResponse
 from src.prompts import prompts
+
+def safe_sigmoid(x: float) -> float:
+    val = -25.0 * (x - 0.5)
+    if val > 700.0:
+        return 0.0
+    if val < -700.0:
+        return 1.0
+    return 1.0 / (1.0 + math.exp(val))
 
 class ExperimentalGraphExpander:
     def __init__(
@@ -410,7 +419,8 @@ class ExperimentalGraphExpander:
             # Associate scores and calculate decayed score / UserNote priority
             scored_candidates = []
             for i, (nid, _, (label, name_or_title, conn_desc)) in enumerate(cards):
-                semantic_score = float(scores[i])
+                raw_score = float(scores[i])
+                semantic_score = safe_sigmoid(raw_score)
                 is_note = 1 if label == "UserNote" else 0
                 
                 authority = 1.0
@@ -503,12 +513,15 @@ class ExperimentalGraphExpander:
             # Group chunks by paper
             paper_to_scored_chunks: Dict[str, List[Tuple[Chunk, float]]] = {}
             for idx, c in enumerate(new_chunks_to_score):
-                paper_to_scored_chunks.setdefault(c.paper_id, []).append((c, float(chunk_scores[idx])))
+                raw_score = float(chunk_scores[idx])
+                sigmoid_score = safe_sigmoid(raw_score)
+                paper_to_scored_chunks.setdefault(c.paper_id, []).append((c, sigmoid_score))
                 
-            # Keep top chunks per paper
+            # Keep top chunks per paper (only those above the 0.4 threshold to filter noise)
             for pid, scored in paper_to_scored_chunks.items():
                 scored.sort(key=lambda x: x[1], reverse=True)
-                top_scored = scored[:self.top_chunks_per_paper]
+                valid_scored = [item for item in scored if item[1] > 0.4]
+                top_scored = valid_scored[:self.top_chunks_per_paper]
                 top_scored_ids = {c.id for c, _ in top_scored}
                 
                 # Fetch paper details to resolve title

@@ -98,6 +98,8 @@ class ResilientParser:
     """
     @staticmethod
     def extract_json(text: str) -> str:
+        if not text or not isinstance(text, str):
+            return ""
         clean = text.strip()
         if clean.startswith("```"):
             clean = re.sub(r"^```(?:json)?\n?", "", clean)

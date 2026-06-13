@@ -1,6 +1,22 @@
 import os
 import re
 import logging
+
+# Monkeypatch huggingface_hub.dataclasses.strict and mock missing transformers module
+# to ensure compatibility between marker-pdf 0.1.3 and transformers v5
+import sys
+import types
+if "transformers.utils.model_parallel_utils" not in sys.modules:
+    mod = types.ModuleType("transformers.utils.model_parallel_utils")
+    mod.get_device_map = lambda *a, **k: None
+    mod.assert_device_map = lambda *a, **k: None
+    sys.modules["transformers.utils.model_parallel_utils"] = mod
+
+try:
+    import huggingface_hub.dataclasses
+    huggingface_hub.dataclasses.strict = lambda cls=None, *args, **kwargs: (lambda c: c) if cls is None else cls
+except ImportError:
+    pass
 from typing import List, Tuple
 
 from src.models import Paper, slugify

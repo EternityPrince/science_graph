@@ -483,12 +483,17 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res, ["clustering"])
         self.llm_engine.generate_response.assert_not_called()
 
+    @patch("src.services.rag_service.config")
     @patch("sentence_transformers.CrossEncoder")
-    def test_retrieve_relevant_chunks_with_expansion(self, mock_cross_encoder):
+    def test_retrieve_relevant_chunks_with_expansion(self, mock_cross_encoder, mock_config):
+        mock_config.hyde_enabled = False
+        mock_config.rag_components = {"dense_search": True, "lexical_search": True, "dynamic_alpha_blending": True, "rrf": True, "reranker": True, "score_blending": True}
+        mock_config.max_expanded_queries = 3
+
         mock_ce_instance = MagicMock()
         mock_ce_instance.predict.side_effect = lambda pairs: [0.95, 0.85, 0.75]
         self.service._reranker = mock_ce_instance
-
+    
         # Mock query expansion
         self.service._expand_query = MagicMock(return_value=["clustering", "cluster analysis"])
         
@@ -567,6 +572,26 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         q2, filters2 = self.service._classify_intent_and_extract_filters("год")
         self.assertEqual(q2, "год")
         self.assertIsNone(filters2)
+
+    def test_classify_intent_and_extract_filters_null_and_empty(self):
+        # Case 1: search_query is null/None in JSON
+        self.llm_engine.generate_response.side_effect = None
+        self.llm_engine.generate_response.return_value = '{"search_query": null, "year_start": 2021}'
+        self.llm_engine.extract_json.side_effect = lambda x: x
+        q, filters = self.service._classify_intent_and_extract_filters("original query in 2021")
+        self.assertEqual(q, "original query in 2021")
+        self.assertEqual(filters, {"year_start": 2021})
+
+        # Case 2: search_query is empty/whitespace string in JSON
+        self.llm_engine.generate_response.return_value = '{"search_query": "   ", "year_start": 2021}'
+        q, filters = self.service._classify_intent_and_extract_filters("original query in 2021")
+        self.assertEqual(q, "original query in 2021")
+
+        # Case 3: LLM returns None or empty string response
+        self.llm_engine.generate_response.return_value = None
+        q, filters = self.service._classify_intent_and_extract_filters("original query in 2021")
+        self.assertEqual(q, "original query in 2021")
+        self.assertIsNone(filters)
 
     @patch("src.services.rag_service.config")
     def test_expand_query_short_query_enrichment(self, mock_config):

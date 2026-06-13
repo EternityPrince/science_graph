@@ -9,7 +9,6 @@ Rules:
 - Maximum 3-5 sentences
 - Use proper scientific terminology where appropriate
 - Include paper titles, author names, and technical terms naturally — these help match the knowledge base
-- Do NOT make up facts, citations, or paper titles that you are not sure about
 - If the query asks to compare methods/concepts, structure the answer as a comparison
 - If the query asks about a timeline or evolution, mention key milestones
 - Output ONLY the hypothetical answer text — no preamble, no formatting, no explanation of what you are doing

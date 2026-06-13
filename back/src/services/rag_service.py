@@ -333,6 +333,9 @@ class RAGService:
         return current_text, current_graph, current_chunks
 
     def _expand_query(self, query: str) -> List[str]:
+        if not query or not isinstance(query, str) or not query.strip():
+            return [query] if isinstance(query, str) else []
+
         try:
             max_expanded = config.max_expanded_queries
         except Exception:
@@ -438,7 +441,11 @@ class RAGService:
                 if parsed.get(k) is not None:
                     filters[k] = parsed[k]
                     
-            clean_q = parsed.get("search_query", query)
+            clean_q = parsed.get("search_query")
+            if not clean_q or not isinstance(clean_q, str) or not clean_q.strip():
+                clean_q = query
+            else:
+                clean_q = clean_q.strip()
             con.success(f"Extracted filters: {filters} | Clean query: '{clean_q}'")
             return clean_q, filters if filters else None
         except Exception as e:
@@ -470,6 +477,9 @@ class RAGService:
 
     def retrieve_relevant_chunks(self, query: str, limit: int = 5, paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> List[tuple[Chunk, float]]:
         # Focused document RAG: cosine similarity search directly over document chunks in Python
+        if not query or not isinstance(query, str) or not query.strip():
+            return []
+
         if paper_id:
             import numpy as np
             chunks = self.vector_repo.get_chunks_for_paper(paper_id)
