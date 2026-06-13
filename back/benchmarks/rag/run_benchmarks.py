@@ -498,7 +498,7 @@ def main():
         llm_provider_detail = f"local ({llm_provider})"
         
     embedding_model = config.data["embedding"]["model_name"]
-    reranker_model = "mixedbread-ai/mxbai-rerank-xsmall-v1" if config.data["rag_components"].get("reranker", True) else "disabled"
+    reranker_model = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1" if config.data["rag_components"].get("reranker", True) else "disabled"
     
     output_data = {
         "metadata": {
