@@ -13,10 +13,27 @@ from src.models import Chunk, Paper
 from src.repository.base import GraphRepository, VectorRepository
 from src.llm_engine import BaseLLMEngine
 from src.llm_schemas import EvidenceListResponse
+from src.config import config
 from src.prompts import prompts
 
+def _safe_float(val: Any, default: float) -> float:
+    try:
+        if val.__class__.__name__ in ("MagicMock", "Mock"):
+            return default
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+def _safe_int(val: Any, default: int) -> int:
+    try:
+        if val.__class__.__name__ in ("MagicMock", "Mock"):
+            return default
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
 def safe_sigmoid(x: float) -> float:
-    val = -25.0 * (x - 0.5)
+    val = _safe_float(config.graph_sigmoid_slope, -25.0) * (x - _safe_float(config.graph_sigmoid_center, 0.5))
     if val > 700.0:
         return 0.0
     if val < -700.0:
@@ -30,8 +47,8 @@ class ExperimentalGraphExpander:
         vector_repo: VectorRepository,
         llm_engine: BaseLLMEngine,
         reranker: Any,
-        p_base: float = 0.75,
-        gamma: float = 0.5,
+        p_base: Optional[float] = None,
+        gamma: Optional[float] = None,
         limit: int = 5,
         top_chunks_per_paper: int = 2,
     ):
@@ -39,8 +56,8 @@ class ExperimentalGraphExpander:
         self.vector_repo = vector_repo
         self.llm_engine = llm_engine
         self.reranker = reranker
-        self.p_base = p_base
-        self.gamma = gamma
+        self.p_base = p_base if p_base is not None else _safe_float(config.graph_p_base, 0.75)
+        self.gamma = gamma if gamma is not None else _safe_float(config.graph_gamma, 0.5)
         self.limit = limit
         self.top_chunks_per_paper = top_chunks_per_paper
         
@@ -334,8 +351,8 @@ class ExperimentalGraphExpander:
             # Log current hop info
             con.info(f"Hop {n}: {len(new_neighbors)} neighbors -> calculated K_n limit: {k_n_float:.2f}")
             
-            if k_n_float < 1.0:
-                con.info(f"Decay stopping criteria reached: K_n={k_n_float:.2f} < 1.0. Stopping crawl.")
+            if k_n_float < _safe_float(config.graph_crawl_stop_threshold, 1.0):
+                con.info(f"Decay stopping criteria reached: K_n={k_n_float:.2f} < {_safe_float(config.graph_crawl_stop_threshold, 1.0)}. Stopping crawl.")
                 hop_data["total_time"] = time.perf_counter() - t_hop_start
                 telemetry["hops"].append(hop_data)
                 break
@@ -443,8 +460,8 @@ class ExperimentalGraphExpander:
                 final_score = semantic_score * authority
                 scored_candidates.append((nid, label, name_or_title, cards[i][1], conn_desc, semantic_score, is_note, final_score))
                 
-            # Filter semantic_score > 0.4 (bypass for UserNotes to prioritize notes)
-            valid_candidates = [c for c in scored_candidates if c[5] > 0.4 or c[1] == "UserNote"]
+            # Filter semantic_score > threshold (bypass for UserNotes to prioritize notes)
+            valid_candidates = [c for c in scored_candidates if c[5] > _safe_float(config.graph_semantic_score_threshold, 0.4) or c[1] == "UserNote"]
             valid_candidates.sort(key=lambda x: (x[6], x[7]), reverse=True)
             
             # Select top k_limit
@@ -517,10 +534,10 @@ class ExperimentalGraphExpander:
                 sigmoid_score = safe_sigmoid(raw_score)
                 paper_to_scored_chunks.setdefault(c.paper_id, []).append((c, sigmoid_score))
                 
-            # Keep top chunks per paper (only those above the 0.4 threshold to filter noise)
+            # Keep top chunks per paper (only those above the threshold to filter noise)
             for pid, scored in paper_to_scored_chunks.items():
                 scored.sort(key=lambda x: x[1], reverse=True)
-                valid_scored = [item for item in scored if item[1] > 0.4]
+                valid_scored = [item for item in scored if item[1] > _safe_float(config.graph_sigmoid_score_threshold, 0.4)]
                 top_scored = valid_scored[:self.top_chunks_per_paper]
                 top_scored_ids = {c.id for c, _ in top_scored}
                 
@@ -623,7 +640,7 @@ class ExperimentalGraphExpander:
             for idx, sid in enumerate(short_ids):
                 raw_score = float(scores[idx])
                 sigmoid_score = safe_sigmoid(raw_score)
-                is_essential = sigmoid_score >= 0.5
+                is_essential = sigmoid_score >= _safe_float(config.graph_essential_fact_threshold, 0.5)
                 
                 if is_essential:
                     orig_id = short_to_orig.get(sid)

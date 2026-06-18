@@ -293,6 +293,10 @@ def validate_no_hallucinations(data: Any) -> None:
 
 
 class BaseLLMEngine:
+    def unload_model(self):
+        """Unload model and free GPU resources if applicable."""
+        pass
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         for name in ["generate_response", "generate_response_async", "generate_json", "generate_json_async"]:

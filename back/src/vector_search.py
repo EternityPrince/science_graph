@@ -1,7 +1,7 @@
 import re
 import time
 import fitz
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from rank_bm25 import BM25Okapi
 from src.config import config
 from src.models import Chunk
@@ -10,6 +10,7 @@ class EmbeddingEngine:
     def __init__(self, model_name: str = None):
         self.model_name = model_name or config.embedding_model_name
         self.model = None
+        self._query_cache = {}
 
     def _ensure_model_loaded(self):
         if self.model is None:
@@ -23,8 +24,27 @@ class EmbeddingEngine:
                 self.model = SentenceTransformer(self.model_name, device=device)
             con.success(f"Embeddings ready: [bold]{short}[/bold] on {device.upper()}")
 
+    def unload_model(self):
+        if self.model is not None:
+            import gc
+            self.model = None
+            gc.collect()
+            try:
+                import torch
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+                elif torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            from src import console as con
+            con.success("EmbeddingEngine model unloaded and GPU cache cleared")
+
     def get_embedding(self, text: str, is_query: bool = True) -> List[float]:
         """Generates embedding for a single text string."""
+        if is_query and text in self._query_cache:
+            return self._query_cache[text]
+
         self._ensure_model_loaded()
         
         # Prepend query: or passage: prefix for E5 models if not already present
@@ -34,27 +54,52 @@ class EmbeddingEngine:
                 text = prefix + text
                 
         emb = self.model.encode(text, convert_to_numpy=True, show_progress_bar=False)
-        return emb.tolist()
+        emb_list = emb.tolist()
+        if is_query:
+            self._query_cache[text] = emb_list
+        return emb_list
 
     def get_embeddings(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
         """Generates embeddings for a list of text strings."""
         if not texts:
             return []
-        self._ensure_model_loaded()
+
+        # If is_query, check which texts are already cached
+        results = [None] * len(texts)
+        uncached_indices = []
+        uncached_texts = []
         
-        # Prepend query: or passage: prefix for E5 models if not already present
-        if "e5" in self.model_name.lower():
-            prefix = "query: " if is_query else "passage: "
-            processed_texts = []
-            for t in texts:
-                if not t.startswith(prefix):
-                    processed_texts.append(prefix + t)
-                else:
-                    processed_texts.append(t)
-            texts = processed_texts
+        for idx, text in enumerate(texts):
+            if is_query and text in self._query_cache:
+                results[idx] = self._query_cache[text]
+            else:
+                uncached_indices.append(idx)
+                uncached_texts.append(text)
+
+        if uncached_texts:
+            self._ensure_model_loaded()
             
-        embs = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-        return embs.tolist()
+            # Prepend query: or passage: prefix for E5 models if not already present
+            processed_texts = []
+            if "e5" in self.model_name.lower():
+                prefix = "query: " if is_query else "passage: "
+                for t in uncached_texts:
+                    if not t.startswith(prefix):
+                        processed_texts.append(prefix + t)
+                    else:
+                        processed_texts.append(t)
+            else:
+                processed_texts = uncached_texts
+
+            embs = self.model.encode(processed_texts, convert_to_numpy=True, show_progress_bar=False)
+            embs_list = embs.tolist()
+            
+            for idx, emb_val in zip(uncached_indices, embs_list):
+                results[idx] = emb_val
+                if is_query:
+                    self._query_cache[texts[idx]] = emb_val
+                    
+        return results
 
 
 
@@ -228,11 +273,14 @@ class BM25(BM25Okapi):
     """
     A long-lived, rank_bm25-based BM25 implementation supporting incremental updates.
     """
-    def __init__(self, corpus: List[Tuple[str, str]], k1: float = 1.5, b: float = 0.75):
+    def __init__(self, corpus: List[Tuple[str, str]], k1: Optional[float] = None, b: Optional[float] = None):
         # Store original mapping
         self.doc_ids: List[str] = []
         self.doc_texts: Dict[str, str] = {}
         self.nd: Dict[str, int] = {}
+        
+        k1_val = k1 if k1 is not None else config.bm25_k1
+        b_val = b if b is not None else config.bm25_b
         
         tokenized_corpus = []
         for doc_id, text in corpus:
@@ -241,7 +289,7 @@ class BM25(BM25Okapi):
             words = self._tokenize(text)
             tokenized_corpus.append(words)
             
-        super().__init__(tokenized_corpus, k1=k1, b=b)
+        super().__init__(tokenized_corpus, k1=k1_val, b=b_val)
         
         # Populating self.nd from base class's doc_freqs
         for tf in self.doc_freqs:

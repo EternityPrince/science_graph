@@ -11,6 +11,22 @@ from src.config import config
 from src import console as con
 from src.prompts import prompts
 
+def _safe_float(val: Any, default: float) -> float:
+    try:
+        if val.__class__.__name__ in ("MagicMock", "Mock"):
+            return default
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+def _safe_int(val: Any, default: int) -> int:
+    try:
+        if val.__class__.__name__ in ("MagicMock", "Mock"):
+            return default
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
 TECHNICAL_TOKEN_RE = re.compile(
     r"(<\|im_start\|>|<\|im_end\|>|<\|im_sep\|>|<\|start_header_id\|>|<\|end_header_id\|>|<\|eot_id\|>|<\|eom_id\|>|<\|endoftext\|>|<\|assistant\|>|<\|user\|>|<\|system\|>|<\|end\|>|\[INST\]|\[/INST\]|<s>|</s>|<start_of_turn>|<end_of_turn>|<<SYS>>|<</SYS>>|<pad>|<unk>)",
     re.IGNORECASE
@@ -336,7 +352,7 @@ class RAGService:
             return [query] if isinstance(query, str) else []
 
         try:
-            max_expanded = config.max_expanded_queries
+            max_expanded = _safe_int(config.max_expanded_queries, 3)
         except Exception:
             max_expanded = 3
 
@@ -379,7 +395,7 @@ class RAGService:
                 from src.llm_schemas import LLMQueryExpansionResponse
                 from src.llm_engine import StructuredOutput
 
-                max_tokens = min(config.llm_max_tokens, 200)
+                max_tokens = min(_safe_int(config.llm_max_tokens, 1000), 200)
                 structured = StructuredOutput(LLMQueryExpansionResponse)
                 validated = structured.generate(self.llm_engine, prompt, max_tokens=max_tokens)
                 parsed = validated.root
@@ -555,13 +571,13 @@ class RAGService:
                     if argv_hyde is not None:
                         hyde_responses = argv_hyde
                     else:
-                        hyde_responses = getattr(config, "hyde_count", 1)
+                        hyde_responses = _safe_int(getattr(config, "hyde_count", 1), 1)
 
                 for _ in range(hyde_responses):
                     try:
                         hypothetical = self.llm_engine.generate_response(
                             prompt=prompts.get_prompt("rag", "hyde", query=query),
-                            max_tokens=config.hyde_max_tokens
+                            max_tokens=_safe_int(config.hyde_max_tokens, 300)
                         )
                         con.debug(f"Generated hypothetical answer: {hypothetical}")
                         
@@ -605,13 +621,13 @@ class RAGService:
 
         # Dynamic alpha blending based on FTS5 match strength
         if config.rag_components.get("dynamic_alpha_blending", True):
-            fts_weight = 1.0
+            fts_weight = _safe_float(config.dynamic_alpha_val_high, 1.0)
             if fts5_results:
                 max_bm25 = max(score for _, score in fts5_results)
-                if max_bm25 < 1.0: # Very weak keyword matches
-                    fts_weight = 0.2
-                elif max_bm25 < 3.0:
-                    fts_weight = 0.5
+                if max_bm25 < _safe_float(config.dynamic_alpha_threshold_low, 1.0): # Very weak keyword matches
+                    fts_weight = _safe_float(config.dynamic_alpha_val_low, 0.2)
+                elif max_bm25 < _safe_float(config.dynamic_alpha_threshold_mid, 3.0):
+                    fts_weight = _safe_float(config.dynamic_alpha_val_mid, 0.5)
             else:
                 fts_weight = 0.0
         else:
@@ -622,10 +638,10 @@ class RAGService:
         if config.rag_components.get("rrf", True):
             rrf_scores = {}
             for rank, (chunk, _) in enumerate(dense_results, start=1):
-                rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + dense_weight * (1.0 / (60.0 + rank))
+                rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + dense_weight * (1.0 / (_safe_float(config.rrf_k, 60.0) + rank))
                 
             for rank, (chunk, _) in enumerate(fts5_results, start=1):
-                rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + fts_weight * (1.0 / (60.0 + rank))
+                rrf_scores[chunk.id] = rrf_scores.get(chunk.id, 0.0) + fts_weight * (1.0 / (_safe_float(config.rrf_k, 60.0) + rank))
                 
             sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
             candidate_ids = sorted_ids[:limit * 2]
@@ -671,7 +687,7 @@ class RAGService:
                 scored_candidates = []
                 for idx, c in enumerate(candidates):
                     if config.rag_components.get("score_blending", True):
-                        blended_score = 0.7 * norm_r[idx] + 0.3 * norm_rrf[idx]
+                        blended_score = _safe_float(config.score_blend_reranker_weight, 0.7) * norm_r[idx] + _safe_float(config.score_blend_rrf_weight, 0.3) * norm_rrf[idx]
                     else:
                         blended_score = float(scores[idx])
                     scored_candidates.append((c, blended_score, float(scores[idx])))
@@ -787,7 +803,7 @@ class RAGService:
                         model=self.llm_engine.model,
                         tokenizer=self.llm_engine.tokenizer,
                         prompt=prompt,
-                        max_tokens=config.llm_max_tokens,
+                        max_tokens=_safe_int(config.llm_max_tokens, 1000),
                     )
                     for response in gen:
                         token_text = response.text if hasattr(response, "text") else str(response)

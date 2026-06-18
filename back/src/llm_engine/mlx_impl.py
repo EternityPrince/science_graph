@@ -110,6 +110,23 @@ class MlxLLMEngine(BaseLLMEngine):
         # current thread" (MLX 0.31+ enforces thread-local streams).
         import mlx_lm.generate  # noqa: F401
 
+    def unload_model(self):
+        if self.model is not None:
+            import gc
+            self.model = None
+            self.tokenizer = None
+            self._tokenizer_data = None
+            gc.collect()
+            try:
+                import mlx.core as mx
+                if hasattr(mx, "clear_cache"):
+                    mx.clear_cache()
+                elif hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+                    mx.metal.clear_cache()
+            except ImportError:
+                pass
+            con.success("MLX LLM model unloaded and GPU cache cleared")
+
     def _ensure_model_loaded(self):
         if self.model is None:
             model_name = Path(self.model_path).name

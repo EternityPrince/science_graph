@@ -74,6 +74,50 @@ DEFAULT_CONFIG = {
         "score_blending": True,
         "context_trimming": True,
         "citation_repair": True,
+    },
+    "hyperparameters": {
+        "rag": {
+            # Weight of Cross-Encoder reranker score in final score blending
+            "score_blend_reranker_weight": 0.7,
+            # Weight of Reciprocal Rank Fusion (RRF) score in final score blending
+            "score_blend_rrf_weight": 0.3,
+            # Smoothing constant k used in Reciprocal Rank Fusion (RRF)
+            "rrf_k": 60.0,
+            # BM25 score threshold below which low alpha (lexical search weight) is applied
+            "dynamic_alpha_threshold_low": 1.0,
+            # Alpha value (lexical search weight) when BM25 score is below the low threshold
+            "dynamic_alpha_val_low": 0.2,
+            # BM25 score threshold below which mid alpha (lexical search weight) is applied
+            "dynamic_alpha_threshold_mid": 3.0,
+            # Alpha value (lexical search weight) when BM25 score is below the mid threshold
+            "dynamic_alpha_val_mid": 0.5,
+            # Alpha value (lexical search weight) when BM25 score is high
+            "dynamic_alpha_val_high": 1.0,
+        },
+        "graph": {
+            # Base probability of transitioning to/crawling a neighboring node in graph expansion
+            "p_base": 0.75,
+            # Decay factor gamma for graph crawling limits and authority aging
+            "gamma": 0.5,
+            # Convergence stop threshold: graph crawling halts when expected transition count K_n < threshold
+            "crawl_stop_threshold": 1.0,
+            # Minimum semantic score required to crawl a neighboring non-note node
+            "semantic_score_threshold": 0.4,
+            # Minimum sigmoid-scaled score required for a newly fetched text chunk to be relevant
+            "sigmoid_score_threshold": 0.4,
+            # Minimum sigmoid score required to classify a gathered graph fact as essential
+            "essential_fact_threshold": 0.5,
+            # Sigmoid scaling slope (factor) for Cross-Encoder reranker score logit calibration
+            "sigmoid_slope": -25.0,
+            # Sigmoid scaling center offset for Cross-Encoder reranker score logit calibration
+            "sigmoid_center": 0.5,
+        },
+        "bm25": {
+            # BM25 term frequency saturation parameter k1
+            "k1": 1.5,
+            # BM25 document length normalization parameter b
+            "b": 0.75,
+        }
     }
 }
 
@@ -214,6 +258,48 @@ rag_components:
   score_blending: true
   context_trimming: true
   citation_repair: true
+
+# Fine-grained hyperparameters for RAG, graph crawling, and search algorithms
+hyperparameters:
+  rag:
+    # Weight of Cross-Encoder reranker score in final score blending
+    score_blend_reranker_weight: 0.7
+    # Weight of Reciprocal Rank Fusion (RRF) score in final score blending
+    score_blend_rrf_weight: 0.3
+    # Smoothing constant k used in Reciprocal Rank Fusion (RRF)
+    rrf_k: 60.0
+    # BM25 score threshold below which low alpha (lexical search weight) is applied
+    dynamic_alpha_threshold_low: 1.0
+    # Alpha value (lexical search weight) when BM25 score is below the low threshold
+    dynamic_alpha_val_low: 0.2
+    # BM25 score threshold below which mid alpha (lexical search weight) is applied
+    dynamic_alpha_threshold_mid: 3.0
+    # Alpha value (lexical search weight) when BM25 score is below the mid threshold
+    dynamic_alpha_val_mid: 0.5
+    # Alpha value (lexical search weight) when BM25 score is high
+    dynamic_alpha_val_high: 1.0
+  graph:
+    # Base probability of transitioning to/crawling a neighboring node in graph expansion
+    p_base: 0.75
+    # Decay factor gamma for graph crawling limits and authority aging
+    gamma: 0.5
+    # Convergence stop threshold: graph crawling halts when expected transition count K_n < threshold
+    crawl_stop_threshold: 1.0
+    # Minimum semantic score required to crawl a neighboring non-note node
+    semantic_score_threshold: 0.4
+    # Minimum sigmoid-scaled score required for a newly fetched text chunk to be relevant
+    sigmoid_score_threshold: 0.4
+    # Minimum sigmoid score required to classify a gathered graph fact as essential
+    essential_fact_threshold: 0.5
+    # Sigmoid scaling slope (factor) for Cross-Encoder reranker score logit calibration
+    sigmoid_slope: -25.0
+    # Sigmoid scaling center offset for Cross-Encoder reranker score logit calibration
+    sigmoid_center: 0.5
+  bm25:
+    # BM25 term frequency saturation parameter k1
+    k1: 1.5
+    # BM25 document length normalization parameter b
+    b: 0.75
 """
             with open(self.config_file, "w", encoding="utf-8") as f:
                 f.write(config_template)
@@ -426,6 +512,79 @@ rag_components:
     @property
     def chunk_overlap(self) -> int:
         return self.data["embedding"]["chunk_overlap"]
+
+    @property
+    def score_blend_reranker_weight(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("score_blend_reranker_weight", 0.7))
+
+    @property
+    def score_blend_rrf_weight(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("score_blend_rrf_weight", 0.3))
+
+    @property
+    def rrf_k(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("rrf_k", 60.0))
+
+    @property
+    def dynamic_alpha_threshold_low(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("dynamic_alpha_threshold_low", 1.0))
+
+    @property
+    def dynamic_alpha_val_low(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("dynamic_alpha_val_low", 0.2))
+
+    @property
+    def dynamic_alpha_threshold_mid(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("dynamic_alpha_threshold_mid", 3.0))
+
+    @property
+    def dynamic_alpha_val_mid(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("dynamic_alpha_val_mid", 0.5))
+
+    @property
+    def dynamic_alpha_val_high(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("rag", {}).get("dynamic_alpha_val_high", 1.0))
+
+    @property
+    def graph_p_base(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("p_base", 0.75))
+
+    @property
+    def graph_gamma(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("gamma", 0.5))
+
+    @property
+    def graph_crawl_stop_threshold(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("crawl_stop_threshold", 1.0))
+
+    @property
+    def graph_semantic_score_threshold(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("semantic_score_threshold", 0.4))
+
+    @property
+    def graph_sigmoid_score_threshold(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("sigmoid_score_threshold", 0.4))
+
+    @property
+    def graph_essential_fact_threshold(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("essential_fact_threshold", 0.5))
+
+    @property
+    def graph_sigmoid_slope(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("sigmoid_slope", -25.0))
+
+    @property
+    def graph_sigmoid_center(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("sigmoid_center", 0.5))
+
+    @property
+    def bm25_k1(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("bm25", {}).get("k1", 1.5))
+
+    @property
+    def bm25_b(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("bm25", {}).get("b", 0.75))
+
 
     @property
     def spacy_model_name(self) -> str:

@@ -414,33 +414,42 @@ class TestRagBenchmark(unittest.TestCase):
             with patch.object(sys, "argv", test_args):
                 pipeline_main()
                 
-        self.assertEqual(mock_run.call_count, 3)
+        self.assertEqual(mock_run.call_count, 4)
         
-        # Verify call 1: run_benchmarks.py
+        # Verify call 1: run_retrieve.py
         call1_args = mock_run.call_args_list[0][0][0]
-        self.assertIn("run_benchmarks.py", call1_args[1])
+        self.assertIn("run_retrieve.py", call1_args[1])
         self.assertIn("--dataset", call1_args)
         self.assertIn(str(dataset_yaml.resolve()), call1_args)
         self.assertIn("--output", call1_args)
         self.assertIn("--baselines", call1_args)
         self.assertIn("B0,B1", call1_args)
         
-        # Verify call 2: run_evaluator.py
+        # Verify call 2: run_benchmarks.py
         call2_args = mock_run.call_args_list[1][0][0]
-        self.assertIn("run_evaluator.py", call2_args[1])
-        self.assertIn("--concurrency", call2_args)
-        self.assertIn("5", call2_args)
-        self.assertIn("--rpm", call2_args)
-        self.assertIn("100", call2_args)
-        self.assertIn("--limit", call2_args)
-        self.assertIn("10", call2_args)
-        self.assertIn("--clear-checkpoint", call2_args)
+        self.assertIn("run_benchmarks.py", call2_args[1])
+        self.assertIn("--dataset", call2_args)
+        self.assertIn(str(dataset_yaml.resolve()), call2_args)
+        self.assertIn("--output", call2_args)
+        self.assertIn("--baselines", call2_args)
+        self.assertIn("B0,B1", call2_args)
         
-        # Verify call 3: parse_metrics.py
+        # Verify call 3: run_evaluator.py
         call3_args = mock_run.call_args_list[2][0][0]
-        self.assertIn("parse_metrics.py", call3_args[1])
-        self.assertIn("--csv-summary", call3_args)
-        self.assertIn("--csv-details", call3_args)
+        self.assertIn("run_evaluator.py", call3_args[1])
+        self.assertIn("--concurrency", call3_args)
+        self.assertIn("5", call3_args)
+        self.assertIn("--rpm", call3_args)
+        self.assertIn("100", call3_args)
+        self.assertIn("--limit", call3_args)
+        self.assertIn("10", call3_args)
+        self.assertIn("--clear-checkpoint", call3_args)
+        
+        # Verify call 4: parse_metrics.py
+        call4_args = mock_run.call_args_list[3][0][0]
+        self.assertIn("parse_metrics.py", call4_args[1])
+        self.assertIn("--csv-summary", call4_args)
+        self.assertIn("--csv-details", call4_args)
 
 
 
