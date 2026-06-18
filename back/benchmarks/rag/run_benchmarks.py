@@ -10,6 +10,7 @@ from pathlib import Path
 
 # Set up python path to resolve src and core imports correctly
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.services.container import container
 from src.config import config
