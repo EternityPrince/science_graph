@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 Science Graph — End-to-End RAG Quality Benchmarking Pipeline.
-Orchestrates:
-1. Local/Cloud RAG generation (run_benchmarks.py)
-2. Cloud LLM-as-a-Judge evaluation (run_evaluator.py)
-3. Quality metrics parsing and CSV/Markdown reports (parse_metrics.py)
+Orchestrates the individual stages via subprocesses for optimal VRAM isolation.
 """
 
 import sys
@@ -14,17 +11,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Set up python path to resolve src imports correctly
+# Set up python path to resolve src and core imports correctly
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.config import config
 from src import console as con
-
-
-def get_safe_model_name(model_name: str) -> str:
-    name = Path(model_name).name
-    name = name.replace("/", "_").replace(":", "_").replace(" ", "_")
-    return name
+from core.config import get_safe_model_name
 
 
 def main():
@@ -91,7 +83,6 @@ def main():
         run_dir = output_dir
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        llm_provider = config.data["llm"]["provider"]
         if args.cloud:
             llm_model = config.data["llm"]["cloud"]["model_name"]
         else:
@@ -113,14 +104,39 @@ def main():
     # Subprocesses python interpreter
     python_bin = sys.executable
 
-    # STEP 1: RAG Generation
+    # STEP 1a: Pre-Retrieval Stage
     con.blank()
-    con.info("=== STEP 1: Running RAG Generation ===")
+    con.info("=== STEP 1a: Running Pre-Retrieval Stage ===")
+    retrieved_contexts_file = run_dir / "retrieved_contexts.yaml"
+    retrieve_cmd = [
+        python_bin, str(script_dir / "run_retrieve.py"),
+        "--dataset", str(dataset_path),
+        "--output", str(retrieved_contexts_file),
+        "--baselines", args.baselines,
+        "--no-unique-dir"
+    ]
+    if args.cloud:
+        retrieve_cmd.append("--cloud")
+
+    con.dim(f"Running command: {' '.join(retrieve_cmd)}")
+    t0_ret = time.perf_counter()
+    try:
+        subprocess.run(retrieve_cmd, check=True)
+        elapsed_ret = time.perf_counter() - t0_ret
+        con.success(f"Pre-Retrieval completed in {elapsed_ret:.2f} seconds.")
+    except subprocess.CalledProcessError as e:
+        con.error(f"Pre-Retrieval failed with exit code {e.returncode}.")
+        sys.exit(e.returncode)
+
+    # STEP 1b: RAG Generation Stage (consuming pre-retrieved contexts)
+    con.blank()
+    con.info("=== STEP 1b: Running RAG Generation Stage ===")
     gen_cmd = [
         python_bin, str(script_dir / "run_benchmarks.py"),
         "--dataset", str(dataset_path),
         "--output", str(eval_results),
         "--baselines", args.baselines,
+        "--consume-contexts", str(retrieved_contexts_file),
         "--no-unique-dir"
     ]
     if args.cloud:
