@@ -27,7 +27,7 @@ BASELINES_INFO = {
     "B3": "Dense + HyDE (Векторы + Гипотетический документ) — семантический поиск с гипотетическим ответом.",
     "B4": "Standard Hybrid (Базовый гибрид) — связка FTS5 + Векторы через RRF без графов.",
     "B5": "Hybrid + Graph (Базовый Граф-RAG) — гибридный поиск + статический обход графа (без реранкера/LLM-расширения).",
-    "B6": "Full Pipeline (Максимальный запуск) — включены все 13 компонентов (граф, реранкер, LLM-расширение, HyDE и др.)."
+    "B6": "Full Pipeline (Максимальный запуск) — включены все 12 компонентов (граф, реранкер, LLM-расширение и др. без HyDE)."
 }
 
 def get_baseline_config(baseline: str) -> dict:
@@ -59,9 +59,11 @@ def get_baseline_config(baseline: str) -> dict:
         components["context_trimming"] = True
         components["citation_repair"] = True
     elif baseline == "B6":
-        # Full pipeline has everything enabled
+        # Full pipeline has everything enabled except hyde
         components = {k: True for k in config.rag_components.keys()}
+        components["hyde"] = False
         
+    components["intent_classifier"] = False
     return components
 
 class BenchmarkStatsCollector:
@@ -79,6 +81,7 @@ class BenchmarkStatsCollector:
             "citation_repair": {"calls": 0, "time_sec": 0.0},
         }
         self.interceptors = []
+        self.prompt_tokens = 0
 
     def wrap_method(self, obj, method_name, key):
         if not obj or not hasattr(obj, method_name):
@@ -89,6 +92,12 @@ class BenchmarkStatsCollector:
         def wrapper(*args, **kwargs):
             t0 = time.perf_counter()
             stats[key]["calls"] += 1
+            if key == "llm_generation":
+                prompt = args[0] if args else kwargs.get("prompt", "")
+                try:
+                    self.prompt_tokens = self.rag_service.llm_engine.count_tokens(prompt)
+                except Exception:
+                    self.prompt_tokens = len(prompt) // 4
             try:
                 return orig_method(*args, **kwargs)
             finally:
@@ -174,6 +183,7 @@ class BenchmarkStatsCollector:
         for key in self.stats:
             self.stats[key]["calls"] = 0
             self.stats[key]["time_sec"] = 0.0
+        self.prompt_tokens = 0
 
     def stop(self):
         # Restore all methods
@@ -192,8 +202,40 @@ class BenchmarkStatsCollector:
             total_calls += v["calls"]
         return {
             "components": rounded_components,
-            "total_io_calls": total_calls
+            "total_io_calls": total_calls,
+            "prompt_tokens": self.prompt_tokens
         }
+
+def calculate_retrieval_recall(expected_papers: list, retrieved_papers: list) -> float:
+    if not expected_papers:
+        return 1.0
+    expected_set = {p.strip().lower() for p in expected_papers if p.strip()}
+    retrieved_set = {p.strip().lower() for p in retrieved_papers if p.strip()}
+    if not expected_set:
+        return 1.0
+    intersection = expected_set.intersection(retrieved_set)
+    return round(len(intersection) / len(expected_set), 4)
+
+def calculate_context_precision(expected_papers: list, retrieved_chunks: list) -> float:
+    if not expected_papers:
+        return 1.0
+    expected_set = {p.strip().lower() for p in expected_papers if p.strip()}
+    if not expected_set:
+        return 1.0
+    if not retrieved_chunks:
+        return 0.0
+
+    precision_sum = 0.0
+    relevant_hits = 0
+    for idx, chunk in enumerate(retrieved_chunks):
+        paper_id = chunk.get("paper_id", "")
+        if paper_id and paper_id.strip().lower() in expected_set:
+            relevant_hits += 1
+            precision_sum += relevant_hits / (idx + 1)
+            
+    if relevant_hits == 0:
+        return 0.0
+    return round(precision_sum / relevant_hits, 4)
 
 def run_query_on_baseline(
     rag_service: RAGService, 
@@ -462,12 +504,34 @@ def main():
                 
             elapsed = time.perf_counter() - t0
             
+            expected_papers = case.get("expected_papers", [])
+            if status == "success":
+                recall_val = calculate_retrieval_recall(expected_papers, retrieved)
+                precision_val = calculate_context_precision(expected_papers, chunks)
+                
+                # Context Fillness calculation
+                max_input_token = config.data["llm"].get("max_tokens", 1000)
+                context_token = metrics.get("prompt_tokens", 0)
+                context_fillness = round(context_token / max_input_token, 4) if max_input_token > 0 else 0.0
+                context_fillness = min(max(context_fillness, 0.0), 1.0)
+            else:
+                recall_val = 0.0
+                precision_val = 0.0
+                max_input_token = config.data["llm"].get("max_tokens", 1000)
+                context_token = 0
+                context_fillness = 0.0
+            
             case_result["baselines"][baseline] = {
                 "status": status,
                 "latency_sec": round(elapsed, 3),
                 "retrieved_papers": retrieved,
                 "baseline_config": get_baseline_config(baseline),
                 "metrics": metrics,
+                "context_token": context_token,
+                "max_input_token": max_input_token,
+                "context_fillness": context_fillness,
+                "retrieval_recall": recall_val,
+                "context_precision": precision_val,
                 "generated_answer": answer.strip(),
                 "retrieved_chunks": chunks
             }
@@ -553,6 +617,71 @@ def main():
 
     # Save individual baseline judge reports
     save_individual_judge_reports(output_data, output_path.parent, output_path.stem, output_path.suffix)
+
+    # Print a summary table of non-LLM metrics
+    try:
+        from rich.table import Table
+        from rich.console import Console
+        
+        summary_stats = {}
+        for case_result in output_data.get("results", []):
+            for baseline, b_data in case_result.get("baselines", {}).items():
+                if baseline not in summary_stats:
+                    summary_stats[baseline] = {
+                        "latency_sec": [],
+                        "retrieval_recall": [],
+                        "context_precision": []
+                    }
+                latency = b_data.get("latency_sec")
+                recall = b_data.get("retrieval_recall")
+                precision = b_data.get("context_precision")
+                
+                # Fallback calculation if missing
+                if recall is None or precision is None:
+                    expected = case_result.get("expected_papers", [])
+                    retrieved = b_data.get("retrieved_papers", [])
+                    chunks = b_data.get("retrieved_chunks", [])
+                    if recall is None:
+                        recall = calculate_retrieval_recall(expected, retrieved)
+                    if precision is None:
+                        precision = calculate_context_precision(expected, chunks)
+                
+                if b_data.get("status") == "success":
+                    if latency is not None:
+                        summary_stats[baseline]["latency_sec"].append(latency)
+                    if recall is not None:
+                        summary_stats[baseline]["retrieval_recall"].append(recall)
+                    if precision is not None:
+                        summary_stats[baseline]["context_precision"].append(precision)
+
+        final_summary = {}
+        for baseline, metrics in summary_stats.items():
+            final_summary[baseline] = {}
+            for m_name, values in metrics.items():
+                if values:
+                    final_summary[baseline][f"avg_{m_name}"] = sum(values) / len(values)
+                else:
+                    final_summary[baseline][f"avg_{m_name}"] = 0.0
+
+        console = Console()
+        table = Table(title="Retrieval Metrics Summary (Non-LLM)", show_header=True, header_style="bold magenta")
+        table.add_column("Baseline", style="cyan")
+        table.add_column("Recall", justify="right")
+        table.add_column("Precision", justify="right")
+        table.add_column("Latency (s)", justify="right")
+        
+        for baseline in sorted(final_summary.keys()):
+            stats = final_summary[baseline]
+            recall = f"{stats.get('avg_retrieval_recall', 0.0):.2%}" if baseline != "B0" else "N/A"
+            precision = f"{stats.get('avg_context_precision', 0.0):.2%}" if baseline != "B0" else "N/A"
+            latency = f"{stats.get('avg_latency_sec', 0.0):.2f}s"
+            table.add_row(baseline, recall, precision, latency)
+            
+        con.blank()
+        console.print(table)
+        con.blank()
+    except Exception as e:
+        con.warning(f"Could not generate retrieval metrics table: {e}")
 
     con.success(f"Benchmarking complete! Results saved to: {output_path.resolve()}, {judge_output_path.resolve()}, and {output_path.parent / 'baselines'}/")
     con.info("You can copy fragments of this file and feed them into your browser AI to analyze truthfulness and quality.")

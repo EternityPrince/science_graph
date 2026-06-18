@@ -41,11 +41,8 @@ class TestGraphExpanderEdgeCases(unittest.TestCase):
         self.graph_repo.get_papers_batch.return_value = {}
         self.graph_repo.get_neighbors.return_value = []
         
-        # Mock final LLM evidence filtering
-        mock_response = EvidenceListResponse(
-            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        # Mock final Cross-Encoder filtering
+        self.reranker.predict.return_value = [0.9, 0.9]
         
         result = self.expander.expand("test query", initial_chunks)
         # Should fallback to paper_id since title cannot be resolved
@@ -87,6 +84,7 @@ class TestGraphExpanderEdgeCases(unittest.TestCase):
         self.reranker.predict.side_effect = [
             [0.9, 0.8, 0.7], # Hop 1 (author_1, c1, t1)
             [0.8], # Hop 2 (institution_1, concept_1 is filtered out so only 1 candidate)
+            [0.0] * 10 # Final evidence filtering (low scores to not mark anything essential)
         ]
         
         result = self.expander.expand("test query", initial_chunks)
@@ -119,19 +117,10 @@ class TestGraphExpanderEdgeCases(unittest.TestCase):
         self.graph_repo.get_concept.return_value = Concept(id="t1", name="Tag One")
         self.graph_repo.get_node_properties.side_effect = lambda nid: {"name": "Dataset One"} if nid == "d1" else {}
         
-        self.reranker.predict.return_value = [0.9, 0.8, 0.7, 0.6]
-        
-        # LLM evidence filtering
-        mock_response = EvidenceListResponse(
-            evidence_list=[
-                EvidenceItem(id="fact_1", score=0.9, is_essential=True), # start paper
-                EvidenceItem(id="fact_2", score=0.9, is_essential=True), # p2 (Cites background)
-                EvidenceItem(id="fact_3", score=0.8, is_essential=True), # p3 (Cites malformed)
-                EvidenceItem(id="fact_4", score=0.7, is_essential=True), # t1 (Tag)
-                EvidenceItem(id="fact_5", score=0.6, is_essential=True)  # d1 (Dataset)
-            ]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        self.reranker.predict.side_effect = [
+            [0.9, 0.8, 0.7, 0.6], # Hop reranking
+            [0.9] * 10            # Final evidence filtering
+        ]
         
         result = self.expander.expand("test query", initial_chunks)
         
@@ -149,14 +138,7 @@ class TestGraphExpanderEdgeCases(unittest.TestCase):
         self.graph_repo.get_papers_batch.return_value = {"p1": Paper(id="p1", title="Title One")}
         self.graph_repo.get_neighbors.return_value = []
         
-        # Return fact_xyz which doesn't exist
-        mock_response = EvidenceListResponse(
-            evidence_list=[
-                EvidenceItem(id="fact_1", score=0.9, is_essential=True),
-                EvidenceItem(id="fact_xyz", score=0.9, is_essential=True)
-            ]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        self.reranker.predict.return_value = [0.9, 0.9]
         
         result = self.expander.expand("test query", initial_chunks)
         # Verify it doesn't crash and includes the valid fact_1

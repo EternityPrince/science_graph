@@ -147,11 +147,11 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("\"\"\"\nChunk 1 content\n\"\"\"", text_ctx)
         
         # Check graph lines
-        self.assertIn("- Author A (Author) authored paper 'Title A'", graph_ctx)
-        self.assertIn("- Paper 'Title A' mentions concept/topic 'Concept A'", graph_ctx)
-        self.assertIn("- Paper 'Title A' cites: cited B because of X", graph_ctx)
-        self.assertIn("- Paper 'Title A' cites paper 'Title C'", graph_ctx)
-        self.assertIn("- Node ''Title A'' is connected to 'x1' via OTHER_REL", graph_ctx)
+        self.assertIn("- (Author A:Author)-[AUTHORED]->('Title A':Paper)", graph_ctx)
+        self.assertIn("- ('Title A':Paper)-[MENTIONS_CONCEPT]->(Concept A:Concept)", graph_ctx)
+        self.assertIn("- ('Title A':Paper)-[CITES {preview: \"cited B because of X\"}]->('Title B':Paper)", graph_ctx)
+        self.assertIn("- ('Title A':Paper)-[CITES]->('Title C':Paper)", graph_ctx)
+        self.assertIn("- ('Title A':Paper)-[OTHER_REL]->(x1:Other)", graph_ctx)
 
     def test_retrieve_relevant_chunks_success(self):
         self.emb_engine.get_embedding.return_value = [0.1, 0.2]
@@ -419,17 +419,58 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.service, "build_context", side_effect=build_context_mock):
             trimmed_text, trimmed_graph, trimmed_chunks = self.service.trim_context(
                 context_text="Block 1: text1",
-                context_graph="- a1 (Author) authored paper p1\n- Paper p1 cites paper p2",
+                context_graph="- (a1:Author)-[AUTHORED]->(p1:Paper)\n- (p1:Paper)-[CITES]->(p2:Paper)",
                 final_chunks=final_chunks,
                 query="query",
                 history_str="",
                 system_prompt="system",
-                model_max_context=31,
-                reserved_tokens=15 # limit is 16 tokens
+                model_max_context=40,
+                reserved_tokens=15 # limit is 25 tokens
             )
             
-            self.assertIn("cites paper p2", trimmed_graph)
-            self.assertNotIn("authored paper", trimmed_graph)
+            self.assertIn("-[CITES]->", trimmed_graph)
+            self.assertNotIn("-[AUTHORED]->", trimmed_graph)
+
+    def test_trim_context_graph_trimmed_first_multiple_chunks(self):
+        # Even with multiple chunks, if context exceeds limit, graph is trimmed first.
+        chunk1 = MagicMock(spec=Chunk)
+        chunk1.paper_id = "p1"
+        chunk1.page_number = 1
+        chunk1.text_content = "text1"
+
+        chunk2 = MagicMock(spec=Chunk)
+        chunk2.paper_id = "p2"
+        chunk2.page_number = 1
+        chunk2.text_content = "text2"
+
+        final_chunks = [(chunk1, 0.9), (chunk2, 0.8)]
+        
+        # Mock get_neighbors
+        self.graph_repo.get_neighbors.return_value = [
+            ("a1", "Author", "AUTHORED", "p1", "Paper", json.dumps({"score": 0.5})),
+            ("p1", "Paper", "CITES", "p2", "Paper", json.dumps({"score": 0.9})),
+        ]
+        self.service._resolve_node_name = MagicMock(side_effect=lambda nid, lbl: nid)
+
+        # Mock build_context
+        def build_context_mock(chunks):
+            return "Block 1: text1\n\nBlock 2: text2", "- (a1:Author)-[AUTHORED]->(p1:Paper)\n- (p1:Paper)-[CITES]->(p2:Paper)"
+            
+        with patch.object(self.service, "build_context", side_effect=build_context_mock):
+            trimmed_text, trimmed_graph, trimmed_chunks = self.service.trim_context(
+                context_text="Block 1: text1\n\nBlock 2: text2",
+                context_graph="- (a1:Author)-[AUTHORED]->(p1:Paper)\n- (p1:Paper)-[CITES]->(p2:Paper)",
+                final_chunks=final_chunks,
+                query="query",
+                history_str="",
+                system_prompt="system",
+                model_max_context=60, # large limit but not enough for both chunks and both graph lines
+                reserved_tokens=25
+            )
+            # Both chunks should remain untouched because graph was trimmed first to fit
+            self.assertEqual(len(trimmed_chunks), 2)
+            self.assertIn("-[CITES]->", trimmed_graph)
+            self.assertNotIn("-[AUTHORED]->", trimmed_graph)
 
     @patch("src.services.rag_service.config")
     def test_expand_query_success(self, mock_config):
@@ -703,6 +744,41 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         
         self.assertEqual(self.llm_engine.generate_response.call_count, 2)
         self.assertEqual(self.emb_engine.get_embedding.call_count, 3)
+
+    def test_count_prompt_tokens(self):
+        from src.services.rag_service import count_prompt_tokens
+        
+        # Empty inputs
+        self.assertEqual(count_prompt_tokens(""), 0)
+        self.assertEqual(count_prompt_tokens(None), 0)
+        
+        # Happy path (tiktoken encoding)
+        tokens_count = count_prompt_tokens("Hello world, this is a test.")
+        self.assertTrue(tokens_count > 0)
+        
+        # Exception fallback
+        with patch("tiktoken.encoding_for_model", side_effect=Exception("Mocked tiktoken error")):
+            fallback_count = count_prompt_tokens("Hello world, this is a test.")
+            # Falls back to len(text.split()) which is 6 words
+            self.assertEqual(fallback_count, 6)
+
+    def test_rag_service_warmup_failures(self):
+        mock_embedding_engine = MagicMock()
+        mock_embedding_engine.get_embedding.side_effect = Exception("Embed fail")
+        
+        mock_reranker = MagicMock()
+        mock_reranker.predict.side_effect = Exception("Reranker predict fail")
+        
+        with patch("src.services.rag_service.RAGService._get_reranker", return_value=mock_reranker):
+            svc = RAGService(
+                self.graph_repo,
+                self.vector_repo,
+                mock_embedding_engine,
+                self.llm_engine,
+                self.expander,
+                warmup=True
+            )
+            self.assertIsNotNone(svc)
 
 if __name__ == "__main__":
     unittest.main()

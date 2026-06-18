@@ -430,5 +430,130 @@ class TestLLMEngineIntegration(unittest.TestCase):
         model_rel = LLMExtractionResponse.model_validate(raw_relations)
         self.assertEqual(len(model_rel.concept_relations), 2)
 
+    def test_extraction_invalid_types_and_fallbacks(self):
+        """Test extraction validation with malformed field types and invalid characters."""
+        raw_data = {
+            # Resetting lists
+            "authors": "Not A List",
+            "concepts": None,
+            "tags": 12345,
+            "institutions": {},
+            "author_institutions": "String",
+            "sponsored_by": False,
+            "datasets": True,
+            "code_repositories": "No list",
+            "citation_intents": "None",
+            "concept_relations": 3.14
+        }
+        model, warnings = validate_extraction_response(raw_data)
+        self.assertEqual(model.authors, [])
+        self.assertEqual(model.concepts, [])
+        self.assertEqual(model.tags, [])
+        self.assertEqual(model.institutions, [])
+        self.assertEqual(model.author_institutions, [])
+        self.assertEqual(model.sponsored_by, [])
+        self.assertEqual(model.datasets, [])
+        self.assertEqual(model.code_repositories, [])
+        self.assertEqual(model.citation_intents, [])
+        self.assertEqual(model.concept_relations, [])
+        self.assertTrue(any("Expected 'authors' to be a list" in w for w in warnings))
+
+    def test_extraction_element_filtering_and_cleaning(self):
+        """Test extraction validation with mixed valid/invalid element types and values."""
+        raw_data = {
+            "authors": ["Alice Smith", 123, "   ", "A", "University of Cambridge"],
+            "concepts": [
+                "Not a dict concept",
+                {"name": 123, "description": "Desc"},
+                {"name": "Concept A", "description": 123},
+                {"name": "   ", "description": "Valid description"},
+                {"name": "Too Long Concept Name Here Because It Has More Than Five Words", "description": "Valid desc"},
+                {"name": "Concept B", "description": "Short desc", "aliases": ["alias1", 123, "  "]}
+            ],
+            "tags": ["valid tag", 123, "   ", "tag too long with too many words here", "bad_tag_@_char", "valid tag"],
+            "institutions": ["Valid Inst", 123, "  "],
+            "author_institutions": ["Not a dict", {"author": 123, "institution": "Inst"}, {"author": "Author A", "institution": "Inst"}],
+            "sponsored_by": ["Valid Sponsor", 123, "  "],
+            "datasets": [
+                "Dataset String A",
+                {"name": "Dataset Dict B", "relation": "INTRODUCED_DATASET"},
+                {"name": "Dataset Dict C", "relation": "INVALID_RELATION"},
+                {"name": 123, "relation": "USED_DATASET"},
+                "  "
+            ],
+            "code_repositories": ["https://github.com/repo", 123, "not-a-url"],
+            "journal_or_conference": "Conference Name",
+            "citation_intents": [
+                "Not a dict",
+                {"target_title": "Paper A", "intent": "BACKGROUND"},
+                {"target_title": 123, "intent": "BACKGROUND"},
+                {"target_title": "  ", "intent": "BACKGROUND"}
+            ],
+            "concept_relations": [
+                "Not a dict",
+                {"source": "Concept A", "target": "Concept B", "relation_type": "IS_A"},
+                {"source": "Concept A", "target": "Concept B", "relation_type": "INVALID_REL"},
+                {"source": 123, "target": "Concept B", "relation_type": "IS_A"}
+            ]
+        }
+        
+        model, warnings = validate_extraction_response(raw_data)
+        
+        # Verify authors
+        self.assertEqual(model.authors, ["Alice Smith"])
+        # Verify concepts
+        self.assertEqual(len(model.concepts), 1)
+        self.assertEqual(model.concepts[0].name, "Concept B")
+        self.assertEqual(model.concepts[0].aliases, ["alias1"])
+        # Verify tags
+        self.assertEqual(model.tags, ["valid tag"])
+        # Verify institutions
+        self.assertEqual(model.institutions, ["Valid Inst"])
+        # Verify author_institutions
+        self.assertEqual(model.author_institutions, [{"author": "Author A", "institution": "Inst"}])
+        # Verify sponsored_by
+        self.assertEqual(model.sponsored_by, ["Valid Sponsor"])
+        # Verify datasets
+        self.assertEqual(len(model.datasets), 3)
+        self.assertEqual(model.datasets[0].name, "Dataset String A")
+        self.assertEqual(model.datasets[0].relation, "USED_DATASET")
+        self.assertEqual(model.datasets[1].name, "Dataset Dict B")
+        self.assertEqual(model.datasets[1].relation, "INTRODUCED_DATASET")
+        self.assertEqual(model.datasets[2].name, "Dataset Dict C")
+        self.assertEqual(model.datasets[2].relation, "USED_DATASET") # Default fallback
+        # Verify code_repositories
+        self.assertEqual(model.code_repositories, ["https://github.com/repo"])
+        # Verify journal_or_conference
+        self.assertEqual(model.journal_or_conference, "Conference Name")
+        # Verify citation_intents
+        self.assertEqual(len(model.citation_intents), 1)
+        self.assertEqual(model.citation_intents[0].target_title, "Paper A")
+        # Verify concept_relations
+        self.assertEqual(len(model.concept_relations), 1)
+        self.assertEqual(model.concept_relations[0].source, "Concept A")
+        self.assertEqual(model.concept_relations[0].relation_type, "IS_A")
+
+    def test_clustering_response_invalid_inputs(self):
+        """Test clustering validation with malformed raw clustering data."""
+        # 1. Non-dict input
+        model1, warnings1 = validate_clustering_response("Not a dict")
+        self.assertEqual(model1.root, {})
+        self.assertTrue(any("Expected clustering response to be a JSON dictionary" in w for w in warnings1))
+
+        # 2. Dict input with non-list values or non-string list elements
+        raw_data = {
+            "Cluster A": ["Paper 1", "Paper 2"],
+            "Cluster B": "Not a list",
+            "Cluster C": [123, "Paper 3"],
+            "Cluster D": []
+        }
+        model2, warnings2 = validate_clustering_response(raw_data)
+        self.assertEqual(model2.root["Cluster A"], ["Paper 1", "Paper 2"])
+        self.assertNotIn("Cluster B", model2.root)
+        self.assertEqual(model2.root["Cluster C"], ["Paper 3"])
+        self.assertNotIn("Cluster D", model2.root)
+        self.assertTrue(any("Cluster B" in w and "is not a list" in w for w in warnings2))
+        self.assertTrue(any("Cluster C" in w and "non-string chunk ID" in w for w in warnings2))
+
 
 

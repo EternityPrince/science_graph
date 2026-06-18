@@ -609,38 +609,36 @@ class ExperimentalGraphExpander:
                 self._print_trace_summary(telemetry)
             return "No enrichment facts gathered."
 
-        # Final request to main LLM
-        facts_block = ""
-        for sid, text in short_to_text.items():
-            facts_block += f"- ID: {sid}\n  Content: {text}\n\n"
-        prompt = prompts.get_prompt("evaluation", "evaluate_evidence", query=query, facts=facts_block)
-        
         essential_items = []
+        essential_ids_set = set()
         try:
-            with self.model_lock:
-                response = self.llm_engine.generate_and_validate_json(
-                    prompt=prompt,
-                    schema_class=EvidenceListResponse,
-                    temp=0.0
-                )
+            # Rerank all gathered facts using the Cross-Encoder
+            short_ids = list(short_to_text.keys())
+            fact_texts = [short_to_text[sid] for sid in short_ids]
+            pairs = [(query, text) for text in fact_texts]
             
-            # Map back short IDs
-            essential_ids_set = set()
-            for item in response.evidence_list:
-                if item.is_essential:
-                    orig_id = short_to_orig.get(item.id)
+            with self.model_lock:
+                scores = self.reranker.predict(pairs)
+                
+            for idx, sid in enumerate(short_ids):
+                raw_score = float(scores[idx])
+                sigmoid_score = safe_sigmoid(raw_score)
+                is_essential = sigmoid_score >= 0.5
+                
+                if is_essential:
+                    orig_id = short_to_orig.get(sid)
                     if orig_id:
-                        essential_items.append(item.id)
-                        essential_ids_set.add(item.id)
+                        essential_items.append(sid)
+                        essential_ids_set.add(sid)
                 
                 # Update telemetry
                 for f in telemetry["filtering"]["facts_evaluated"]:
-                    if f["short_id"] == item.id:
-                        f["is_essential"] = item.is_essential
-                        f["score"] = item.score
+                    if f["short_id"] == sid:
+                        f["is_essential"] = is_essential
+                        f["score"] = sigmoid_score
 
             telemetry["filtering"]["essential_ids"] = list(essential_ids_set)
-            con.success(f"Evidence list filtering: {len(essential_items)} / {len(short_to_text)} facts marked essential.")
+            con.success(f"Evidence list filtering (Cross-Encoder): {len(essential_items)} / {len(short_to_text)} facts marked essential.")
         except Exception as e:
             con.warning(f"Evidence List semantic filtering failed: {e}. Falling back to including all gathered facts.")
             essential_items = list(short_to_text.keys())

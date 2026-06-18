@@ -43,9 +43,11 @@ class TestRagBenchmark(unittest.TestCase):
         self.assertTrue(b5_cfg["graph_expansion"])
         self.assertFalse(b5_cfg["reranker"])
         
-        # B6: Full Pipeline (All components should be True)
+        # B6: Full Pipeline (All components should be True except hyde and intent_classifier)
         b6_cfg = get_baseline_config("B6")
-        self.assertTrue(all(b6_cfg.values()))
+        self.assertFalse(b6_cfg["hyde"])
+        self.assertFalse(b6_cfg["intent_classifier"])
+        self.assertTrue(all(v for k, v in b6_cfg.items() if k not in ("hyde", "intent_classifier")))
 
     def test_example_golden_dataset_structure(self):
         """Validates that the example golden dataset YAML file has a correct schema."""
@@ -74,6 +76,7 @@ class TestRagBenchmark(unittest.TestCase):
         # Set up a mock RAG service and engines
         mock_llm = MagicMock()
         mock_llm.generate_response.return_value = "Mocked Zero-Shot Answer"
+        mock_llm.count_tokens.return_value = 10
         mock_ask.return_value = "Mocked RAG Answer"
         mock_retrieve.return_value = []
         
@@ -175,6 +178,7 @@ class TestRagBenchmark(unittest.TestCase):
         mock_rag.graph_repo = MagicMock()
         mock_rag._reranker = MagicMock()
         mock_rag.llm_engine = MagicMock()
+        mock_rag.llm_engine.count_tokens.return_value = 10
         
         collector = BenchmarkStatsCollector(mock_rag)
         collector.start()
@@ -210,6 +214,7 @@ class TestRagBenchmark(unittest.TestCase):
         
         mock_llm = MagicMock()
         mock_llm.generate_response.return_value = "Mocked Response"
+        mock_llm.count_tokens.return_value = 10
         mock_rag.llm_engine = mock_llm
         
         mock_rag.ask.return_value = "Mocked Ask Response"

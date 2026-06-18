@@ -391,3 +391,148 @@ class TestDoctor(unittest.TestCase):
             for src, tgt, etype, _ in edges
         )
         self.assertTrue(authored_edge_exists)
+
+    def test_doctor_author_merge(self):
+        # Create destination author: Bob Smith -> ID 'bob_smith'
+        bob = Author(id="bob_smith", name="Bob Smith")
+        self.graph_repo.save_author(bob)
+
+        # Create uncleaned source author: "Bob Smith" -> ID 'uncleaned_author'
+        bob_uncleaned = Author(id="uncleaned_author", name="\"Bob Smith\"")
+        self.graph_repo.save_author(bob_uncleaned)
+
+        # Add a paper and link the uncleaned author to it
+        paper = Paper(id="p_merge", title="Merge Paper", authors=["\"Bob Smith\""])
+        self.graph_repo.save_paper(paper)
+        self.graph_repo.add_edge("uncleaned_author", "p_merge", "AUTHORED")
+
+        # Run diagnostics check only
+        report = self.doctor_service.run_diagnostics(fix=False)
+        self.assertEqual(report["stats"]["authors_merged"], 1)
+
+        # Run diagnostics with fix=True
+        report_fix = self.doctor_service.run_diagnostics(fix=True)
+        self.assertEqual(report_fix["stats"]["authors_merged"], 1)
+
+        # Verify old author is deleted and edges are migrated to the clean one
+        self.assertIsNone(self.graph_repo.get_author("uncleaned_author"))
+        self.assertIsNotNone(self.graph_repo.get_author("bob_smith"))
+        
+        edges = self.graph_repo.get_all_edges()
+        self.assertTrue(any(
+            src == "bob_smith" and tgt == "p_merge" and etype == "AUTHORED"
+            for src, tgt, etype, _ in edges
+        ))
+
+    def test_doctor_enrich_exception_handling(self):
+        # Create a paper with missing abstract
+        paper = Paper(
+            id="p_enrich_fail",
+            title="Title",
+            authors=["Author One"],
+            abstract="",
+            properties={}
+        )
+        self.graph_repo.save_paper(paper)
+
+        # Mock MetadataEnricher to raise Exception
+        with patch("src.services.metadata_enricher.MetadataEnricher.enrich", side_effect=Exception("Enrich API down")):
+            # Run diagnostics, it should catch the exception and proceed
+            report = self.doctor_service.run_diagnostics(fix=True)
+            self.assertEqual(report["stats"]["papers_fixed"], 1)
+
+    def test_doctor_get_all_chunks_exception_handling(self):
+        # Mock vector_repo.get_all_chunks to raise Exception
+        with patch.object(self.vector_repo, "get_all_chunks", side_effect=Exception("DB Corrupted")):
+            # Run diagnostics, it should catch the exception and return empty chunks report
+            report = self.doctor_service.run_diagnostics(fix=True)
+            self.assertEqual(report["stats"]["chunks_checked"], 0)
+
+    @patch("src.services.doctor_service.logger")
+    def test_doctor_json_load_exception_handling(self, mock_logger):
+        # Mock get_all_nodes to return a node with invalid JSON properties
+        self.graph_repo.get_all_nodes = MagicMock(return_value=[
+            ("p_bad_json", "Paper", "invalid { json }")
+        ])
+
+        # Run diagnostics, it should catch JSONDecodeError and log it
+        report = self.doctor_service.run_diagnostics(fix=False)
+        self.assertEqual(report["stats"]["papers_checked"], 1)
+        mock_logger.error.assert_called()
+
+    def test_doctor_concept_emb_generation_exception_handling(self):
+        # Create a concept that needs renaming/lemmatization
+        concept = Concept(
+            id="concept_fail",
+            name="Computers",
+            properties={"description": "Desc"}
+        )
+        self.graph_repo.save_concept(concept)
+
+        mock_emb = MagicMock()
+        mock_emb.get_embedding.side_effect = Exception("Embeddings engine model failure")
+        self.doctor_service.emb_engine = mock_emb
+
+        # Mock the normalizer to rename it
+        with patch.object(self.doctor_service.normalizer, "normalize_concept_name", return_value="Computer"):
+            # Run diagnostics with fix=True, should catch embedding failure and complete successfully
+            report = self.doctor_service.run_diagnostics(fix=True)
+            self.assertEqual(report["stats"]["concepts_migrated"], 1)
+            
+        c = self.graph_repo.get_concept("computer")
+        self.assertIsNotNone(c)
+        self.assertNotIn("embedding", c.properties)
+
+    def test_doctor_concept_merge_and_update_edge_cases(self):
+        # 1. Concept Merge edge case
+        c1 = Concept(
+            id="machine_learning",
+            name="Machine Learning",
+            properties={"description": "Original description"}
+        )
+        self.graph_repo.save_concept(c1)
+        
+        # ID is different initially
+        c2 = Concept(
+            id="machine_learning_dot",
+            name="Machine Learning.",
+            properties={"description": "Description to merge"}
+        )
+        self.graph_repo.save_concept(c2)
+        # Link source to a paper to test edge migration
+        paper = Paper(id="p1", title="Paper Title", authors=[], abstract="Some abstract", properties={"summary": "Some summary"})
+        self.graph_repo.save_paper(paper)
+        self.graph_repo.add_edge("p1", "machine_learning_dot", "MENTIONS_CONCEPT")
+
+        # 2. Concept Update (same ID) edge case
+        c3 = Concept(
+            id="deep_learning",
+            name="Deep Learning",
+            properties={"description": "Description with space "}
+        )
+        self.graph_repo.save_concept(c3)
+
+        # Mock embedding engine to test embedding regeneration during update/merge
+        mock_emb = MagicMock()
+        mock_emb.get_embedding.return_value = [0.95] * 384
+        self.doctor_service.emb_engine = mock_emb
+
+        # Run diagnostics in FIX mode
+        report = self.doctor_service.run_diagnostics(fix=True)
+
+        # Verify merge
+        self.assertEqual(report["stats"]["concepts_merged"], 1)
+        self.assertIsNone(self.graph_repo.get_concept("machine_learning_dot"))
+        c1_fixed = self.graph_repo.get_concept("machine_learning")
+        self.assertIsNotNone(c1_fixed)
+        self.assertEqual(c1_fixed.name, "Machine Learning")
+        
+        # Verify edge migrated
+        neighbors = self.graph_repo.get_neighbors("p1")
+        self.assertTrue(any(row[3] == "machine_learning" for row in neighbors))
+
+        # Verify update
+        self.assertEqual(report["stats"]["concepts_fixed"], 1)
+        c3_fixed = self.graph_repo.get_concept("deep_learning")
+        self.assertIsNotNone(c3_fixed)
+        self.assertEqual(c3_fixed.properties.get("description"), "Description with space")

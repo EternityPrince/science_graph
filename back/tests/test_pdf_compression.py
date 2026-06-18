@@ -168,3 +168,51 @@ def test_is_pdf_valid_helper():
             os.remove(path)
 
 
+def test_pdf_compression_both_fail(monkeypatch):
+    import fitz
+    from src.parsers.pdf_parser import _compress_worker
+    import pytest
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
+        input_path = tmp_in.name
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_out:
+        output_path = tmp_out.name
+
+    try:
+        doc = fitz.open()
+        doc.new_page(width=100, height=100)
+        doc.save(input_path)
+        doc.close()
+
+        original_open = fitz.open
+        open_calls = 0
+
+        def mock_open(*args, **kwargs):
+            nonlocal open_calls
+            open_calls += 1
+            if open_calls == 3:  # Call 3 is the safe fallback fitz.open(input_path)
+                raise RuntimeError("Mocked safe fallback open failure")
+            return original_open(*args, **kwargs)
+
+        def mock_rewrite_images(*args, **kwargs):
+            raise RuntimeError("Mocked rewrite_images failure")
+
+        monkeypatch.setattr(fitz, "open", mock_open)
+        monkeypatch.setattr(fitz.Document, "rewrite_images", mock_rewrite_images)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            _compress_worker(
+                input_path=input_path,
+                output_path=output_path,
+                dpi_threshold=151,
+                dpi_target=150,
+                quality=75
+            )
+        assert "Failed to compress PDF: aggressive compression failed" in str(exc_info.value)
+    finally:
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+

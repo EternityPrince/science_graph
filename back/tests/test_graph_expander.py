@@ -41,23 +41,16 @@ class TestGraphExpander(unittest.TestCase):
             ("paper_3", "Paper", "CITES", "paper_1", "Paper", "{}")
         ]
         
-        # Mock LLM response for the evidence filtering step (Level 0 facts only)
-        # Only fact_1 (the starting paper) and fact_2 (the initial chunk)
-        mock_response = EvidenceListResponse(
-            evidence_list=[
-                EvidenceItem(id="fact_1", score=0.9, is_essential=True),
-                EvidenceItem(id="fact_2", score=0.9, is_essential=True)
-            ]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        # Mock Cross-Encoder filtering
+        self.reranker.predict.return_value = [0.9, 0.9]
         
         result = self.expander.expand("test query", initial_chunks)
         
         # Verify that get_neighbors was called once for paper_1
         self.graph_repo.get_neighbors.assert_called_once_with("paper_1", max_depth=1)
         
-        # Verify that reranker.predict was NOT called because Hop 1 stopped before building cards/reranking
-        self.reranker.predict.assert_not_called()
+        # Verify that reranker.predict was called once (for final evidence list filtering)
+        self.assertEqual(self.reranker.predict.call_count, 1)
         
         # Check final output block contains initial items
         self.assertIn("[Paper] Title One", result)
@@ -104,21 +97,13 @@ class TestGraphExpander(unittest.TestCase):
         
         self.reranker.predict.side_effect = [
             [0.8, 0.3, 0.5],  # Hop 1 reranking
-            [0.9]             # Chunk ingestion reranking
+            [0.9],            # Chunk ingestion reranking
+            [0.9, 0.9, 0.9, 0.9] # Final evidence filtering (paper_1, chunk_1, paper_2, chunk_2)
         ]
         
         # Mock vector chunks for paper_2 (selected candidate)
         c2 = Chunk(id="chunk_2", paper_id="paper_2", text_content="Text from paper 2", page_number=1)
         self.vector_repo.get_chunks_for_paper.return_value = [c2]
-        
-        # Mock final LLM evidence filtering
-        mock_response = EvidenceListResponse(
-            evidence_list=[
-                EvidenceItem(id="fact_1", score=0.9, is_essential=True),  # paper_1
-                EvidenceItem(id="fact_3", score=0.8, is_essential=True)   # paper_2
-            ]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
         
         result = self.expander.expand("query", initial_chunks)
         
@@ -149,24 +134,21 @@ class TestGraphExpander(unittest.TestCase):
         self.graph_repo.get_paper.side_effect = lambda pid: Paper(id=pid, title=f"Title {pid}")
         self.graph_repo.get_concept.return_value = Concept(id="concept_1", name="Concept One")
         
-        # Reranker returns scores for 3 candidates
-        self.reranker.predict.return_value = [0.9, 0.3, 0.2]
-        
-        # Mock final LLM
-        mock_response = EvidenceListResponse(
-            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        # Reranker returns scores for candidates and final filtering
+        self.reranker.predict.side_effect = [
+            [0.9, 0.3, 0.2],  # Hop 1
+            [0.9, 0.9, 0.9]   # Final filtering
+        ]
         
         self.expander.expand("query", initial_chunks)
         
-        # Verify reranker predict called exactly once (for the single hop)
-        self.assertEqual(self.reranker.predict.call_count, 1)
-        # Verify LLM generate_and_validate_json called exactly once
-        self.assertEqual(self.llm_engine.generate_and_validate_json.call_count, 1)
+        # Verify reranker predict called exactly twice (once for hop, once for filtering)
+        self.assertEqual(self.reranker.predict.call_count, 2)
+        # Verify LLM generate_and_validate_json was not called
+        self.assertEqual(self.llm_engine.generate_and_validate_json.call_count, 0)
 
-    def test_resilient_json_fallback(self):
-        """Verify safety fallback if evidence filtering LLM call fails."""
+    def test_resilient_cross_encoder_fallback(self):
+        """Verify safety fallback if evidence filtering Cross-Encoder call fails."""
         c1 = Chunk(id="chunk_1", paper_id="paper_1", text_content="Intro text", page_number=1)
         initial_chunks = [(c1, 0.9)]
         
@@ -174,8 +156,8 @@ class TestGraphExpander(unittest.TestCase):
         self.graph_repo.get_papers_batch.return_value = {"paper_1": p1}
         self.graph_repo.get_neighbors.return_value = []
         
-        # LLM validation raises exception (malformed JSON/model down)
-        self.llm_engine.generate_and_validate_json.side_effect = Exception("JSON Decode Failed")
+        # Cross-Encoder predict raises exception
+        self.reranker.predict.side_effect = Exception("Predict Failed")
         
         result = self.expander.expand("query", initial_chunks)
         
@@ -192,10 +174,7 @@ class TestGraphExpander(unittest.TestCase):
         self.graph_repo.get_papers_batch.return_value = {"paper_1": p1}
         self.graph_repo.get_neighbors.return_value = []
         
-        mock_response = EvidenceListResponse(
-            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        self.reranker.predict.return_value = [0.9, 0.9]
         
         result = self.expander.expand("test query", initial_chunks, trace=True)
         self.assertIn("[Paper] Title One", result)
@@ -212,11 +191,7 @@ class TestGraphExpander(unittest.TestCase):
             ("paper_1", "Paper", "CITES", "paper_2", "Paper", "{}")
         ]
         
-        # Mock final LLM
-        mock_response = EvidenceListResponse(
-            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        self.reranker.predict.return_value = [0.9, 0.9]
         
         result = self.expander.expand("query", initial_chunks)
         
@@ -247,11 +222,10 @@ class TestGraphExpander(unittest.TestCase):
         self.graph_repo.get_concept.side_effect = lambda cid: MagicMock(name=f"Concept {cid}")
         self.graph_repo.get_node_properties.side_effect = lambda nid: {"name": f"Node {nid}"}
         
-        self.reranker.predict.return_value = [0.9] * 8
-        mock_response = EvidenceListResponse(
-            evidence_list=[EvidenceItem(id="fact_1", score=0.9, is_essential=True)]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
+        self.reranker.predict.side_effect = [
+            [0.9] * 8,   # Hop reranking
+            [0.9] * 100  # Final filtering
+        ]
         
         self.expander.expand("query", initial_chunks)
 
@@ -280,30 +254,15 @@ class TestGraphExpander(unittest.TestCase):
         # Hop 1 candidates: paper_2 gets -100.0, paper_3 gets 100.0
         # Chunk ingestion: chunk_3_1 gets -100.0, chunk_3_2 gets 100.0
         self.reranker.predict.side_effect = [
-            [-100.0, 100.0],  # Hop 1 candidates
-            [-100.0, 100.0]   # Chunk ingestion
+            [-100.0, 100.0],              # Hop 1 candidates (paper_2, paper_3)
+            [-100.0, 100.0],              # Chunk ingestion (chunk_3_1, chunk_3_2)
+            [100.0, 100.0, 100.0, 100.0]  # Final filtering (paper_1, chunk_1, paper_3, chunk_3_2)
         ]
         
         # 3. Vector chunks for paper_3 (paper_2 should be filtered out)
         c3_1 = Chunk(id="chunk_3_1", paper_id="paper_3", text_content="Noise chunk from paper 3", page_number=2)
         c3_2 = Chunk(id="chunk_3_2", paper_id="paper_3", text_content="Signal chunk from paper 3", page_number=3)
         self.vector_repo.get_chunks_for_paper.side_effect = lambda pid: [c3_1, c3_2] if pid == "paper_3" else []
-        
-        # Mock final LLM evidence list validation
-        # All candidate facts:
-        # fact_1: paper_1 (node)
-        # fact_2: paper_1 chunk_1 (chunk)
-        # fact_3: paper_3 (node)
-        # fact_4: paper_3 chunk_3_2 (chunk) - chunk_3_1 gets filtered out by threshold 0.4 and is never sent to LLM
-        mock_response = EvidenceListResponse(
-            evidence_list=[
-                EvidenceItem(id="fact_1", score=0.9, is_essential=True),
-                EvidenceItem(id="fact_2", score=0.9, is_essential=True),
-                EvidenceItem(id="fact_3", score=0.9, is_essential=True),
-                EvidenceItem(id="fact_4", score=0.9, is_essential=True),
-            ]
-        )
-        self.llm_engine.generate_and_validate_json.return_value = mock_response
         
         result = self.expander.expand("test query", initial_chunks)
         

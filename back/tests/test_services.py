@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import tempfile
 import os
 import shutil
+from pathlib import Path
 
 from src.models import Chunk, Paper
 from src.services.note_service import NoteService
@@ -81,6 +82,70 @@ class TestNoteService(unittest.TestCase):
         self.assertIn("This is the content of the test note.", content)
 
         mock_indexer.index_markdown.assert_called_once_with(str(note_path))
+
+    @patch("src.services.note_service.Indexer")
+    @patch("src.services.note_service.config")
+    def test_update_note_success(self, mock_config, mock_indexer_class):
+        # Override config.data_dir to temp_dir
+        mock_config.data_dir = self.temp_dir
+        notes_dir = Path(self.temp_dir) / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create original note file
+        orig_file_path = notes_dir / "old_title.md"
+        orig_file_path.write_text("---\ntitle: Old Title\nauthors:\n- Author Old\ntags:\n- tag-old\n---\n\nOld Content", encoding="utf-8")
+
+        mock_paper = MagicMock()
+        mock_paper.title = "Old Title"
+        mock_paper.file_path = str(orig_file_path)
+        self.graph_repo.get_paper.return_value = mock_paper
+
+        mock_indexer = MagicMock()
+        mock_indexer.index_markdown.return_value = "new_note_id"
+        mock_indexer_class.return_value = mock_indexer
+
+        # Update note
+        result = self.note_service.update_note(
+            note_id="old_note_id",
+            title="New Title",
+            content="New Content",
+            authors=["Author New"],
+            tags=["tag-new"]
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["id"], "new_note_id")
+        
+        # Verify old file was deleted because title changed
+        self.assertFalse(os.path.exists(orig_file_path))
+        
+        # Verify new file exists and has updated content
+        new_file_path = Path(result["file_path"])
+        self.assertTrue(new_file_path.exists())
+        self.assertEqual(new_file_path.name, "new_title.md")
+        
+        content = new_file_path.read_text(encoding="utf-8")
+        self.assertIn("title: New Title", content)
+        self.assertIn("Author New", content)
+        self.assertIn("tag-new", content)
+        self.assertIn("New Content", content)
+
+        self.graph_repo.delete_node.assert_called_once_with("old_note_id")
+        mock_indexer.index_markdown.assert_called_once_with(str(new_file_path))
+
+    def test_update_note_not_found(self):
+        self.graph_repo.get_paper.return_value = None
+        with self.assertRaises(ValueError) as context:
+            self.note_service.update_note("nonexistent_id", title="Title")
+        self.assertIn("not found", str(context.exception))
+
+    def test_update_note_file_not_found(self):
+        mock_paper = MagicMock()
+        mock_paper.file_path = "/nonexistent/path.md"
+        self.graph_repo.get_paper.return_value = mock_paper
+        with self.assertRaises(ValueError) as context:
+            self.note_service.update_note("some_id", title="Title")
+        self.assertIn("not found on disk", str(context.exception))
 
 
 class TestRAGService(unittest.IsolatedAsyncioTestCase):

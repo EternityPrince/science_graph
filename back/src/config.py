@@ -61,7 +61,7 @@ DEFAULT_CONFIG = {
         "quality": 75
     },
     "rag_components": {
-        "intent_classifier": True,
+        "intent_classifier": False,
         "graph_ontology_lookup": True,
         "llm_query_expansion": True,
         "hyde": True,
@@ -201,7 +201,7 @@ pdf_compression:
 
 # RAG components configuration for benchmarking (Scenario 1, 2, 3)
 rag_components:
-  intent_classifier: true
+  intent_classifier: false
   graph_ontology_lookup: true
   llm_query_expansion: true
   hyde: true
@@ -452,6 +452,8 @@ rag_components:
         return self.data.get("pdf_compression", {}).get("quality", 75)
 
     def is_component_enabled(self, name: str) -> bool:
+        if name == "intent_classifier":
+            return False
         # Check environment variable first (e.g. RAG_HYDE=false)
         env_val = os.environ.get(f"RAG_{name.upper()}")
         if env_val is not None:

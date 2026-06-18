@@ -14,6 +14,7 @@ import json
 import re
 import random
 import yaml
+import tiktoken
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -195,6 +196,42 @@ def save_checkpoint(path: Path, data: Dict[str, Any]):
         con.warning(f"Failed to save checkpoint: {e}")
 
 
+def estimate_prompt_tokens(query: str, retrieved_chunks: List[dict], baseline: str) -> int:
+    if baseline == "B0":
+        prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
+    else:
+        system_prompt = (
+            "<|im_start|>system\n"
+            "You are a research assistant. Synthesize an answer to the user's question using the retrieved text blocks and the knowledge graph connections.\n"
+            "Always mention the titles of the papers, years, authors, and page numbers when citation is needed.\n"
+            "If the graph contains citing relationships, use them to explain the context (e.g., \"A cited B\").\n\n"
+            "Here is the retrieved context:\n\n"
+            "### RELEVANT TEXT FRAGMENTS:\n"
+        )
+        text_blocks = []
+        for idx, chunk in enumerate(retrieved_chunks, start=1):
+            text_content = chunk.get("text_content", "").strip()
+            paper_id = chunk.get("paper_id", "")
+            page = chunk.get("page_number", "")
+            text_blocks.append(
+                f"Block {idx} (Score: 1.000) | Paper: {paper_id} (Page {page}):\n"
+                f"\"\"\"\n{text_content}\n\"\"\""
+            )
+        context_text = "\n\n".join(text_blocks)
+        context_graph = "No direct graph relations found."
+        prompt = (
+            f"{system_prompt}{context_text}\n\n"
+            f"### KNOWLEDGE GRAPH CONNECTIONS:\n{context_graph}\n"
+            f"<|im_end|>\n<|im_start|>user\nQuestion: {query}\nAnswer in Russian:\n<|im_end|>\n<|im_start|>assistant\n"
+        )
+    
+    try:
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return len(encoding.encode(prompt))
+    except Exception:
+        return len(prompt) // 4
+
+
 async def evaluate_baseline_case(
     evaluator: CloudEvaluator,
     prompts: Dict[str, Any],
@@ -205,7 +242,8 @@ async def evaluate_baseline_case(
     baseline_name: str,
     baseline_data: Dict[str, Any],
     checkpoint_data: Dict[str, Any],
-    checkpoint_path: Path
+    checkpoint_path: Path,
+    max_input_token: int = 10000
 ) -> Dict[str, Any]:
     checkpoint_key = f"{case_id}_{baseline_name}"
     
@@ -220,6 +258,7 @@ async def evaluate_baseline_case(
         "answer_relevance": 0.0,
         "citation_fidelity": 0.0,
         "semantic_accuracy": 0.0,
+        "context_fillness": 0.0,
     }
 
     if baseline_data.get("status") == "error":
@@ -232,9 +271,27 @@ async def evaluate_baseline_case(
     retrieved_papers = baseline_data.get("retrieved_papers", [])
     retrieved_chunks = baseline_data.get("retrieved_chunks", [])
 
-    # 1. Calculate traditional retrieval metrics
-    eval_metrics["retrieval_recall"] = calculate_retrieval_recall(expected_papers, retrieved_papers)
-    eval_metrics["context_precision"] = calculate_context_precision(expected_papers, retrieved_chunks)
+    # 1. Calculate traditional retrieval metrics (use precalculated if available)
+    eval_metrics["retrieval_recall"] = baseline_data.get("retrieval_recall")
+    if eval_metrics["retrieval_recall"] is None:
+        eval_metrics["retrieval_recall"] = calculate_retrieval_recall(expected_papers, retrieved_papers)
+
+    eval_metrics["context_precision"] = baseline_data.get("context_precision")
+    if eval_metrics["context_precision"] is None:
+        eval_metrics["context_precision"] = calculate_context_precision(expected_papers, retrieved_chunks)
+
+    # Calculate context fillness
+    context_fillness = baseline_data.get("context_fillness")
+    if context_fillness is None:
+        context_token = baseline_data.get("context_token")
+        max_input_token_val = baseline_data.get("max_input_token")
+        if context_token is None:
+            context_token = estimate_prompt_tokens(query, retrieved_chunks, baseline_name)
+        if max_input_token_val is None:
+            max_input_token_val = max_input_token
+        context_fillness = round(context_token / max_input_token_val, 4) if max_input_token_val > 0 else 0.0
+        context_fillness = min(max(context_fillness, 0.0), 1.0)
+    eval_metrics["context_fillness"] = context_fillness
 
     # If answer is missing, skip LLM calls
     if not generated_answer.strip():
@@ -439,6 +496,11 @@ async def main_async():
             if baselines_to_run != "all" and baseline_name not in baselines_to_run:
                 continue
 
+            # Determine original max_tokens/max_input_token
+            original_metadata = input_data.get("metadata", {})
+            original_metadata = original_metadata.get("original_metadata", original_metadata)
+            max_tokens_val = original_metadata.get("llm", {}).get("max_tokens", 10000)
+
             # Append the coroutine task
             evaluation_futures.append((
                 case_id,
@@ -454,7 +516,8 @@ async def main_async():
                     baseline_name,
                     baseline_data,
                     checkpoint_data,
-                    checkpoint_path
+                    checkpoint_path,
+                    max_input_token=max_tokens_val
                 )
             ))
 
@@ -507,7 +570,8 @@ async def main_async():
                     "faithfulness": [],
                     "answer_relevance": [],
                     "citation_fidelity": [],
-                    "semantic_accuracy": []
+                    "semantic_accuracy": [],
+                    "context_fillness": []
                 }
 
             latency = baseline_data.get("latency_sec")
@@ -577,6 +641,7 @@ async def main_async():
     table.add_column("Relevance", justify="right")
     table.add_column("Citations", justify="right")
     table.add_column("Semantic", justify="right")
+    table.add_column("Fillness", justify="right")
     table.add_column("Latency (s)", justify="right")
 
     for baseline in sorted(final_summary.keys()):
@@ -588,6 +653,7 @@ async def main_async():
         relevance = f"{stats.get('avg_answer_relevance', 0.0):.2%}"
         citations = f"{stats.get('avg_citation_fidelity', 0.0):.2%}" if baseline != "B0" else "N/A"
         semantic = f"{stats.get('avg_semantic_accuracy', 0.0):.2%}"
+        fillness = f"{stats.get('avg_context_fillness', 0.0):.2%}"
         latency = f"{stats.get('avg_latency_sec', 0.0):.2f}s"
 
         table.add_row(
@@ -598,6 +664,7 @@ async def main_async():
             relevance,
             citations,
             semantic,
+            fillness,
             latency
         )
 

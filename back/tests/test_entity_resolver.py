@@ -314,3 +314,23 @@ def test_entity_resolver_invalid_empty_names():
     assert resolver.resolve_entity("Concept", "   ") == ""
     assert resolver.resolve_entity("Concept", None) == ""
 
+
+def test_entity_resolver_invalid_embeddings_and_edge_cases():
+    """Verify behavior with different invalid embedding formats (zero vector, wrong type, ValueError)."""
+    graph_repo = MagicMock(spec=GraphRepository)
+    emb_engine = MagicMock(spec=EmbeddingEngine)
+    
+    # 1. Zero vector
+    item1 = EntityResolver(graph_repo, emb_engine)._prepare_cache_item("id1", "Name 1", [0.0, 0.0])
+    # emb_arr should be None since norm is 0
+    assert item1[3] is None
+    assert item1[4] is None
+
+    # 2. Wrong type (e.g. dict)
+    item2 = EntityResolver(graph_repo, emb_engine)._prepare_cache_item("id2", "Name 2", {"invalid": "type"})
+    assert item2[3] is None
+
+    # 3. ValueError in array creation
+    item3 = EntityResolver(graph_repo, emb_engine)._prepare_cache_item("id3", "Name 3", ["string_inside_list"])
+    assert item3[3] is None
+

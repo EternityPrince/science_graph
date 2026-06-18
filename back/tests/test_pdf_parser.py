@@ -146,3 +146,74 @@ class TestPDFParser:
         finally:
             if os.path.exists(pdf_path):
                 os.remove(pdf_path)
+
+    def test_parse_font_size_analysis_edge_cases(self, parser):
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            pdf_path = tmp.name
+
+        try:
+            doc = fitz.open()
+            page = doc.new_page()
+            # Test text block sizes: skipped word, title size, smaller size
+            # 1. Skip word first
+            page.insert_text((50, 50), "arxiv:1234.5678", fontsize=10)
+            # 2. Real title
+            page.insert_text((50, 80), "Deep Attention Networks", fontsize=16)
+            # 3. Stop because size is smaller
+            page.insert_text((50, 100), "Alice and Bob", fontsize=12)
+            
+            doc.set_metadata({"title": ""})
+            doc.save(pdf_path)
+            doc.close()
+
+            paper, references, full_text = parser.parse(pdf_path)
+            assert "Deep Attention Networks" in paper.title
+        finally:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+
+    def test_parse_author_metadata_filtering(self, parser):
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            pdf_path = tmp.name
+
+        try:
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text((50, 50), "Abstract\nIntroduction")
+            # Set author metadata with valid and invalid formats (A is too short, 123 has digits, long author has > 60 chars)
+            metadata = {
+                "title": "Clean Title",
+                "author": "A and Alice Smith and Bob Jones 123 and This Is An Extremely Long Author Name That Exceeds The Limit Of Normal Characters",
+                "creationDate": "D:ABCD" # Will fail year regex
+            }
+            doc.set_metadata(metadata)
+            doc.save(pdf_path)
+            doc.close()
+
+            paper, references, full_text = parser.parse(pdf_path)
+            assert paper.authors == ["Alice Smith"]
+            assert paper.year == 2026 # year fallback from page search failing
+        finally:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+
+    def test_parse_abstract_and_references_edge_cases(self, parser):
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            pdf_path = tmp.name
+
+        try:
+            doc = fitz.open()
+            page = doc.new_page()
+            # 1. No abstract keyword
+            # 2. Ref keyword in a long sentence (should be skipped)
+            page.insert_text((50, 50), "This is the full text of a paper with no keyword. We mention references in a very long sentence of more than thirty characters.")
+            doc.set_metadata({"title": "Simple Paper"})
+            doc.save(pdf_path)
+            doc.close()
+
+            paper, references, full_text = parser.parse(pdf_path)
+            assert len(references) == 0
+            assert "This is the full text" in paper.abstract
+        finally:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)

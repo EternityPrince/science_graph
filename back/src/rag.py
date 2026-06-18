@@ -22,8 +22,8 @@ class RAGPipeline:
     def _get_reranker(self):
         return self.service._get_reranker()
 
-    def build_context(self, similar_chunks: List[Tuple[Chunk, float]]) -> Tuple[str, str]:
-        return self.service.build_context(similar_chunks)
+    def build_context(self, similar_chunks: List[Tuple[Chunk, float]], limit: Optional[int] = None) -> Tuple[str, str]:
+        return self.service.build_context(similar_chunks, limit=limit)
 
     def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> str:
         return self.service.ask(query, limit, history_str, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)

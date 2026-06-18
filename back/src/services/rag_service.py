@@ -129,7 +129,7 @@ class RAGService:
             return concept.name if concept else node_id
         return node_id
 
-    def _get_scored_graph_lines(self, paper_ids: List[str]) -> List[Tuple[str, float]]:
+    def _get_scored_graph_lines(self, paper_ids: List[str], limit: Optional[int] = None) -> List[Tuple[str, float]]:
         """
         Retrieves graph neighbor relations for the given paper IDs, formats them,
         and assigns importance scores.
@@ -167,25 +167,24 @@ class RAGService:
                         else:
                             score = 0.5
 
-                    if edge_type == "AUTHORED":
-                        line = f"- {src_name} (Author) authored paper {tgt_name}"
-                    elif edge_type == "MENTIONS_CONCEPT":
-                        line = f"- Paper {src_name} mentions concept/topic '{tgt_name}'"
-                    elif edge_type == "CITES":
+                    # Compact Cypher representation
+                    if edge_type == "CITES" and props.get("raw_text"):
                         raw_text = props.get("raw_text")
-                        if raw_text:
-                            ref_preview = raw_text if len(raw_text) < 100 else raw_text[:100] + "..."
-                            line = f"- Paper {src_name} cites: {ref_preview}"
-                        else:
-                            line = f"- Paper {src_name} cites paper {tgt_name}"
+                        ref_preview = raw_text if len(raw_text) < 100 else raw_text[:100] + "..."
+                        ref_preview = ref_preview.replace('\n', ' ').strip()
+                        line = f"- ({src_name}:{src_label})-[CITES {{preview: {json.dumps(ref_preview)}}}]->({tgt_name}:{tgt_label})"
                     else:
-                        line = f"- Node '{src_name}' is connected to '{tgt_name}' via {edge_type}"
+                        line = f"- ({src_name}:{src_label})-[{edge_type}]->({tgt_name}:{tgt_label})"
 
                     scored_lines.append((line, score))
 
+        if limit is not None:
+            scored_lines.sort(key=lambda x: x[1], reverse=True)
+            scored_lines = scored_lines[:limit * 2]
+
         return scored_lines
 
-    def build_context(self, similar_chunks: List[tuple[Chunk, float]]) -> Tuple[str, str]:
+    def build_context(self, similar_chunks: List[tuple[Chunk, float]], limit: Optional[int] = None) -> Tuple[str, str]:
         """
         Builds two context blocks:
         1. Semantic text blocks
@@ -212,7 +211,7 @@ class RAGService:
 
         # 2. Format Graph Subgraph using helper
         if config.rag_components.get("graph_expansion", True):
-            scored_lines = self._get_scored_graph_lines(paper_ids)
+            scored_lines = self._get_scored_graph_lines(paper_ids, limit=limit)
             graph_lines = [line for line, _ in scored_lines]
             context_graph = "\n".join(graph_lines) if graph_lines else "No direct graph relations found."
         else:
@@ -245,6 +244,21 @@ class RAGService:
         if total_tokens <= tokens_limit:
             return current_text, current_graph, current_chunks
 
+        # 1. Prune graph connections first (cut from the tail after sorting descending by score)
+        if total_tokens > tokens_limit and config.rag_components.get("graph_expansion", True):
+            paper_ids = list({chunk.paper_id for chunk, _ in current_chunks})
+            scored_lines = self._get_scored_graph_lines(paper_ids)
+            # Sort by score descending (highest score first)
+            scored_lines.sort(key=lambda x: x[1], reverse=True)
+            
+            while len(scored_lines) > 0 and total_tokens > tokens_limit:
+                scored_lines.pop()
+                current_graph = "\n".join([line for line, _ in scored_lines]) if scored_lines else "No direct graph relations found."
+                total_tokens = get_total_tokens(current_text, current_graph)
+
+        if total_tokens <= tokens_limit:
+            return current_text, current_graph, current_chunks
+
         # Group chunks by paper_id to keep document context unified
         paper_chunks = {}
         for chunk, score in final_chunks:
@@ -266,7 +280,6 @@ class RAGService:
             [pid, [(copy(c), s) for c, s in chs]]
             for pid, chs in sorted_papers
         ]
-
 
         while total_tokens > tokens_limit:
             # Try to prune from the least relevant paper (last in sorted list)
@@ -310,25 +323,11 @@ class RAGService:
             if not flat_active:
                 break
 
-            current_text, current_graph = self.build_context(flat_active)
+            # Rebuild text, and keep graph at its minimum/pruned state
+            current_text, _ = self.build_context(flat_active)
+            current_graph = "No direct graph relations found." if config.rag_components.get("graph_expansion", True) else "Graph enrichment disabled."
             current_chunks = flat_active
             total_tokens = get_total_tokens(current_text, current_graph)
-
-        # If even 1 chunk is left but still exceeds limit, trim context_graph
-        if len(current_chunks) == 1 and total_tokens > tokens_limit:
-            paper_ids = [current_chunks[0][0].paper_id]
-            scored_lines = self._get_scored_graph_lines(paper_ids)
-            
-            # Sort by score descending (highest score first)
-            scored_lines.sort(key=lambda x: x[1], reverse=True)
-            
-            # Iteratively remove lowest score edges from the tail
-            while len(scored_lines) > 0 and total_tokens > tokens_limit:
-                scored_lines.pop()
-                current_graph = "\n".join([line for line, _ in scored_lines]) if scored_lines else "No direct graph relations found."
-                total_tokens = get_total_tokens(current_text, current_graph)
-                
-            con.warning(f"Trimmed context_graph to {len(scored_lines)} edges ({total_tokens} tokens)")
 
         return current_text, current_graph, current_chunks
 
@@ -697,7 +696,7 @@ class RAGService:
             return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."  # noqa: E501
 
         # Build initial context
-        context_text, context_graph = self.build_context(final_chunks)
+        context_text, context_graph = self.build_context(final_chunks, limit=limit)
 
         # Get system prompt for token counting
         if self.expander and config.rag_components.get("graph_expansion", True):
@@ -766,12 +765,12 @@ class RAGService:
                     self.expander.reranker = await asyncio.to_thread(self._get_reranker)
                 enrichment_block = await asyncio.to_thread(self.expander.expand, question, final_chunks)
                 if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
-                    context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks)
+                    context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks, limit)
                     prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=question)
                 else:
                     prompt = prompts.get_prompt("rag", "stream_expander", enrichment_block=enrichment_block, question=question)
             else:
-                context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks)
+                context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks, limit)
                 prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=question)
 
         except Exception as e:
