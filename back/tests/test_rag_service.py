@@ -217,7 +217,13 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res.startswith("Не найдено"))
 
         chunk = MagicMock(spec=Chunk)
-        self.llm_engine.generate_response.return_value = "Answer Text"
+        self.llm_engine.generate_response.return_value = (
+            "<|query_analysis_start|>q_analysis<|query_analysis_end|>"
+            "<|source_analysis_start|>s_analysis<|source_analysis_end|>"
+            "<|reasoning_start|>reasoning<|reasoning_end|>"
+            "<|status_start|>ANSWERABLE<|status_end|>"
+            "<|answer_start|>Answer Text<|answer_end|>"
+        )
         
         # With expander
         self.service.expander = MagicMock()
@@ -240,6 +246,75 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
                 res = self.service.ask("query")
                 self.assertEqual(res, "Answer Text")
                 self.llm_engine.generate_response.assert_called_once()
+
+    def test_parse_reasoning_response(self):
+        from src.services.rag_service import parse_reasoning_response
+        
+        # Test case 1: Well-formed response
+        raw1 = (
+            "<|query_analysis_start|>Analysis of user query<|query_analysis_end|>\n"
+            "<|source_analysis_start|>Analysis of sources: <|source_id|>1 is relevant<|source_analysis_end|>\n"
+            "<|reasoning_start|>Connecting facts together<|reasoning_end|>\n"
+            "<|status_start|>ANSWERABLE<|status_end|>\n"
+            "<|answer_start|>Here is the final answer.<|answer_end|>"
+        )
+        status, answer = parse_reasoning_response(raw1)
+        self.assertEqual(status, "ANSWERABLE")
+        self.assertEqual(answer, "Here is the final answer.")
+        
+        # Test case 2: Unclosed status/answer tags
+        raw2 = (
+            "<|status_start|>UNANSWERABLE\n"
+            "<|answer_start|>Недостаточно информации."
+        )
+        status, answer = parse_reasoning_response(raw2)
+        self.assertEqual(status, "UNANSWERABLE")
+        self.assertEqual(answer, "Недостаточно информации.")
+        
+        # Test case 3: Missing tags / completely malformed response (should fall back to raw response)
+        raw3 = "Some general text answer."
+        status, answer = parse_reasoning_response(raw3)
+        self.assertEqual(status, "UNKNOWN")
+        self.assertEqual(answer, "Some general text answer.")
+
+        # Test case 4: Answer containing tag-like structures inside the text
+        raw4 = (
+            "<|status_start|>ANSWERABLE<|status_end|>\n"
+            "<|answer_start|>Решение заключается в использовании <|source_id|>1 и <|source_id|>2.<|answer_end|>"
+        )
+        status, answer = parse_reasoning_response(raw4)
+        self.assertEqual(status, "ANSWERABLE")
+        self.assertEqual(answer, "Решение заключается в использовании <|source_id|>1 и <|source_id|>2.")
+
+        # Test case 5: Multiple tag pairs of the same type (should take the first one)
+        raw5 = (
+            "<|status_start|>ANSWERABLE<|status_end|>\n"
+            "<|answer_start|>First answer block<|answer_end|>\n"
+            "<|answer_start|>Second answer block<|answer_end|>"
+        )
+        status, answer = parse_reasoning_response(raw5)
+        self.assertEqual(status, "ANSWERABLE")
+        self.assertEqual(answer, "First answer block")
+
+        # Test case 6: Technical characters (like <| or |>) inside the answer text
+        raw6 = (
+            "<|status_start|> ANSWERABLE <|status_end|>\n"
+            "<|answer_start|>Текст ответа с символами <| и |> или <|status_start|>.<|answer_end|>"
+        )
+        status, answer = parse_reasoning_response(raw6)
+        self.assertEqual(status, "ANSWERABLE")
+        self.assertEqual(answer, "Текст ответа с символами <| и |> или <|status_start|>.")
+
+        # Test case 7: Status containing extra spaces or newlines
+        raw7 = (
+            "<|status_start|>\n\n  ANSWERABLE  \n\n<|status_end|>\n"
+            "<|answer_start|>Ответ.<|answer_end|>"
+        )
+        status, answer = parse_reasoning_response(raw7)
+        self.assertEqual(status, "ANSWERABLE")
+        self.assertEqual(answer, "Ответ.")
+
+
 
     async def test_generate_stream_success_no_mlx(self):
         chunk = MagicMock(spec=Chunk)

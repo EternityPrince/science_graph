@@ -180,6 +180,16 @@ async def evaluate_baseline_case(
         return eval_metrics
 
     generated_answer = baseline_data.get("generated_answer", "")
+    
+    # For LLM-as-a-judge, extract only the clean answer without technical tags
+    judge_answer = generated_answer
+    if "<|" in generated_answer:
+        try:
+            from src.services.rag_service import parse_reasoning_response
+            _, judge_answer = parse_reasoning_response(generated_answer)
+        except Exception:
+            pass
+
     retrieved_papers = baseline_data.get("retrieved_papers", [])
     retrieved_chunks = baseline_data.get("retrieved_chunks", [])
 
@@ -221,13 +231,13 @@ async def evaluate_baseline_case(
         prompts["answer_relevance_evaluator"],
         metric_name="answer_relevance",
         query=query,
-        answer=generated_answer
+        answer=judge_answer
     )
     llm_tasks["semantic_accuracy"] = evaluator.evaluate_metric(
         prompts["semantic_accuracy_evaluator"],
         metric_name="semantic_accuracy",
         golden_answer=golden_answer,
-        answer=generated_answer
+        answer=judge_answer
     )
 
     # Evaluate faithfulness and citation fidelity only if there is retrieval context
@@ -236,13 +246,13 @@ async def evaluate_baseline_case(
             prompts["faithfulness_evaluator"],
             metric_name="faithfulness",
             context=context_str,
-            answer=generated_answer
+            answer=judge_answer
         )
         llm_tasks["citation_fidelity"] = evaluator.evaluate_metric(
             prompts["citation_fidelity_evaluator"],
             metric_name="citation_fidelity",
             sources=context_str,
-            answer=generated_answer
+            answer=judge_answer
         )
 
     # Run LLM calls concurrently

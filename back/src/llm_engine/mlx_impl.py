@@ -69,8 +69,6 @@ class ConstrainedLogitsProcessor:
         num_tokens = tokens.shape[0]
         current_len = len(self.generated_tokens)
         
-        # Incrementally fetch only the newly generated tokens using fast .item()
-        # instead of copying the whole token list via .tolist() on every step.
         if num_tokens > current_len + 1:
             for idx in range(current_len + 1, num_tokens):
                 self.generated_tokens.append(tokens[idx].item())

@@ -2,6 +2,7 @@ import csv
 import yaml
 from pathlib import Path
 from typing import Dict, List, Any
+from core.models import parse_report, ReportOutput
 
 # Rich imports for terminal formatting
 try:
@@ -348,10 +349,16 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
             ])
 
 
-def export_detailed_csv(data: dict, stats: dict, csv_path: Path) -> None:
+def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
     """Saves detailed case-by-case metrics for each baseline and query."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-    results = data.get("results", [])
+    
+    if isinstance(data, ReportOutput):
+        data_dict = data.model_dump()
+    else:
+        data_dict = parse_report(data).model_dump()
+        
+    results = data_dict.get("results", [])
     if not results:
         return
         

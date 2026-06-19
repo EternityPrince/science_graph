@@ -7,6 +7,7 @@ from core.metrics import (
     estimate_prompt_tokens,
     calculate_semantic_accuracy
 )
+from core.models import parse_report, ReportOutput
 
 QUALITY_METRICS = [
     "retrieval_recall",
@@ -32,9 +33,17 @@ METRIC_LABELS = {
 }
 
 
-def analyze_metrics(data: dict) -> dict:
+def analyze_metrics(data: Any) -> dict:
     """Computes all summary statistics, wins, breakdowns, and difficulties from YAML data."""
-    results = data.get("results", [])
+    # Parsed with Pydantic for strict validation and format unification
+    if isinstance(data, ReportOutput):
+        report = data
+    else:
+        report = parse_report(data)
+    
+    # Mutate a dictionary format of the report to keep compatibility and support in-place mutations
+    data_dict = report.model_dump()
+    results = data_dict.get("results", [])
     if not results:
         raise ValueError("No results found in the benchmarking data.")
         
@@ -64,11 +73,12 @@ def analyze_metrics(data: dict) -> dict:
             if sem is None:
                 sem = b_data.get("semantic_accuracy")
             if sem is None:
-                gold = r.get("golden_answer", "").strip()
-                gen = b_data.get("generated_answer", "").strip()
-                golden_list.append(gold)
-                generated_list.append(gen)
-                missing_semantics.append((r_idx, b))
+                gold = (r.get("golden_answer") or "").strip()
+                gen = (b_data.get("generated_answer") or "").strip()
+                if gold and gen:
+                    golden_list.append(gold)
+                    generated_list.append(gen)
+                    missing_semantics.append((r_idx, b))
                 
     if missing_semantics:
         computed_sems = calculate_semantic_accuracy(golden_list, generated_list)
@@ -78,8 +88,8 @@ def analyze_metrics(data: dict) -> dict:
                 b_data["eval_metrics"] = {}
             b_data["eval_metrics"]["semantic_accuracy"] = val
 
-    metadata = data.get("metadata", {})
-    original_metadata = metadata.get("original_metadata", metadata)
+    metadata = data_dict.get("metadata") or {}
+    original_metadata = metadata.get("original_metadata") or metadata
     max_input_token = original_metadata.get("llm", {}).get("max_tokens", 10000)
 
     # Fill in other deterministic metrics if missing
@@ -96,14 +106,20 @@ def analyze_metrics(data: dict) -> dict:
             if eval_metrics.get("retrieval_recall") is None:
                 rec = b_data.get("retrieval_recall")
                 if rec is None:
-                    rec = calculate_retrieval_recall(r.get("expected_papers", []), b_data.get("retrieved_papers", []))
+                    rec = calculate_retrieval_recall(
+                        r.get("expected_papers") or [], 
+                        b_data.get("retrieved_papers") or []
+                    )
                 eval_metrics["retrieval_recall"] = rec
                 
             # 2. context_precision
             if eval_metrics.get("context_precision") is None:
                 prec = b_data.get("context_precision")
                 if prec is None:
-                    prec = calculate_context_precision(r.get("expected_papers", []), b_data.get("retrieved_chunks", []))
+                    prec = calculate_context_precision(
+                        r.get("expected_papers") or [], 
+                        b_data.get("retrieved_chunks") or []
+                    )
                 eval_metrics["context_precision"] = prec
                 
             # 3. context_fillness
@@ -113,12 +129,29 @@ def analyze_metrics(data: dict) -> dict:
                     context_token = b_data.get("context_token")
                     max_input_token_val = b_data.get("max_input_token")
                     if context_token is None:
-                        context_token = estimate_prompt_tokens(r.get("query", ""), b_data.get("retrieved_chunks", []), b)
+                        context_token = estimate_prompt_tokens(
+                            r.get("query") or "", 
+                            b_data.get("retrieved_chunks") or [], 
+                            b
+                        )
                     if max_input_token_val is None:
                         max_input_token_val = max_input_token
                     fillness = round(context_token / max_input_token_val, 4) if max_input_token_val > 0 else 0.0
                     fillness = min(max(fillness, 0.0), 1.0)
                 eval_metrics["context_fillness"] = fillness
+
+    # If the input was originally a mutable dict or list, update it in-place to propagate changes
+    if isinstance(data, dict):
+        if "results" in data:
+            data["results"] = results
+        else:
+            # If it's a dict representing a single case or custom structure
+            data.update(data_dict)
+    elif isinstance(data, list):
+        # If it's a list, update elements in place
+        for orig_item, new_item in zip(data, results):
+            if isinstance(orig_item, dict) and isinstance(new_item, dict):
+                orig_item.update(new_item)
 
     # Collect raw values per baseline and metric
     raw_values = {b: {m: [] for m in ALL_METRICS} for b in baselines}

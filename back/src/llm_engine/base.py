@@ -28,6 +28,12 @@ def strip_thinking_tokens(text: str) -> str:
     # Remove unclosed think blocks at the end
     text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
 
+    # Model-agnostic generic token stripping
+    text = re.sub(r"<\|.*?\|>", "", text)
+    text = re.sub(r"<<.*?>>", "", text)
+    text = re.sub(r"\[/?(?:[A-Z_]{2,}[A-Z0-9_-]*)\]", "", text)
+    text = re.sub(r"</?(?:s|pad|unk|turn)>", "", text, flags=re.IGNORECASE)
+
     # Patterns for technical formatting tokens.
     # Note: we escape regex special characters.
     technical_patterns = [

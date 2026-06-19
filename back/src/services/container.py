@@ -54,7 +54,7 @@ class ServiceContainer:
                 self._llm_engine_local = LLMEngine(use_cloud=False)
             return self._llm_engine_local
 
-    def get_rag_service(self, use_cloud: bool = False) -> RAGService:
+    def get_rag_service(self, use_cloud: bool = False, warmup: bool = True) -> RAGService:
         if use_cloud:
             if self._rag_service_cloud is None:
                 llm = self.get_llm_engine(use_cloud=True)
@@ -63,7 +63,7 @@ class ServiceContainer:
                     self.get_vector_repo(),
                     self.get_embedding_engine(),
                     llm,
-                    warmup=True
+                    warmup=warmup
                 )
             return self._rag_service_cloud
         else:
@@ -74,7 +74,7 @@ class ServiceContainer:
                     self.get_vector_repo(),
                     self.get_embedding_engine(),
                     llm,
-                    warmup=True
+                    warmup=warmup
                 )
             return self._rag_service_local
 

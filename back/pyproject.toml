@@ -9,6 +9,8 @@ dependencies = [
     "ebooklib>=0.18",
     # Local LLM inference (Apple Silicon MLX)
     "mlx-lm>=0.13.0",
+    # Local LLM inference (GGUF via llama.cpp)
+    "llama-cpp-python>=0.2.77",
     # Embeddings + reranker
     "sentence-transformers>=2.7.0",
     # CLI

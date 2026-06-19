@@ -70,7 +70,8 @@ def run_query_on_baseline(
             if not final_chunks:
                 answer = "Информация отсутствует в базе данных."
             else:
-                answer = rag_service.ask(query, limit=5)
+                ask_res = rag_service.ask(query, limit=5)
+                answer = getattr(rag_service, "last_raw_response", None) or ask_res or "Информация отсутствует в базе данных."
                 
         metrics = collector.get_metrics()
     finally:
@@ -189,7 +190,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     # Initialize RAG Service
     con.info("Initializing repositories and models...")
     try:
-        rag_service = container.get_rag_service(use_cloud=args.cloud)
+        rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
     except Exception as e:
         con.error(f"Failed to initialize RAG Service: {e}")
         sys.exit(1)
@@ -269,7 +270,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                         con.search_msg("Generating answer …")
                         
                         t_gen_start = time.perf_counter()
-                        answer = rag_service.llm_engine.generate_response(prompt)
+                        raw_response = rag_service.llm_engine.generate_response(prompt)
+                        answer = raw_response
                         gen_latency = time.perf_counter() - t_gen_start
                         
                         try:
@@ -512,6 +514,12 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         con.blank()
     except Exception as e:
         con.warning(f"Could not generate retrieval metrics table: {e}")
+
+    # Explicitly unload LLM model at the end of benchmarking
+    try:
+        rag_service.llm_engine.unload_model()
+    except Exception:
+        pass
 
     con.success(f"Benchmarking complete! Results saved to: {output_path.resolve()}, {judge_output_path.resolve()}, and {output_path.parent / 'baselines'}/")
     con.info("You can copy fragments of this file and feed them into your browser AI to analyze truthfulness and quality.")

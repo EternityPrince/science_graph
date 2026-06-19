@@ -27,8 +27,59 @@ def _safe_int(val: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
+
+def parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
+    """
+    Parses the raw LLM response to extract the status and the final answer.
+    
+    Returns:
+        Tuple[str, str]: (status, answer)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not raw_response or not isinstance(raw_response, str):
+        return "UNKNOWN", "Ошибка: Пустой или некорректный ответ от модели."
+
+    # Extract status
+    status = "UNKNOWN"
+    status_match = re.search(r"<\|status_start\|>(.*?)<\|status_end\|>", raw_response, re.DOTALL)
+    if status_match:
+        status = status_match.group(1).strip()
+    else:
+        # Fallback if tag is unclosed
+        status_unclosed = re.search(r"<\|status_start\|>(.*)", raw_response, re.DOTALL)
+        if status_unclosed:
+            content = status_unclosed.group(1).split("<|")[0].strip()
+            status = content if content else "UNKNOWN"
+
+    # Extract answer
+    answer_match = re.search(r"<\|answer_start\|>(.*?)<\|answer_end\|>", raw_response, re.DOTALL)
+    if answer_match:
+        answer = answer_match.group(1).strip()
+    else:
+        # Fallback if tag is unclosed
+        answer_unclosed = re.search(r"<\|answer_start\|>(.*)", raw_response, re.DOTALL)
+        if answer_unclosed:
+            answer = answer_unclosed.group(1).strip()
+        else:
+            # Fallback to the raw response if no answer tags are present at all.
+            # Strip reasoning/status/other tags to isolate text.
+            answer = raw_response.strip()
+            for tag in ["status", "query_analysis", "source_analysis", "reasoning"]:
+                answer = re.sub(rf"<\|{tag}_start\|>.*?<\|{tag}_end\|>", "", answer, flags=re.DOTALL)
+                answer = re.sub(rf"<\|{tag}_start\|>.*", "", answer, flags=re.DOTALL)
+            
+            # Clean generic and specific technical tokens
+            from src.llm_engine.base import strip_thinking_tokens
+            answer = strip_thinking_tokens(answer)
+            
+    logger.info(f"RAG reasoning status: {status}")
+    return status, answer
+
+
 TECHNICAL_TOKEN_RE = re.compile(
-    r"(<\|im_start\|>|<\|im_end\|>|<\|im_sep\|>|<\|start_header_id\|>|<\|end_header_id\|>|<\|eot_id\|>|<\|eom_id\|>|<\|endoftext\|>|<\|assistant\|>|<\|user\|>|<\|system\|>|<\|end\|>|\[INST\]|\[/INST\]|<s>|</s>|<start_of_turn>|<end_of_turn>|<<SYS>>|<</SYS>>|<pad>|<unk>)",
+    r"(<\|.*?\|>|<<.*?>>|\[/?(?:[A-Z_]{2,}[A-Z0-9_-]*)\]|</?(?:s|pad|unk|turn)>|<\|im_start\|>|<\|im_end\|>|<\|im_sep\|>|<\|start_header_id\|>|<\|end_header_id\|>|<\|eot_id\|>|<\|eom_id\|>|<\|endoftext\|>|<\|assistant\|>|<\|user\|>|<\|system\|>|<\|end\|>|\[INST\]|\[/INST\]|<s>|</s>|<start_of_turn>|<end_of_turn>|<<SYS>>|<</SYS>>|<pad>|<unk>)",
     re.IGNORECASE
 )
 
@@ -175,13 +226,13 @@ class RAGService:
                     else:
                         # Default heuristic scores based on edge type
                         if edge_type == "AUTHORED":
-                            score = 0.8
+                            score = config.graph_weight_authored
                         elif edge_type == "CITES":
-                            score = 0.7
+                            score = config.graph_weight_cites
                         elif edge_type == "MENTIONS_CONCEPT":
-                            score = 0.6
+                            score = config.graph_weight_mentions_concept
                         else:
-                            score = 0.5
+                            score = config.graph_weight_default
 
                     # Compact Cypher representation
                     if edge_type == "CITES" and props.get("raw_text"):
@@ -219,9 +270,12 @@ class RAGService:
             title = paper.title if paper else chunk.paper_id
             year_str = f", {paper.year}" if paper and paper.year else ""
             authors_str = f" by {', '.join(paper.authors)}" if paper and paper.authors else ""
-            text_blocks.append(
+            doc_text = (
                 f"Block {idx} (Score: {score:.3f}) | Paper: {title}{authors_str}{year_str} (Page {chunk.page_number}):\n"
                 f"\"\"\"\n{chunk.text_content.strip()}\n\"\"\""
+            )
+            text_blocks.append(
+                f"<|source_start|><|source_id|>{idx} {doc_text}<|source_end|>"
             )
         context_text = "\n\n".join(text_blocks)
 
@@ -714,11 +768,13 @@ class RAGService:
         # Build initial context
         context_text, context_graph = self.build_context(final_chunks, limit=limit)
 
+        wrapped_query = f"<|query_start|>{query}<|query_end|>"
+
         # Get system prompt for token counting
         if self.expander and config.rag_components.get("graph_expansion", True):
-            system_prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block="", history_str=history_str, query=query)
+            system_prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block="", history_str=history_str, query=wrapped_query)
         else:
-            system_prompt = prompts.get_prompt("rag", "ask_no_expander", context_text="", context_graph="", history_str=history_str, query=query)
+            system_prompt = prompts.get_prompt("rag", "ask_no_expander", context_text="", context_graph="", history_str=history_str, query=wrapped_query)
 
         model_max_context = getattr(config, "llm_model_max_context", 4096)
 
@@ -727,7 +783,7 @@ class RAGService:
                 context_text=context_text,
                 context_graph=context_graph,
                 final_chunks=final_chunks,
-                query=query,
+                query=wrapped_query,
                 history_str=history_str,
                 system_prompt=system_prompt,
                 model_max_context=model_max_context,
@@ -742,24 +798,28 @@ class RAGService:
             enrichment_block = self.expander.expand(query, trimmed_chunks)
             if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
                 con.warning("Graph expander found no essential facts. Falling back to raw retrieved context.")
-                prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=query)
+                prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=wrapped_query)
             else:
-                prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str=history_str, query=query)
+                prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str=history_str, query=wrapped_query)
         else:
-            prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=query)
+            prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=wrapped_query)
 
         con.search_msg("Generating answer …")
         raw_response = self.llm_engine.generate_response(prompt)
+        self.last_raw_response = raw_response
         
+        status, parsed_answer = parse_reasoning_response(raw_response)
+        con.success(f"Reasoning Status: {status}")
+
         if config.rag_components.get("citation_repair", True):
             try:
-                return self._validate_and_repair_citations(raw_response, trimmed_chunks)
+                return self._validate_and_repair_citations(parsed_answer, trimmed_chunks)
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
-                return raw_response
+                return parsed_answer
         else:
-            return raw_response
+            return parsed_answer
 
     async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None, hyde_responses: Optional[int] = None) -> AsyncGenerator[dict, None]:
         import queue
@@ -776,18 +836,19 @@ class RAGService:
             return
 
         try:
+            wrapped_question = f"<|query_start|>{question}<|query_end|>"
             if self.expander and config.rag_components.get("graph_expansion", True):
                 if self.expander.reranker is None:
                     self.expander.reranker = await asyncio.to_thread(self._get_reranker)
                 enrichment_block = await asyncio.to_thread(self.expander.expand, question, final_chunks)
                 if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
                     context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks, limit)
-                    prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=question)
+                    prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=wrapped_question)
                 else:
-                    prompt = prompts.get_prompt("rag", "stream_expander", enrichment_block=enrichment_block, question=question)
+                    prompt = prompts.get_prompt("rag", "stream_expander", enrichment_block=enrichment_block, question=wrapped_question)
             else:
                 context_text, context_graph = await asyncio.to_thread(self.build_context, final_chunks, limit)
-                prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=question)
+                prompt = prompts.get_prompt("rag", "stream_no_expander", context_text=context_text, context_graph=context_graph, question=wrapped_question)
 
         except Exception as e:
             yield {"type": "error", "text": f"Context building failed: {e}"}

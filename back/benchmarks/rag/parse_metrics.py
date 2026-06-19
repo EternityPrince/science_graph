@@ -20,19 +20,7 @@ from core.reporting import (
 )
 
 
-def load_yaml(file_path: Path) -> dict:
-    """Loads and returns the YAML evaluation file."""
-    import yaml
-    if not file_path.exists():
-        print(f"Error: File {file_path} does not exist.")
-        sys.exit(1)
-    
-    with open(file_path, 'r', encoding='utf-8') as f:
-        try:
-            return yaml.safe_load(f)
-        except Exception as e:
-            print(f"Error parsing YAML file: {e}")
-            sys.exit(1)
+from core.models import load_report_file
 
 
 def main():
@@ -56,7 +44,12 @@ def main():
     args = parser.parse_args()
 
     input_path = Path(args.file)
-    data = load_yaml(input_path)
+    try:
+        report = load_report_file(input_path)
+        data = report.model_dump()
+    except Exception as e:
+        print(f"Error loading or validating report file: {e}")
+        sys.exit(1)
     
     # Compute all metrics and statistics
     stats = analyze_metrics(data)

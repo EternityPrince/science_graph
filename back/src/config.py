@@ -35,6 +35,10 @@ DEFAULT_CONFIG = {
         "local": {
             "model_path": str(Path.home() / "models" / "llm" / "gemma-3-text-12b-it-4bit"),
         },
+        "gguf": {
+            "n_gpu_layers": -1,
+            "n_ctx": 4096,
+        },
         "cloud": {
             "provider": "openai",
             "model_name": "google/gemini-2.5-flash",
@@ -111,6 +115,14 @@ DEFAULT_CONFIG = {
             "sigmoid_slope": -25.0,
             # Sigmoid scaling center offset for Cross-Encoder reranker score logit calibration
             "sigmoid_center": 0.5,
+            # Weight for AUTHORED relationship type
+            "weight_authored": 0.8,
+            # Weight for CITES relationship type
+            "weight_cites": 0.7,
+            # Weight for MENTIONS_CONCEPT relationship type
+            "weight_mentions_concept": 0.6,
+            # Default weight for other relationship types
+            "weight_default": 0.5,
         },
         "bm25": {
             # BM25 term frequency saturation parameter k1
@@ -161,7 +173,7 @@ hf_token: ""
 
 # Large Language Model (LLM) configuration
 llm:
-  # Provider: 'mlx' (for local Apple Silicon) or 'openai' (for OpenAI / OpenRouter / compatible APIs)
+  # Provider: 'mlx' (for local Apple Silicon), 'gguf' (for local GGUF models via llama.cpp) or 'openai' (for OpenAI / OpenRouter / compatible APIs)
   provider: "mlx"
 
   # Global default maximum output tokens for LLM response
@@ -194,9 +206,17 @@ llm:
   # Number of hypothetical answers to generate
   hyde_count: 1
 
-  # Local model settings (used if provider is 'mlx')
+  # Local model settings (used if provider is 'mlx' or 'gguf')
+  # Note: For 'mlx', model_path is a directory; for 'gguf', model_path is a file path to the .gguf model.
   local:
     model_path: "{DEFAULT_CONFIG['llm']['local']['model_path']}"
+
+  # GGUF-specific settings (used if provider is 'gguf')
+  gguf:
+    # Number of model layers to offload to GPU (-1 offloads all layers to Metal/CUDA)
+    n_gpu_layers: -1
+    # Context size for GGUF model (overrides model_max_context if set)
+    n_ctx: 4096
 
   # Cloud model settings (used if provider is 'openai')
   cloud:
@@ -295,6 +315,14 @@ hyperparameters:
     sigmoid_slope: -25.0
     # Sigmoid scaling center offset for Cross-Encoder reranker score logit calibration
     sigmoid_center: 0.5
+    # Heuristic weight for AUTHORED relationship type
+    weight_authored: 0.8
+    # Heuristic weight for CITES relationship type
+    weight_cites: 0.7
+    # Heuristic weight for MENTIONS_CONCEPT relationship type
+    weight_mentions_concept: 0.6
+    # Default heuristic weight for other relationship types
+    weight_default: 0.5
   bm25:
     # BM25 term frequency saturation parameter k1
     k1: 1.5
@@ -576,6 +604,22 @@ hyperparameters:
     @property
     def graph_sigmoid_center(self) -> float:
         return float(self.data.get("hyperparameters", {}).get("graph", {}).get("sigmoid_center", 0.5))
+
+    @property
+    def graph_weight_authored(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("weight_authored", 0.8))
+
+    @property
+    def graph_weight_cites(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("weight_cites", 0.7))
+
+    @property
+    def graph_weight_mentions_concept(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("weight_mentions_concept", 0.6))
+
+    @property
+    def graph_weight_default(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("weight_default", 0.5))
 
     @property
     def bm25_k1(self) -> float:

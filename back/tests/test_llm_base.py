@@ -258,3 +258,29 @@ class TestLlmBase(unittest.IsolatedAsyncioTestCase):
         engine.generate_response_mock.side_effect = Exception("fail")
         res = engine.synthesize_section("section", "chunks", "topic")
         self.assertIn("Generation failed", res)
+
+    @patch("src.llm_engine.gguf_impl.os.path.exists")
+    @patch("src.llm_engine.mlx_impl.os.path.isdir")
+    def test_llm_engine_factory(self, mock_isdir, mock_exists):
+        mock_isdir.return_value = True
+        mock_exists.return_value = True
+        
+        import os
+        with patch.dict(os.environ, {"SCIENCE_GRAPH_USE_CLOUD": "0"}):
+            # Test MLX provider
+            with patch.dict(config.data, {"llm": {"provider": "mlx", "local": {"model_path": "/fake/path"}}}):
+                import src.llm_engine
+                src.llm_engine._local_engine_singleton = None
+                from src.llm_engine.factory import LLMEngine
+                engine = LLMEngine(use_cloud=False)
+                from src.llm_engine.mlx_impl import MlxLLMEngine
+                self.assertIsInstance(engine, MlxLLMEngine)
+
+            # Test GGUF provider
+            with patch.dict(config.data, {"llm": {"provider": "gguf", "local": {"model_path": "/fake/path.gguf"}}}):
+                import src.llm_engine
+                src.llm_engine._local_engine_singleton = None
+                from src.llm_engine.factory import LLMEngine
+                engine = LLMEngine(use_cloud=False)
+                from src.llm_engine.gguf_impl import GgufLLMEngine
+                self.assertIsInstance(engine, GgufLLMEngine)

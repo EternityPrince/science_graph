@@ -11,6 +11,7 @@ from src.llm_engine.base import (
     StructuredOutput,
 )
 from src.llm_engine.mlx_impl import MlxLLMEngine, ConstrainedLogitsProcessor, build_mlx_tokenizer_data
+from src.llm_engine.gguf_impl import GgufLLMEngine
 from src.llm_engine.openai_impl import OpenAILLMEngine, AsyncRateLimiter
 from src.llm_engine.factory import LLMEngine
 
@@ -21,6 +22,7 @@ __all__ = [
     "LLMEngine",
     "BaseLLMEngine",
     "MlxLLMEngine",
+    "GgufLLMEngine",
     "OpenAILLMEngine",
     "strip_thinking_tokens",
     "ResilientParser",

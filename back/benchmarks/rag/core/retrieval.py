@@ -39,7 +39,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     # Initialize RAG Service (eager warmup disabled to prevent early model loads)
     con.info("Initializing RAG Service (eager warmup disabled)...")
     try:
-        rag_service = container.get_rag_service(use_cloud=args.cloud)
+        rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
     except Exception as e:
         con.error(f"Failed to initialize RAG Service: {e}")
         sys.exit(1)
@@ -60,55 +60,70 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     query_expansions_map = {}
     hyde_docs_map = {}
 
-    if any(b in baselines_to_run for b in ["B3", "B6"]):
+    # Check if any baseline actually requires LLM in Stage 1
+    llm_required_in_stage1 = False
+    for baseline in baselines_to_run:
+        if baseline == "B0":
+            continue
+        components_settings = get_baseline_config(baseline, config.rag_components)
+        if components_settings.get("llm_query_expansion", True) or (config.hyde_enabled and components_settings.get("hyde", False)):
+            llm_required_in_stage1 = True
+            break
+
+    if llm_required_in_stage1:
         con.info("Warming up LLM Engine for Stage 1...")
         rag_service.llm_engine._ensure_model_loaded()
 
-        for case in test_cases:
-            query = case.get("query")
-            for baseline in baselines_to_run:
-                if baseline == "B0":
-                    continue
+    for case in test_cases:
+        query = case.get("query")
+        for baseline in baselines_to_run:
+            if baseline == "B0":
+                continue
 
-                components_settings = get_baseline_config(baseline, config.rag_components)
-                orig_components = {name: config.is_component_enabled(name) for name in config.rag_components.keys()}
-                orig_hyde = config.data["llm"].get("hyde_enabled", False)
+            components_settings = get_baseline_config(baseline, config.rag_components)
+            orig_components = {name: config.is_component_enabled(name) for name in config.rag_components.keys()}
+            orig_hyde = config.data["llm"].get("hyde_enabled", False)
 
-                for k, v in components_settings.items():
+            for k, v in components_settings.items():
+                config.data["rag_components"][k] = v
+            config.data["llm"]["hyde_enabled"] = components_settings.get("hyde", False)
+
+            try:
+                # 1. Query Expansion if enabled for this baseline
+                if llm_required_in_stage1 and config.rag_components.get("llm_query_expansion", True):
+                    expanded = rag_service._expand_query(query)
+                    query_expansions_map[(query, baseline)] = expanded
+                else:
+                    query_expansions_map[(query, baseline)] = [query]
+
+                # 2. HyDE if enabled for this baseline
+                if llm_required_in_stage1 and config.hyde_enabled and config.rag_components.get("hyde", True):
+                    hyde_responses = getattr(config, "hyde_count", 1)
+                    docs = []
+                    for _ in range(hyde_responses):
+                        hypothetical = rag_service.llm_engine.generate_response(
+                            prompt=prompts.get_prompt("rag", "hyde", query=query),
+                            max_tokens=config.hyde_max_tokens
+                        )
+                        docs.append(hypothetical)
+                    hyde_docs_map[(query, baseline)] = docs
+                else:
+                    hyde_docs_map[(query, baseline)] = []
+            except Exception as e:
+                con.warning(f"Stage 1 failed for baseline {baseline}, query '{query[:30]}': {e}")
+                query_expansions_map[(query, baseline)] = [query]
+                hyde_docs_map[(query, baseline)] = []
+            finally:
+                # Restore original configs
+                for k, v in orig_components.items():
                     config.data["rag_components"][k] = v
-                config.data["llm"]["hyde_enabled"] = components_settings.get("hyde", False)
+                config.data["llm"]["hyde_enabled"] = orig_hyde
 
-                try:
-                    # 1. Query Expansion if enabled for this baseline
-                    if config.rag_components.get("llm_query_expansion", True):
-                        expanded = rag_service._expand_query(query)
-                        query_expansions_map[(query, baseline)] = expanded
-                    else:
-                        query_expansions_map[(query, baseline)] = [query]
-
-                    # 2. HyDE if enabled for this baseline
-                    if config.hyde_enabled and config.rag_components.get("hyde", True):
-                        hyde_responses = getattr(config, "hyde_count", 1)
-                        docs = []
-                        for _ in range(hyde_responses):
-                            hypothetical = rag_service.llm_engine.generate_response(
-                                prompt=prompts.get_prompt("rag", "hyde", query=query),
-                                max_tokens=config.hyde_max_tokens
-                            )
-                            docs.append(hypothetical)
-                        hyde_docs_map[(query, baseline)] = docs
-                except Exception as e:
-                    con.warning(f"Stage 1 failed for baseline {baseline}, query '{query[:30]}': {e}")
-                finally:
-                    # Restore original configs
-                    for k, v in orig_components.items():
-                        config.data["rag_components"][k] = v
-                    config.data["llm"]["hyde_enabled"] = orig_hyde
-
+    if llm_required_in_stage1:
         # Explicitly unload LLM model
         rag_service.llm_engine.unload_model()
     else:
-        con.info("No baselines require LLM in Stage 1. Skipping.")
+        con.info("No baselines require LLM in Stage 1. Skipping model warmup.")
 
     # =========================================================================
     # STAGE 2: Embedder Stage
@@ -220,6 +235,9 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     rag_service._expand_query = orig_expand_query
     rag_service.llm_engine.generate_response = orig_generate_response
     rag_service._classify_intent_and_extract_filters = orig_classify_intent
+
+    # Explicitly unload Embedder model at the end of Stage 3 in case it got loaded
+    rag_service.emb_engine.unload_model()
 
     # =========================================================================
     # STAGE 4: Reranker Stage
@@ -359,8 +377,8 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 config.data["rag_components"][k] = v
             config.data["llm"]["hyde_enabled"] = components_settings.get("hyde", False)
 
-            # Advanced Expander for B6 setup
-            if baseline == "B6":
+            # Advanced Expander for B6 or CUSTOM (if graph expansion enabled)
+            if baseline == "B6" or (baseline == "CUSTOM" and components_settings.get("graph_expansion", True)):
                 try:
                     from src.services.graph_expander import ExperimentalGraphExpander
                     rag_service.expander = ExperimentalGraphExpander(
@@ -370,7 +388,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                         reranker=rag_service._reranker
                     )
                 except Exception as e:
-                    con.warning(f"Could not load expander for B6: {e}")
+                    con.warning(f"Could not load expander for {baseline}: {e}")
                     rag_service.expander = None
             else:
                 rag_service.expander = None
@@ -423,7 +441,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 s3_metrics["total_io_calls"] += stage5_metrics["total_io_calls"]
 
                 total_latency = res["metrics"].get("total_latency", 0.0) + elapsed_stage5
-                if baseline == "B6" and rerank_latency > 0:
+                if baseline in ["B6", "CUSTOM"] and rerank_latency > 0:
                     total_latency += (rerank_latency * (len(final_chunks) / len(pairs_to_score)) if pairs_to_score else 0.0)
 
                 # Format retrieved chunks
@@ -485,3 +503,36 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
         yaml.dump(list(contexts_to_save.values()), f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
     con.success(f"Stage transition complete. Retrieved contexts saved to: {output_path.resolve()}")
+
+    # Save a copy to the unique run subdirectory under the reports directory
+    try:
+        from core.config import get_safe_model_name
+        from datetime import datetime
+
+        if args.cloud:
+            llm_model = config.data.get("llm", {}).get("cloud", {}).get("model_name", "cloud_model")
+        else:
+            llm_model = config.data.get("llm", {}).get("local", {}).get("model_path", "local_model")
+
+        safe_model_name = get_safe_model_name(llm_model)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Locate the reports directory
+        resolved_output_path = output_path.resolve()
+        reports_dir = None
+        for parent in [resolved_output_path.parent] + list(resolved_output_path.parents):
+            if parent.name == "reports":
+                reports_dir = parent
+                break
+        if not reports_dir:
+            reports_dir = Path(__file__).resolve().parents[1] / "reports"
+
+        run_retrive_dir = reports_dir / f"run_retrive_{timestamp}_{safe_model_name}"
+        run_retrive_dir.mkdir(parents=True, exist_ok=True)
+
+        copy_output_path = run_retrive_dir / output_path.name
+        with open(copy_output_path, "w", encoding="utf-8") as f:
+            yaml.dump(list(contexts_to_save.values()), f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        con.success(f"Retrieved contexts copy saved to: {copy_output_path.resolve()}")
+    except Exception as e:
+        con.warning(f"Could not save copy to run_retrive directory: {e}")

@@ -108,12 +108,15 @@ class TestRagBenchmark(unittest.TestCase):
 
     def test_baselines_descriptions(self):
         """Verifies all B0-B6 baselines have descriptions configured."""
-        self.assertEqual(len(BASELINES_INFO), 7)
+        self.assertIn(len(BASELINES_INFO), [7, 8])
         for i in range(7):
             key = f"B{i}"
             self.assertIn(key, BASELINES_INFO)
             self.assertIsInstance(BASELINES_INFO[key], str)
             self.assertTrue(len(BASELINES_INFO[key]) > 0)
+        if "CUSTOM" in BASELINES_INFO:
+            self.assertIsInstance(BASELINES_INFO["CUSTOM"], str)
+            self.assertTrue(len(BASELINES_INFO["CUSTOM"]) > 0)
 
     def test_merge_evaluation_data(self):
         """Verifies that merge_evaluation_data successfully merges baseline reports."""
@@ -322,6 +325,7 @@ class TestRagBenchmark(unittest.TestCase):
             "results": [
                 {
                     "id": "Q01",
+                    "query": "Test query",
                     "category": "general",
                     "baselines": {
                         "B0": {
@@ -450,6 +454,71 @@ class TestRagBenchmark(unittest.TestCase):
         self.assertIn("parse_metrics.py", call4_args[1])
         self.assertIn("--csv-summary", call4_args)
         self.assertIn("--csv-details", call4_args)
+
+    @patch("benchmarks.rag.run_retrieve.container.get_rag_service")
+    def test_run_retrieve_saves_copy_in_run_retrive_directory(self, mock_get_rag_service):
+        """Tests that run_retrieve saves results both in the specified output file and in a run_retrive_* directory."""
+        import tempfile
+        import sys
+        from benchmarks.rag.run_retrieve import main
+
+        # Setup mock RAG service
+        mock_rag = MagicMock(spec=RAGService)
+        mock_rag.emb_engine = MagicMock()
+        mock_rag.vector_repo = MagicMock()
+        mock_rag.graph_repo = MagicMock()
+        mock_rag._reranker = MagicMock()
+        mock_rag.llm_engine = MagicMock()
+
+        mock_rag.retrieve_relevant_chunks.return_value = []
+        mock_get_rag_service.return_value = mock_rag
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports_dir = Path(tmpdir) / "reports"
+            reports_dir.mkdir()
+            output_yaml = reports_dir / "retrieved_contexts.yaml"
+
+            # Create a test dataset
+            dataset_yaml = Path(tmpdir) / "test_dataset.yaml"
+            test_dataset = [
+                {
+                    "id": "Q01",
+                    "category": "general",
+                    "query": "Is gravity real?",
+                    "golden_answer": "Yes",
+                    "expected_papers": ["paper1"]
+                }
+            ]
+            with open(dataset_yaml, "w", encoding="utf-8") as f:
+                yaml.dump(test_dataset, f)
+
+            test_args = [
+                "run_retrieve.py",
+                "--dataset", str(dataset_yaml),
+                "--output", str(output_yaml),
+                "--baselines", "B1",
+                "--no-unique-dir"
+            ]
+
+            with patch.object(sys, "argv", test_args):
+                main()
+
+            # Verify output file exists
+            self.assertTrue(output_yaml.exists())
+
+            # Verify that a run_retrive_* directory was created inside reports_dir
+            run_dirs = list(reports_dir.glob("run_retrive_*"))
+            self.assertEqual(len(run_dirs), 1, "Should have created exactly one run_retrive_* directory")
+
+            run_dir = run_dirs[0]
+            copy_yaml = run_dir / "retrieved_contexts.yaml"
+            self.assertTrue(copy_yaml.exists(), f"Copy of output file should exist at: {copy_yaml}")
+
+            # Verify contents of the copy are correct
+            with open(copy_yaml, "r", encoding="utf-8") as f:
+                saved_data = yaml.safe_load(f)
+            self.assertEqual(len(saved_data), 1)
+            self.assertEqual(saved_data[0]["query"], "Is gravity real?")
 
 
 

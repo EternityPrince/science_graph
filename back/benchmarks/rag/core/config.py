@@ -9,7 +9,8 @@ BASELINES_INFO: Dict[str, str] = {
     "B3": "Dense + HyDE (Векторы + Гипотетический документ) — семантический поиск с гипотетическим ответом.",
     "B4": "Standard Hybrid (Базовый гибрид) — связка FTS5 + Векторы через RRF без графов.",
     "B5": "Hybrid + Graph (Базовый Граф-RAG) — гибридный поиск + статический обход графа (без реранкера/LLM-расширения).",
-    "B6": "Full Pipeline (Максимальный запуск) — включены все 12 компонентов (граф, реранкер, LLM-расширение и др. без HyDE)."
+    "B6": "Full Pipeline (Максимальный запуск) — включены все 12 компонентов (граф, реранкер, LLM-расширение и др. без HyDE).",
+    "CUSTOM": "Custom Run (Конфигурация с пользовательскими параметрами) — для тестирования влияния настроек на поиск."
 }
 
 
@@ -44,11 +45,18 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         components["context_trimming"] = True
         components["citation_repair"] = True
     elif baseline == "B6":
-        # Full pipeline has everything enabled except hyde
-        components = {k: True for k in config_rag_components.keys()}
+        # Full pipeline has everything enabled except hyde (respecting user overrides)
+        components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
+        components["hyde"] = False
+    elif baseline == "CUSTOM":
+        # Custom has everything enabled except hyde by default (respecting user overrides)
+        components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
         components["hyde"] = False
         
-    components["intent_classifier"] = False
+    if baseline not in ["B6", "CUSTOM"]:
+        components["intent_classifier"] = False
+    else:
+        components["intent_classifier"] = config_rag_components.get("intent_classifier", False)
     return components
 
 

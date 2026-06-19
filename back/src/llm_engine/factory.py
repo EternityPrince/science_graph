@@ -17,6 +17,11 @@ def LLMEngine(use_cloud: bool = False, *args, **kwargs) -> BaseLLMEngine:
         return src.llm_engine._cloud_engine_singleton
     else:
         if src.llm_engine._local_engine_singleton is None:
-            from src.llm_engine import MlxLLMEngine
-            src.llm_engine._local_engine_singleton = MlxLLMEngine(*args, **kwargs)
+            provider = config.llm_provider
+            if provider == "gguf":
+                from src.llm_engine import GgufLLMEngine
+                src.llm_engine._local_engine_singleton = GgufLLMEngine(*args, **kwargs)
+            else:
+                from src.llm_engine import MlxLLMEngine
+                src.llm_engine._local_engine_singleton = MlxLLMEngine(*args, **kwargs)
         return src.llm_engine._local_engine_singleton
