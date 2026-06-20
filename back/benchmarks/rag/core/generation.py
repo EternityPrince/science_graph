@@ -418,7 +418,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             con.warning(f"Could not load existing evaluation results for merging: {e}")
 
     embedding_model = config.data["embedding"]["model_name"]
-    reranker_model = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1" if config.data["rag_components"].get("reranker", True) else "disabled"
+    reranker_model = config.reranker_model_name if config.data["rag_components"].get("reranker", True) else "disabled"
     
     output_data = {
         "metadata": {

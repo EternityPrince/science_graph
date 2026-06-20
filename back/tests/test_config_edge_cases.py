@@ -209,3 +209,17 @@ def test_hf_token_environment_propagation():
                 os.environ[k] = v
             else:
                 os.environ.pop(k, None)
+
+
+def test_config_reranker_model_name():
+    """Test that Config exposes reranker_model_name correctly with defaults and custom overrides."""
+    with patch.object(Config, "_load_or_create_config", return_value={"reranker": {"model_name": "custom/reranker-model"}, "archive_dir": "/tmp"}):
+        with patch("src.config.Path.mkdir"):
+            cfg = Config()
+            assert cfg.reranker_model_name == "custom/reranker-model"
+
+    # Default fallback
+    with patch.object(Config, "_load_or_create_config", return_value={"archive_dir": "/tmp"}):
+        with patch("src.config.Path.mkdir"):
+            cfg_default = Config()
+            assert cfg_default.reranker_model_name == "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"

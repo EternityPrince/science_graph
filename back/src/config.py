@@ -62,6 +62,9 @@ DEFAULT_CONFIG = {
     "ner": {
         "model_name": "dslim/bert-base-NER"
     },
+    "reranker": {
+        "model_name": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    },
     "pdf_compression": {
         "enabled": True,
         "dpi_threshold": 151,
@@ -263,6 +266,11 @@ spacy:
 ner:
   # NER model name or HuggingFace repo ID or local path
   model_name: "dslim/bert-base-NER"
+
+# Reranker model configuration (used for Cross-Encoder reranking)
+reranker:
+  # Cross-Encoder model name or HuggingFace repo ID or local path
+  model_name: "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
 # PDF compression settings (used to downsample high-DPI scanned PDFs)
 pdf_compression:
@@ -544,6 +552,10 @@ hyperparameters:
     @property
     def embedding_model_name(self) -> str:
         return self.data["embedding"]["model_name"]
+
+    @property
+    def reranker_model_name(self) -> str:
+        return self.data.get("reranker", {}).get("model_name", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 
     @property
     def chunk_size(self) -> int:

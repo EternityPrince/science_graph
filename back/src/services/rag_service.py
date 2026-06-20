@@ -175,11 +175,12 @@ class RAGService:
         if self._reranker is not None:
             return self._reranker
         from sentence_transformers import CrossEncoder
-        con.model_msg("Loading reranker [bold]mmarco-mMiniLMv2-L12-H384-v1[/bold] …")
+        model_name = config.reranker_model_name
+        con.model_msg(f"Loading reranker [bold]{model_name}[/bold] …")
         with con.suppress_stderr(), con.suppress_stdout():
             import torch
             device = "mps" if torch.backends.mps.is_available() else "cpu"
-            self._reranker = CrossEncoder("cross-encoder/mmarco-mMiniLMv2-L12-H384-v1", device=device)
+            self._reranker = CrossEncoder(model_name, device=device)
         con.success(f"Reranker ready on {device.upper()}")
         return self._reranker
 
