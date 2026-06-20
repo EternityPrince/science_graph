@@ -163,18 +163,24 @@ async def evaluate_baseline_case(
     from src import console as con
     checkpoint_key = f"{case_id}_{baseline_name}"
     
-    # Return from checkpoint if already evaluated
-    if checkpoint_key in checkpoint_data:
-        return checkpoint_data[checkpoint_key]
+    # Return from checkpoint if already evaluated with all required metrics
+    cached = checkpoint_data.get(checkpoint_key, {})
+    retrieved_chunks = baseline_data.get("retrieved_chunks", [])
+    required = ["retrieval_recall", "answer_relevance", "semantic_accuracy", "context_fillness"]
+    if baseline_name != "B0" and retrieved_chunks:
+        required.extend(["context_precision", "faithfulness", "citation_fidelity"])
+    
+    if checkpoint_key in checkpoint_data and all(r in cached for r in required):
+        return cached
 
     eval_metrics = {
-        "retrieval_recall": 0.0,
-        "context_precision": 0.0,
-        "faithfulness": 0.0,
-        "answer_relevance": 0.0,
-        "citation_fidelity": 0.0,
-        "semantic_accuracy": 0.0,
-        "context_fillness": 0.0,
+        "retrieval_recall": cached.get("retrieval_recall", 0.0),
+        "context_precision": cached.get("context_precision", 0.0),
+        "faithfulness": cached.get("faithfulness", 0.0),
+        "answer_relevance": cached.get("answer_relevance", 0.0),
+        "citation_fidelity": cached.get("citation_fidelity", 0.0),
+        "semantic_accuracy": cached.get("semantic_accuracy", 0.0),
+        "context_fillness": cached.get("context_fillness", 0.0),
     }
 
     if baseline_data.get("status") == "error":
@@ -191,32 +197,44 @@ async def evaluate_baseline_case(
             from src.services.rag_service import parse_reasoning_response
             _, judge_answer = parse_reasoning_response(generated_answer)
         except Exception:
-            pass
+            try:
+                # Use fallback parser if heavy imports fail (e.g. tiktoken missing in evaluator env)
+                _, judge_answer = _fallback_parse_reasoning_response(generated_answer)
+            except Exception as fallback_err:
+                con.warning(f"Failed to parse reasoning response using fallback: {fallback_err}")
 
     retrieved_papers = baseline_data.get("retrieved_papers", [])
-    retrieved_chunks = baseline_data.get("retrieved_chunks", [])
 
     # Calculate traditional retrieval metrics
-    eval_metrics["retrieval_recall"] = baseline_data.get("retrieval_recall")
-    if eval_metrics["retrieval_recall"] is None:
-        eval_metrics["retrieval_recall"] = calculate_retrieval_recall(expected_papers, retrieved_papers)
+    if "retrieval_recall" not in cached or cached["retrieval_recall"] is None:
+        eval_metrics["retrieval_recall"] = baseline_data.get("retrieval_recall")
+        if eval_metrics["retrieval_recall"] is None:
+            eval_metrics["retrieval_recall"] = calculate_retrieval_recall(expected_papers, retrieved_papers)
+    else:
+        eval_metrics["retrieval_recall"] = cached["retrieval_recall"]
 
-    eval_metrics["context_precision"] = baseline_data.get("context_precision")
-    if eval_metrics["context_precision"] is None:
-        eval_metrics["context_precision"] = calculate_context_precision(expected_papers, retrieved_chunks)
+    if "context_precision" not in cached or cached["context_precision"] is None:
+        eval_metrics["context_precision"] = baseline_data.get("context_precision")
+        if eval_metrics["context_precision"] is None:
+            eval_metrics["context_precision"] = calculate_context_precision(expected_papers, retrieved_chunks)
+    else:
+        eval_metrics["context_precision"] = cached["context_precision"]
 
     # Calculate context fillness
-    context_fillness = baseline_data.get("context_fillness")
-    if context_fillness is None:
-        context_token = baseline_data.get("context_token")
-        max_input_token_val = baseline_data.get("max_input_token")
-        if context_token is None:
-            context_token = estimate_prompt_tokens(query, retrieved_chunks, baseline_name)
-        if max_input_token_val is None:
-            max_input_token_val = max_input_token
-        context_fillness = round(context_token / max_input_token_val, 4) if max_input_token_val > 0 else 0.0
-        context_fillness = min(max(context_fillness, 0.0), 1.0)
-    eval_metrics["context_fillness"] = context_fillness
+    if "context_fillness" not in cached or cached["context_fillness"] is None:
+        context_fillness = baseline_data.get("context_fillness")
+        if context_fillness is None:
+            context_token = baseline_data.get("context_token")
+            max_input_token_val = baseline_data.get("max_input_token")
+            if context_token is None:
+                context_token = estimate_prompt_tokens(query, retrieved_chunks, baseline_name)
+            if max_input_token_val is None:
+                max_input_token_val = max_input_token
+            context_fillness = round(context_token / max_input_token_val, 4) if max_input_token_val > 0 else 0.0
+            context_fillness = min(max(context_fillness, 0.0), 1.0)
+        eval_metrics["context_fillness"] = context_fillness
+    else:
+        eval_metrics["context_fillness"] = cached["context_fillness"]
 
     # If answer is missing, skip LLM calls
     if not generated_answer.strip():
@@ -230,44 +248,66 @@ async def evaluate_baseline_case(
     llm_tasks = {}
 
     # Always evaluate relevance and semantic accuracy
-    llm_tasks["answer_relevance"] = evaluator.evaluate_metric(
-        prompts["answer_relevance_evaluator"],
-        metric_name="answer_relevance",
-        query=query,
-        answer=judge_answer
-    )
-    llm_tasks["semantic_accuracy"] = evaluator.evaluate_metric(
-        prompts["semantic_accuracy_evaluator"],
-        metric_name="semantic_accuracy",
-        golden_answer=golden_answer,
-        answer=judge_answer
-    )
+    if "answer_relevance" not in cached or cached["answer_relevance"] is None:
+        llm_tasks["answer_relevance"] = evaluator.evaluate_metric(
+            prompts["answer_relevance_evaluator"],
+            metric_name="answer_relevance",
+            query=query,
+            answer=judge_answer
+        )
+    else:
+        eval_metrics["answer_relevance"] = cached["answer_relevance"]
+
+    if "semantic_accuracy" not in cached or cached["semantic_accuracy"] is None:
+        llm_tasks["semantic_accuracy"] = evaluator.evaluate_metric(
+            prompts["semantic_accuracy_evaluator"],
+            metric_name="semantic_accuracy",
+            golden_answer=golden_answer,
+            answer=judge_answer
+        )
+    else:
+        eval_metrics["semantic_accuracy"] = cached["semantic_accuracy"]
 
     # Evaluate faithfulness and citation fidelity only if there is retrieval context
     if baseline_name != "B0" and retrieved_chunks:
-        llm_tasks["faithfulness"] = evaluator.evaluate_metric(
-            prompts["faithfulness_evaluator"],
-            metric_name="faithfulness",
-            context=context_str,
-            answer=judge_answer
-        )
-        llm_tasks["citation_fidelity"] = evaluator.evaluate_metric(
-            prompts["citation_fidelity_evaluator"],
-            metric_name="citation_fidelity",
-            sources=context_str,
-            answer=judge_answer
+        if "faithfulness" not in cached or cached["faithfulness"] is None:
+            llm_tasks["faithfulness"] = evaluator.evaluate_metric(
+                prompts["faithfulness_evaluator"],
+                metric_name="faithfulness",
+                context=context_str,
+                answer=judge_answer
+            )
+        else:
+            eval_metrics["faithfulness"] = cached["faithfulness"]
+
+        if "citation_fidelity" not in cached or cached["citation_fidelity"] is None:
+            llm_tasks["citation_fidelity"] = evaluator.evaluate_metric(
+                prompts["citation_fidelity_evaluator"],
+                metric_name="citation_fidelity",
+                sources=context_str,
+                answer=judge_answer
+            )
+        else:
+            eval_metrics["citation_fidelity"] = cached["citation_fidelity"]
+    elif baseline_name != "B0":
+        con.warning(
+            f"No retrieved chunks found for baseline {baseline_name} in case {case_id}. "
+            "Faithfulness, citation fidelity, and context precision will default to 0.0. "
+            "Ensure you are passing the full evaluation_results.yaml file as input, "
+            "not the simplified evaluation_results_judge.yaml file."
         )
 
     # Run LLM calls concurrently
     keys = list(llm_tasks.keys())
-    eval_results = await asyncio.gather(*llm_tasks.values(), return_exceptions=True)
+    if keys:
+        eval_results = await asyncio.gather(*llm_tasks.values(), return_exceptions=True)
 
-    for key, val in zip(keys, eval_results):
-        if isinstance(val, Exception):
-            con.error(f"Failed evaluating {key} for {checkpoint_key}: {val}")
-            eval_metrics[key] = 0.0
-        else:
-            eval_metrics[key] = float(val.get("score", 0.0))
+        for key, val in zip(keys, eval_results):
+            if isinstance(val, Exception):
+                con.error(f"Failed evaluating {key} for {checkpoint_key}: {val}")
+                eval_metrics[key] = 0.0
+            else:
+                eval_metrics[key] = float(val.get("score", 0.0))
 
     # Save to checkpoint
     checkpoint_data[checkpoint_key] = eval_metrics
@@ -554,3 +594,126 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
 
         from rich.console import Console
         Console().print(table)
+
+
+def _fallback_parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
+    """
+    Fallback implementation of parse_reasoning_response that does not depend on
+    heavy imports (like tiktoken, etc.) and is self-contained.
+    """
+    if not raw_response or not isinstance(raw_response, str):
+        return "UNKNOWN", "Error: Empty or incorrect response from model."
+
+    # 1. Extract status
+    status = "UNKNOWN"
+    status_match = re.search(r"<\|status_start\|>(.*?)<\|status_end\|>", raw_response, re.DOTALL)
+    if status_match:
+        status = status_match.group(1).strip()
+    else:
+        status_unclosed = re.search(r"<\|status_start\|>(.*)", raw_response, re.DOTALL)
+        if status_unclosed:
+            content = status_unclosed.group(1).split("<|")[0].strip()
+            status = content if content else "UNKNOWN"
+
+    if status == "UNKNOWN":
+        status_sec_match = re.search(
+            r"(?:###\s*)?4\.\s*_(?:status)\.\.\.[_a-zA-Z0-9:]*\s*(.*?)(?=(?:###\s*)?(?:5\.\s*_(?:answer)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:|$))",
+            raw_response,
+            re.IGNORECASE | re.DOTALL
+        )
+        if status_sec_match:
+            status_text = status_sec_match.group(1).strip().upper()
+            if any(x in status_text for x in ["UNANSWERABLE", "NOT ANSWERABLE", "INSUFFICIENT", "NOT_ANSWERABLE"]):
+                status = "UNANSWERABLE"
+            elif any(x in status_text for x in ["ANSWERABLE", "SUFFICIENT"]):
+                status = "ANSWERABLE"
+
+    # 2. Extract answer
+    answer_match = re.search(r"<\|answer_start\|>(.*?)<\|answer_end\|>", raw_response, re.DOTALL)
+    if answer_match:
+        answer = answer_match.group(1).strip()
+    else:
+        answer_unclosed = re.search(r"<\|answer_start\|>(.*)", raw_response, re.DOTALL)
+        if answer_unclosed:
+            answer = answer_unclosed.group(1).strip()
+        else:
+            answer = raw_response.strip()
+            for tag in ["status", "query_analysis", "source_analysis", "reasoning"]:
+                answer = re.sub(rf"<\|{tag}_start\|>.*?<\|{tag}_end\|>", "", answer, flags=re.DOTALL)
+                answer = re.sub(rf"<\|{tag}_start\|>.*", "", answer, flags=re.DOTALL)
+            
+            # Clean reasoning markers and headers
+            answer = _fallback_clean_reasoning_text(answer)
+            
+    return status, answer
+
+
+def _fallback_clean_reasoning_text(text: str) -> str:
+    if not text:
+        return text
+
+    answer_markers = [
+        r"(?:###\s*)?Final\s+Answer\s*:\s*",
+        r"(?:###\s*)?5\.\s*_(?:answer|status|reasoning|analysis|source_analysis)\.\.\.[_a-zA-Z0-9:]*\s*",
+    ]
+    combined_pattern = re.compile(
+        r"|".join(f"(?:{p})" for p in answer_markers),
+        re.IGNORECASE
+    )
+    
+    matches = list(combined_pattern.finditer(text))
+    if matches:
+        last_match = matches[-1]
+        candidate = text[last_match.end():].strip()
+        if combined_pattern.search(candidate):
+            return _fallback_clean_reasoning_text(candidate)
+        text = candidate
+    else:
+        text = re.sub(
+            r"(?:###\s*)?[1-4]\.\s*_(?:analysis|start|reasoning|status|source_analysis)\.\.\..*?(?=(?:###\s*)?(?:5\.\s*_(?:answer|status|reasoning|analysis)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:))",
+            "",
+            text,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+
+    header_pattern = r"(?:###\s*)?[1-5]\.\s*_(?:analysis|start|reasoning|status|answer|source_analysis)\.\.\.[_a-zA-Z0-9:]*"
+    text = re.sub(header_pattern, "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:###\s*)?Final\s+Answer\s*:", "", text, flags=re.IGNORECASE)
+    
+    text = re.sub(r"<\|source_id\|>", "__SOURCE_ID_TAG__", text, flags=re.IGNORECASE)
+    
+    # Strip thinking and technical tokens
+    text = _fallback_strip_thinking_tokens(text)
+    
+    text = text.replace("__SOURCE_ID_TAG__", "<|source_id|>")
+    return text.strip()
+
+
+def _fallback_strip_thinking_tokens(text: str) -> str:
+    if not text:
+        return text
+    # Remove closed think blocks
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # Remove unclosed think blocks at the end
+    text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
+
+    # Model-agnostic generic token stripping
+    text = re.sub(r"<\|.*?\|>", "", text)
+    text = re.sub(r"<<.*?>>", "", text)
+    text = re.sub(r"\[/?(?:[A-Z_]{2,}[A-Z0-9_-]*)\]", "", text)
+    text = re.sub(r"</?(?:s|pad|unk|turn)>", "", text, flags=re.IGNORECASE)
+
+    # Patterns for technical formatting tokens
+    technical_patterns = [
+        r"<\|im_start\|>", r"<\|im_end\|>", r"<\|im_sep\|>",
+        r"<\|start_header_id\|>", r"<\|end_header_id\|>",
+        r"<\|eot_id\|>", r"<\|eom_id\|>", r"<\|endoftext\|>",
+        r"<\|assistant\|>", r"<\|user\|>", r"<\|system\|>",
+        r"<\|end\|>", r"\[INST\]", r"\[/INST\]",
+        r"<s>", r"</s>", r"<start_of_turn>", r"<end_of_turn>",
+        r"<<SYS>>", r"<</SYS>>", r"<pad>", r"<unk>", r"<turn>"
+    ]
+    for pattern in technical_patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+        
+    return text
