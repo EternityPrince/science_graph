@@ -9,51 +9,47 @@ from typing import List, Optional, Tuple
 from src.models import Paper, Chunk, slugify
 from src.config import config
 from src.repository.base import GraphRepository, VectorRepository
-from src.vector_search import EmbeddingEngine
+from src.vector_search import EmbeddingEngine, split_segment_to_chunks
 from src.services.similarity import JaccardSimilarity
 
 
 def _split_text_to_chunks_raw(
     paper_id: str, text: str, chunk_size: int = None, chunk_overlap: int = None
 ) -> List[Chunk]:
-    """Splits a plain text string (not PDF) into overlapping Chunk objects."""
-    chunk_size = chunk_size or config.chunk_size
-    chunk_overlap = chunk_overlap or config.chunk_overlap
-
-    paragraphs = re.split(r'\n{2,}', text)
-    chunks: List[Chunk] = []
-    chunk_idx = 0
-    page_num = 1
-    buffer = ""
-
-    for para in paragraphs:
-        para_clean = re.sub(r'\s+', ' ', para).strip()
-        if not para_clean:
-            page_num += 1
-            continue
-        buffer += " " + para_clean
-        while len(buffer) >= chunk_size:
-            window = buffer[:chunk_size]
-            if len(window) > 50:
-                chunks.append(Chunk(
-                    id=f"{paper_id}#{chunk_idx}",
-                    paper_id=paper_id,
-                    text_content=window.strip(),
-                    page_number=page_num,
-                ))
-                chunk_idx += 1
-            buffer = buffer[chunk_size - chunk_overlap:]
-
-    remainder = buffer.strip()
-    if len(remainder) > 50:
-        chunks.append(Chunk(
-            id=f"{paper_id}#{chunk_idx}",
-            paper_id=paper_id,
-            text_content=remainder,
-            page_number=page_num,
-        ))
-
-    return chunks
+    """Splits a plain text string (not PDF) into overlapping child Chunk objects with parent context."""
+    parent_size = chunk_size or getattr(config, "parent_chunk_size", 2500)
+    parent_overlap = chunk_overlap if chunk_overlap is not None else getattr(config, "parent_chunk_overlap", 200)
+    
+    child_size = getattr(config, "child_chunk_size", 300)
+    child_overlap = getattr(config, "child_chunk_overlap", 50)
+    
+    # 1. Split text into parent chunks
+    parent_texts = split_segment_to_chunks(text, parent_size, parent_overlap)
+    
+    child_chunks = []
+    global_child_idx = 0
+    parent_idx = 0
+    page_num = 1 # plain text usually has page 1
+    
+    for p_text in parent_texts:
+        parent_id = f"{paper_id}#parent_{parent_idx}"
+        parent_idx += 1
+        
+        # 2. Split parent chunk into child chunks
+        child_texts = split_segment_to_chunks(p_text, child_size, child_overlap)
+        
+        for c_text in child_texts:
+            child_chunks.append(Chunk(
+                id=f"{paper_id}#{global_child_idx}",
+                paper_id=paper_id,
+                text_content=c_text,
+                page_number=page_num,
+                parent_id=parent_id,
+                parent_text=p_text
+            ))
+            global_child_idx += 1
+            
+    return child_chunks
 
 
 class DuplicateDetector:

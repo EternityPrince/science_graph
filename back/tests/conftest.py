@@ -80,3 +80,32 @@ def indexer(graph_repo, vector_repo, mock_embedding_engine, mock_llm_engine):
         embedding_engine=mock_embedding_engine,
         llm_engine=mock_llm_engine,
     )
+
+
+@pytest.fixture(autouse=True)
+def reset_config():
+    """Resets the global config.data to default values and cleans up the environment for each test."""
+    from src.config import config, DEFAULT_CONFIG
+    import copy
+    import os
+    
+    original_data = copy.deepcopy(config.data)
+    config.data = copy.deepcopy(DEFAULT_CONFIG)
+    
+    # Backup environment variables
+    original_env = dict(os.environ)
+    
+    # Clear test-contaminating environment variables
+    os.environ.pop("SCIENCE_GRAPH_USE_CLOUD", None)
+    for key in list(os.environ.keys()):
+        if key.startswith("RAG_"):
+            os.environ.pop(key, None)
+            
+    yield
+    
+    # Restore original data and environment
+    config.data = original_data
+    os.environ.clear()
+    os.environ.update(original_env)
+
+

@@ -972,6 +972,18 @@ class SQLiteVectorRepository(VectorRepository):
 
     def _init_db(self):
         with self._get_connection() as conn:
+            # Create parent_chunks table
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS parent_chunks (
+                id TEXT PRIMARY KEY,
+                paper_id TEXT NOT NULL,
+                text_content TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                FOREIGN KEY (paper_id) REFERENCES nodes(id) ON DELETE CASCADE
+            );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_parent_chunks_paper ON parent_chunks(paper_id);")
+
             conn.execute("""
             CREATE TABLE IF NOT EXISTS chunks (
                 id TEXT PRIMARY KEY,
@@ -979,7 +991,9 @@ class SQLiteVectorRepository(VectorRepository):
                 text_content TEXT NOT NULL,
                 page_number INTEGER NOT NULL,
                 embedding BLOB NOT NULL,
-                FOREIGN KEY (paper_id) REFERENCES nodes(id) ON DELETE CASCADE
+                parent_id TEXT,
+                FOREIGN KEY (paper_id) REFERENCES nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES parent_chunks(id) ON DELETE SET NULL
             );
             """)
             # Create FTS5 virtual table for chunks
@@ -1015,7 +1029,7 @@ class SQLiteVectorRepository(VectorRepository):
             WHERE id NOT IN (SELECT id FROM chunks_fts);
             """)
 
-            # Migration check: add id_hash column if not present
+            # Migration check: add columns if not present
             cursor = conn.execute("PRAGMA table_info(chunks);")
             columns = [row["name"] for row in cursor.fetchall()]
             if "id_hash" not in columns:
@@ -1028,8 +1042,15 @@ class SQLiteVectorRepository(VectorRepository):
                     conn.commit()
                 except Exception:
                     pass
+            if "parent_id" not in columns:
+                try:
+                    conn.execute("ALTER TABLE chunks ADD COLUMN parent_id TEXT;")
+                    conn.commit()
+                except Exception:
+                    pass
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_paper ON chunks(paper_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(id_hash);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id);")
             conn.commit()
 
     def save_chunks(self, chunks: List[Chunk]) -> None:
@@ -1044,11 +1065,18 @@ class SQLiteVectorRepository(VectorRepository):
                         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
                         (chunk.paper_id, "Paper", json.dumps({"title": chunk.paper_id, "placeholder": True}, ensure_ascii=False))
                     )
+                # Save parent chunk if parent_id is set
+                if isinstance(chunk.parent_id, str) and isinstance(chunk.parent_text, str):
+                    conn.execute(
+                        "INSERT OR IGNORE INTO parent_chunks (id, paper_id, text_content, page_number) VALUES (?, ?, ?, ?)",
+                        (chunk.parent_id, chunk.paper_id, chunk.parent_text, chunk.page_number)
+                    )
                 emb_array = np.array(chunk.embedding, dtype=np.float32)
                 emb_blob = emb_array.tobytes()
+                parent_id_val = chunk.parent_id if isinstance(chunk.parent_id, str) else None
                 conn.execute(
-                    "INSERT OR REPLACE INTO chunks (id, paper_id, text_content, page_number, embedding, id_hash) VALUES (?, ?, ?, ?, ?, ?)",
-                    (chunk.id, chunk.paper_id, chunk.text_content, chunk.page_number, emb_blob, stable_hash(chunk.id))
+                    "INSERT OR REPLACE INTO chunks (id, paper_id, text_content, page_number, embedding, id_hash, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (chunk.id, chunk.paper_id, chunk.text_content, chunk.page_number, emb_blob, stable_hash(chunk.id), parent_id_val)
                 )
             conn.commit()
 
@@ -1088,22 +1116,43 @@ class SQLiteVectorRepository(VectorRepository):
                 paper_placeholders
             )
             
+            # Prepare parent chunks insert params
+            parent_chunks_params = []
+            seen_parent_ids = set()
+            for chunk in valid_chunks:
+                if isinstance(chunk.parent_id, str) and isinstance(chunk.parent_text, str) and chunk.parent_id not in seen_parent_ids:
+                    seen_parent_ids.add(chunk.parent_id)
+                    parent_chunks_params.append((
+                        chunk.parent_id,
+                        chunk.paper_id,
+                        chunk.parent_text,
+                        chunk.page_number
+                    ))
+            
+            if parent_chunks_params:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO parent_chunks (id, paper_id, text_content, page_number) VALUES (?, ?, ?, ?)",
+                    parent_chunks_params
+                )
+                
             # Prepare chunk insert params
             params = []
             for chunk in valid_chunks:
                 emb_array = np.array(chunk.embedding, dtype=np.float32)
                 emb_blob = emb_array.tobytes()
+                parent_id_val = chunk.parent_id if isinstance(chunk.parent_id, str) else None
                 params.append((
                     chunk.id,
                     chunk.paper_id,
                     chunk.text_content,
                     chunk.page_number,
                     emb_blob,
-                    stable_hash(chunk.id)
+                    stable_hash(chunk.id),
+                    parent_id_val
                 ))
                 
             conn.executemany(
-                "INSERT OR REPLACE INTO chunks (id, paper_id, text_content, page_number, embedding, id_hash) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO chunks (id, paper_id, text_content, page_number, embedding, id_hash, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 params
             )
             conn.commit()
@@ -1123,7 +1172,12 @@ class SQLiteVectorRepository(VectorRepository):
     def get_chunks_for_paper(self, paper_id: str) -> List[Chunk]:
         with self._get_connection() as conn:
             rows = conn.execute(
-                "SELECT id, paper_id, text_content, page_number, embedding FROM chunks WHERE paper_id = ?",
+                """
+                SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, c.parent_id, p.text_content AS parent_text
+                FROM chunks c
+                LEFT JOIN parent_chunks p ON c.parent_id = p.id
+                WHERE c.paper_id = ?
+                """,
                 (paper_id,)
             ).fetchall()
             
@@ -1135,14 +1189,20 @@ class SQLiteVectorRepository(VectorRepository):
                     paper_id=r["paper_id"],
                     text_content=r["text_content"],
                     page_number=r["page_number"],
-                    embedding=emb_array.tolist()
+                    embedding=emb_array.tolist(),
+                    parent_id=r["parent_id"],
+                    parent_text=r["parent_text"]
                 ))
             return chunks
 
     def get_all_chunks(self) -> List[Chunk]:
         with self._get_connection() as conn:
             rows = conn.execute(
-                "SELECT id, paper_id, text_content, page_number, embedding FROM chunks"
+                """
+                SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, c.parent_id, p.text_content AS parent_text
+                FROM chunks c
+                LEFT JOIN parent_chunks p ON c.parent_id = p.id
+                """
             ).fetchall()
             
             chunks = []
@@ -1153,7 +1213,9 @@ class SQLiteVectorRepository(VectorRepository):
                     paper_id=r["paper_id"],
                     text_content=r["text_content"],
                     page_number=r["page_number"],
-                    embedding=emb_array.tolist()
+                    embedding=emb_array.tolist(),
+                    parent_id=r["parent_id"],
+                    parent_text=r["parent_text"]
                 ))
             return chunks
 
@@ -1202,9 +1264,10 @@ class SQLiteVectorRepository(VectorRepository):
         
         filter_sql, filter_params = self._build_metadata_filters(filters)
         query = f"""
-            SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, c.id_hash 
+            SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, c.id_hash, c.parent_id, p.text_content AS parent_text
             FROM chunks c
             JOIN nodes n ON n.id = c.paper_id
+            LEFT JOIN parent_chunks p ON c.parent_id = p.id
             WHERE c.id_hash IN ({placeholders}) {filter_sql}
         """
         
@@ -1224,7 +1287,9 @@ class SQLiteVectorRepository(VectorRepository):
                 paper_id=r["paper_id"],
                 text_content=r["text_content"],
                 page_number=r["page_number"],
-                embedding=emb_array.tolist()
+                embedding=emb_array.tolist(),
+                parent_id=r["parent_id"],
+                parent_text=r["parent_text"]
             )
             dist = key_to_dist[h]
             similarity = 1.0 - dist
@@ -1256,7 +1321,7 @@ class SQLiteVectorRepository(VectorRepository):
                 # bm25 returns negative values where lower is better.
                 # So we sort by bm25(...) ASC and return -bm25(...) as the score.
                 query_str = f"""
-                    SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, f.score
+                    SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, f.score, c.parent_id, p.text_content AS parent_text
                     FROM (
                         SELECT id, -bm25(chunks_fts) as score
                         FROM chunks_fts
@@ -1264,6 +1329,7 @@ class SQLiteVectorRepository(VectorRepository):
                     ) f
                     JOIN chunks c ON c.id = f.id
                     JOIN nodes n ON n.id = c.paper_id
+                    LEFT JOIN parent_chunks p ON c.parent_id = p.id
                     WHERE 1=1 {filter_sql}
                     ORDER BY f.score DESC
                     LIMIT ?
@@ -1283,7 +1349,9 @@ class SQLiteVectorRepository(VectorRepository):
                 paper_id=r["paper_id"],
                 text_content=r["text_content"],
                 page_number=r["page_number"],
-                embedding=emb_array.tolist()
+                embedding=emb_array.tolist(),
+                parent_id=r["parent_id"],
+                parent_text=r["parent_text"]
             )
             results.append((chunk, float(r["score"])))
         return results

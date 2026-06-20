@@ -440,9 +440,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                     s3_metrics["components"][component]["time_sec"] = round(s3_metrics["components"][component]["time_sec"] + data["time_sec"], 4)
                 s3_metrics["total_io_calls"] += stage5_metrics["total_io_calls"]
 
-                total_latency = res["metrics"].get("total_latency", 0.0) + elapsed_stage5
-                if baseline in ["B6", "CUSTOM"] and rerank_latency > 0:
-                    total_latency += (rerank_latency * (len(final_chunks) / len(pairs_to_score)) if pairs_to_score else 0.0)
+                total_latency = sum(comp["time_sec"] for comp in s3_metrics["components"].values())
 
                 # Format retrieved chunks
                 chunks_info = []

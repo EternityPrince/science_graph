@@ -41,6 +41,8 @@ class Chunk:
     text_content: str
     page_number: int
     embedding: Optional[List[float]] = None
+    parent_id: Optional[str] = None
+    parent_text: Optional[str] = None
 
 @dataclass
 class Edge:

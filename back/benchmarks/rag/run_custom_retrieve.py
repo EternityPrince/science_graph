@@ -61,7 +61,9 @@ class GraphPreset(NamedTuple):
     gamma: float
     crawl_stop_threshold: float
     semantic_score_threshold: float
+    semantic_score_top_p: float
     sigmoid_score_threshold: float
+    sigmoid_score_top_p: float
     essential_fact_threshold: float
     sigmoid_slope: float
     sigmoid_center: float
@@ -95,7 +97,9 @@ CUSTOM_PRESET_HYPERPARAMS_NT = CustomPresetHyperparams(
         gamma=0.0,
         crawl_stop_threshold=1.0,
         semantic_score_threshold=0.35,
+        semantic_score_top_p=0.9,
         sigmoid_score_threshold=0.4,
+        sigmoid_score_top_p=0.9,
         essential_fact_threshold=0.5,
         sigmoid_slope=0.0,
         sigmoid_center=0.5,
@@ -186,7 +190,9 @@ def build_custom_config(args, file_config=None) -> tuple[dict, dict]:
         ("graph_gamma", "gamma"),
         ("graph_crawl_stop_threshold", "crawl_stop_threshold"),
         ("graph_semantic_score_threshold", "semantic_score_threshold"),
+        ("graph_semantic_score_top_p", "semantic_score_top_p"),
         ("graph_sigmoid_score_threshold", "sigmoid_score_threshold"),
+        ("graph_sigmoid_score_top_p", "sigmoid_score_top_p"),
         ("graph_essential_fact_threshold", "essential_fact_threshold"),
         ("graph_sigmoid_slope", "sigmoid_slope"),
         ("graph_sigmoid_center", "sigmoid_center"),
@@ -447,7 +453,9 @@ def main():
     parser.add_argument("--graph-gamma", type=float, default=None)
     parser.add_argument("--graph-crawl-stop-threshold", type=float, default=None)
     parser.add_argument("--graph-semantic-score-threshold", type=float, default=None)
+    parser.add_argument("--graph-semantic-score-top-p", type=float, default=None)
     parser.add_argument("--graph-sigmoid-score-threshold", type=float, default=None)
+    parser.add_argument("--graph-sigmoid-score-top-p", type=float, default=None)
     parser.add_argument("--graph-essential-fact-threshold", type=float, default=None)
     parser.add_argument("--graph-sigmoid-slope", type=float, default=None)
     parser.add_argument("--graph-sigmoid-center", type=float, default=None)

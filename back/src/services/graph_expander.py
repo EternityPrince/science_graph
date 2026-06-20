@@ -460,8 +460,22 @@ class ExperimentalGraphExpander:
                 final_score = semantic_score * authority
                 scored_candidates.append((nid, label, name_or_title, cards[i][1], conn_desc, semantic_score, is_note, final_score))
                 
-            # Filter semantic_score > threshold (bypass for UserNotes to prioritize notes)
-            valid_candidates = [c for c in scored_candidates if c[5] > _safe_float(config.graph_semantic_score_threshold, 0.4) or c[1] == "UserNote"]
+            # Filter candidates using dynamic Top-P (nucleus filtering) on semantic_score (c[5])
+            # (bypass for UserNotes to prioritize notes)
+            sorted_by_score = sorted(scored_candidates, key=lambda x: x[5], reverse=True)
+            total_score = sum(c[5] for c in sorted_by_score)
+            top_p_val = _safe_float(config.graph_semantic_score_top_p, 0.9)
+            
+            top_p_set = set()
+            if total_score > 0:
+                cumulative_score = 0.0
+                for c in sorted_by_score:
+                    top_p_set.add(c[0])
+                    cumulative_score += c[5]
+                    if cumulative_score >= top_p_val * total_score:
+                        break
+                
+            valid_candidates = [c for c in scored_candidates if c[0] in top_p_set or c[1] == "UserNote"]
             valid_candidates.sort(key=lambda x: (x[6], x[7]), reverse=True)
             
             # Select top k_limit
@@ -534,10 +548,23 @@ class ExperimentalGraphExpander:
                 sigmoid_score = safe_sigmoid(raw_score)
                 paper_to_scored_chunks.setdefault(c.paper_id, []).append((c, sigmoid_score))
                 
-            # Keep top chunks per paper (only those above the threshold to filter noise)
+            # Keep top chunks per paper (only those selected by dynamic Top-P to filter noise)
             for pid, scored in paper_to_scored_chunks.items():
                 scored.sort(key=lambda x: x[1], reverse=True)
-                valid_scored = [item for item in scored if item[1] > _safe_float(config.graph_sigmoid_score_threshold, 0.4)]
+                
+                # Apply dynamic Top-P (nucleus filtering) on sigmoid_score (item[1])
+                total_score = sum(item[1] for item in scored)
+                top_p_val = _safe_float(config.graph_sigmoid_score_top_p, 0.9)
+                
+                valid_scored = []
+                if total_score > 0:
+                    cumulative_score = 0.0
+                    for item in scored:
+                        valid_scored.append(item)
+                        cumulative_score += item[1]
+                        if cumulative_score >= top_p_val * total_score:
+                            break
+                    
                 top_scored = valid_scored[:self.top_chunks_per_paper]
                 top_scored_ids = {c.id for c, _ in top_scored}
                 

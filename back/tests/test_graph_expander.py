@@ -299,5 +299,96 @@ class TestGraphExpander(unittest.TestCase):
         self.assertEqual(safe_sigmoid(-1000.0), 0.0)
         self.assertEqual(safe_sigmoid(1000.0), 1.0)
 
+    def test_dynamic_top_p_filtering(self):
+        """Verify dynamic Top-P selection filters candidates and chunks based on cumulative sum of scores."""
+        from src.config import config
+        # Save original hyperparameters dict to restore later
+        orig_hype = config.data.get("hyperparameters", {}).copy()
+        
+        # Inject our custom top_p parameters
+        config.data["hyperparameters"] = {
+            "graph": {
+                "semantic_score_top_p": 0.9,
+                "sigmoid_score_top_p": 0.9,
+                "essential_fact_threshold": 0.0,  # make sure evidence list includes all for simplicity
+                "crawl_stop_threshold": 1.0
+            }
+        }
+        
+        try:
+            self.expander.p_base = 10.0
+            self.expander.gamma = 0.9
+            
+            c1 = Chunk(id="chunk_1", paper_id="paper_1", text_content="Starting text", page_number=1)
+            initial_chunks = [(c1, 0.9)]
+            
+            p1 = Paper(id="paper_1", title="Title One")
+            self.graph_repo.get_papers_batch.return_value = {"paper_1": p1}
+            
+            # Neighbors for Hop 1
+            self.graph_repo.get_neighbors.return_value = [
+                ("paper_1", "Paper", "CITES", "paper_2", "Paper", "{}"),
+                ("paper_1", "Paper", "CITES", "paper_3", "Paper", "{}"),
+                ("paper_1", "Paper", "CITES", "paper_4", "Paper", "{}"),
+            ]
+            
+            p2 = Paper(id="paper_2", title="Title Two")
+            p3 = Paper(id="paper_3", title="Title Three")
+            p4 = Paper(id="paper_4", title="Title Four")
+            self.graph_repo.get_paper.side_effect = lambda pid: {
+                "paper_2": p2,
+                "paper_3": p3,
+                "paper_4": p4,
+            }.get(pid)
+            
+            # Predict raw scores that map to semantic scores (sigmoids):
+            # paper_2 semantic_score ~0.7, paper_3 semantic_score ~0.25, paper_4 semantic_score ~0.05
+            # Combined raw logits we return: [0.5339, 0.4561, 0.3822]
+            # Since total is 1.0003, 90% is 0.90027. Cumulative score: 0.7001 (paper_2), 0.9503 (paper_3).
+            # So paper_2 and paper_3 are selected, paper_4 is filtered.
+            hop_logits = [0.5339, 0.4561, 0.3822]
+            
+            # Chunk ingestion scores:
+            # paper_2: chunk_2_1 gets 0.8 (raw 0.5555), chunk_2_2 gets 0.1 (raw 0.4121) -> Total = 0.9. top_p needs both.
+            # paper_3: chunk_3_1 gets 0.9 (raw 0.5879), chunk_3_2 gets 0.1 (raw 0.4121) -> Total = 1.0. top_p stops at first chunk.
+            chunk_logits = [0.5555, 0.4121, 0.5879, 0.4121]
+            # Final filtering scores:
+            final_logits = [100.0] * 10
+            
+            self.reranker.predict.side_effect = [
+                hop_logits,
+                chunk_logits,
+                final_logits
+            ]
+            
+            # Mock get_chunks_for_paper
+            c2_1 = Chunk(id="chunk_2_1", paper_id="paper_2", text_content="Signal chunk from paper 2", page_number=2)
+            c2_2 = Chunk(id="chunk_2_2", paper_id="paper_2", text_content="Low score chunk from paper 2", page_number=3)
+            c3_1 = Chunk(id="chunk_3_1", paper_id="paper_3", text_content="Signal chunk from paper 3", page_number=4)
+            c3_2 = Chunk(id="chunk_3_2", paper_id="paper_3", text_content="Low score chunk from paper 3", page_number=5)
+            self.vector_repo.get_chunks_for_paper.side_effect = lambda pid: {
+                "paper_2": [c2_1, c2_2],
+                "paper_3": [c3_1, c3_2],
+            }.get(pid, [])
+            
+            result = self.expander.expand("test query", initial_chunks)
+            
+            # paper_4 should NOT be in result
+            self.assertNotIn("Title Four", result)
+            # paper_2 and paper_3 should be in result
+            self.assertIn("Title Two", result)
+            self.assertIn("Title Three", result)
+            
+            # Both chunks of paper_2 should be in result (since 0.8 + 0.1 total is 0.9, top_p 0.9 needs both)
+            self.assertIn("Signal chunk from paper 2", result)
+            self.assertIn("Low score chunk from paper 2", result)
+            
+            # For paper_3, only chunk_3_1 should be in result, chunk_3_2 is filtered out (since 0.9 >= 0.9)
+            self.assertIn("Signal chunk from paper 3", result)
+            self.assertNotIn("Low score chunk from paper 3", result)
+            
+        finally:
+            config.data["hyperparameters"] = orig_hype
+
 if __name__ == "__main__":
     unittest.main()

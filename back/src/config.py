@@ -50,7 +50,11 @@ DEFAULT_CONFIG = {
     "embedding": {
         "model_name": "sentence-transformers/all-MiniLM-L6-v2",
         "chunk_size": 1000,
-        "chunk_overlap": 200
+        "chunk_overlap": 200,
+        "child_chunk_size": 300,
+        "child_chunk_overlap": 50,
+        "parent_chunk_size": 2500,
+        "parent_chunk_overlap": 200
     },
     "spacy": {
         "model_name": "en_core_web_sm"
@@ -107,8 +111,12 @@ DEFAULT_CONFIG = {
             "crawl_stop_threshold": 1.0,
             # Minimum semantic score required to crawl a neighboring non-note node
             "semantic_score_threshold": 0.4,
+            # Top-P threshold for crawling a neighboring non-note node (nucleus filtering)
+            "semantic_score_top_p": 0.9,
             # Minimum sigmoid-scaled score required for a newly fetched text chunk to be relevant
             "sigmoid_score_threshold": 0.4,
+            # Top-P threshold for a newly fetched text chunk to be relevant (nucleus filtering)
+            "sigmoid_score_top_p": 0.9,
             # Minimum sigmoid score required to classify a gathered graph fact as essential
             "essential_fact_threshold": 0.5,
             # Sigmoid scaling slope (factor) for Cross-Encoder reranker score logit calibration
@@ -307,8 +315,12 @@ hyperparameters:
     crawl_stop_threshold: 1.0
     # Minimum semantic score required to crawl a neighboring non-note node
     semantic_score_threshold: 0.4
+    # Top-P threshold for crawling a neighboring non-note node (nucleus filtering)
+    semantic_score_top_p: 0.9
     # Minimum sigmoid-scaled score required for a newly fetched text chunk to be relevant
     sigmoid_score_threshold: 0.4
+    # Top-P threshold for a newly fetched text chunk to be relevant (nucleus filtering)
+    sigmoid_score_top_p: 0.9
     # Minimum sigmoid score required to classify a gathered graph fact as essential
     essential_fact_threshold: 0.5
     # Sigmoid scaling slope (factor) for Cross-Encoder reranker score logit calibration
@@ -542,6 +554,22 @@ hyperparameters:
         return self.data["embedding"]["chunk_overlap"]
 
     @property
+    def child_chunk_size(self) -> int:
+        return self.data["embedding"].get("child_chunk_size", 300)
+
+    @property
+    def child_chunk_overlap(self) -> int:
+        return self.data["embedding"].get("child_chunk_overlap", 50)
+
+    @property
+    def parent_chunk_size(self) -> int:
+        return self.data["embedding"].get("parent_chunk_size", 2500)
+
+    @property
+    def parent_chunk_overlap(self) -> int:
+        return self.data["embedding"].get("parent_chunk_overlap", 200)
+
+    @property
     def score_blend_reranker_weight(self) -> float:
         return float(self.data.get("hyperparameters", {}).get("rag", {}).get("score_blend_reranker_weight", 0.7))
 
@@ -590,8 +618,16 @@ hyperparameters:
         return float(self.data.get("hyperparameters", {}).get("graph", {}).get("semantic_score_threshold", 0.4))
 
     @property
+    def graph_semantic_score_top_p(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("semantic_score_top_p", 0.9))
+
+    @property
     def graph_sigmoid_score_threshold(self) -> float:
         return float(self.data.get("hyperparameters", {}).get("graph", {}).get("sigmoid_score_threshold", 0.4))
+
+    @property
+    def graph_sigmoid_score_top_p(self) -> float:
+        return float(self.data.get("hyperparameters", {}).get("graph", {}).get("sigmoid_score_top_p", 0.9))
 
     @property
     def graph_essential_fact_threshold(self) -> float:

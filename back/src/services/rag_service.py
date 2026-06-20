@@ -270,9 +270,10 @@ class RAGService:
             title = paper.title if paper else chunk.paper_id
             year_str = f", {paper.year}" if paper and paper.year else ""
             authors_str = f" by {', '.join(paper.authors)}" if paper and paper.authors else ""
+            chunk_text = chunk.parent_text if isinstance(chunk.parent_text, str) else chunk.text_content
             doc_text = (
                 f"Block {idx} (Score: {score:.3f}) | Paper: {title}{authors_str}{year_str} (Page {chunk.page_number}):\n"
-                f"\"\"\"\n{chunk.text_content.strip()}\n\"\"\""
+                f"\"\"\"\n{chunk_text.strip()}\n\"\"\""
             )
             text_blocks.append(
                 f"<|source_start|><|source_id|>{idx} {doc_text}<|source_end|>"
@@ -346,10 +347,16 @@ class RAGService:
         )
 
         from copy import copy
-        current_papers = [
-            [pid, [(copy(c), s) for c, s in chs]]
-            for pid, chs in sorted_papers
-        ]
+        current_papers = []
+        for pid, chs in sorted_papers:
+            copied_chs = []
+            for c, s in chs:
+                c_copy = copy(c)
+                if isinstance(c_copy.parent_text, str):
+                    c_copy.text_content = c_copy.parent_text
+                    c_copy.parent_text = None
+                copied_chs.append((c_copy, s))
+            current_papers.append([pid, copied_chs])
 
         while total_tokens > tokens_limit:
             # Try to prune from the least relevant paper (last in sorted list)

@@ -318,12 +318,12 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                         metrics["total_io_calls"] = metrics.get("total_io_calls", 0) + 1
                         metrics["prompt_tokens"] = prompt_tokens
 
-                        elapsed = pre_latency + gen_latency + repair_latency
+                        elapsed = sum(comp["time_sec"] for comp in metrics["components"].values())
                     except Exception as e:
                         answer = f"Error occurred during generation: {e}"
                         status = "error"
-                        elapsed = pre_latency
                         metrics = pre_metrics
+                        elapsed = sum(comp["time_sec"] for comp in metrics["components"].values()) if "components" in metrics else pre_latency
                         con.error(f"    Baseline {baseline} failed: {e}")
             else:
                 try:
@@ -349,7 +349,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                     status = "error"
                     con.error(f"    Baseline {baseline} failed: {e}")
                 
-                elapsed = time.perf_counter() - t0
+                elapsed = sum(comp["time_sec"] for comp in metrics["components"].values()) if "components" in metrics else 0.0
             
             expected_papers = case.get("expected_papers", [])
             if status == "success":
