@@ -347,7 +347,7 @@ class TestExtractionService(unittest.TestCase):
         graph_repo = MagicMock()
         
         summary = service.generate_summary(paper, "Video Transcript", graph_repo=graph_repo)
-        self.assertIn("🎥 Обзор ролика", summary)
+        self.assertIn("🎥 Video Overview", summary)
         self.assertEqual(paper.properties["video_overview"], "Sync Video Overview")
         graph_repo.save_paper.assert_called_once_with(paper)
 
@@ -480,7 +480,7 @@ class TestExtractionServiceAsync(unittest.IsolatedAsyncioTestCase):
         graph_repo = MagicMock()
         
         summary = await service.generate_summary_async(paper, "Video Transcript", graph_repo=graph_repo)
-        self.assertIn("🎥 Обзор ролика", summary)
+        self.assertIn("🎥 Video Overview", summary)
         self.assertEqual(paper.properties["video_overview"], "Video Overview")
         graph_repo.save_paper.assert_called_once_with(paper)
 

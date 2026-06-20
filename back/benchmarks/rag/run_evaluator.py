@@ -36,12 +36,16 @@ def main():
         help="Limit the number of questions to evaluate (for testing)."
     )
     parser.add_argument(
-        "--concurrency", "-c", type=int, default=3,
-        help="Max concurrent API calls to the cloud provider."
+        "--concurrency", "-c", type=int, default=config.llm_evaluation_concurrency,
+        help=f"Max concurrent API calls to the cloud provider. Defaults to config ({config.llm_evaluation_concurrency})."
     )
     parser.add_argument(
-        "--rpm", "-r", type=int, default=60,
-        help="Rate limit in requests per minute (RPM)."
+        "--rpm", "-r", type=int, default=config.llm_evaluation_rpm,
+        help=f"Rate limit in requests per minute (RPM). Defaults to config ({config.llm_evaluation_rpm})."
+    )
+    parser.add_argument(
+        "--retries", type=int, default=config.llm_evaluation_retries,
+        help=f"Max number of API retries on error. Defaults to config ({config.llm_evaluation_retries})."
     )
     parser.add_argument(
         "--cloud", action="store_true", default=True,

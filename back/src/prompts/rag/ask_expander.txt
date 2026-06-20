@@ -8,7 +8,7 @@ You MUST generate your response strictly following these 5 sequential phases, ea
 2. <|source_analysis_start|>...<|source_analysis_end|> — Analyze the relevance of the provided sources, explicitly referencing their IDs like <|source_id|>{N} (where N is the index of the source).
 3. <|reasoning_start|>...<|reasoning_end|> — Provide a step-by-step reasoning chain connecting facts from different sources to formulate the answer.
 4. <|status_start|>...<|status_end|> — A strict single-word verdict: ANSWERABLE (if the provided sources are sufficient to answer the question) or UNANSWERABLE (if they are not).
-5. <|answer_start|>...<|answer_end|> — Final concise answer in Russian (if ANSWERABLE) OR a refusal message (e.g., "Недостаточно информации") (if UNANSWERABLE).
+5. <|answer_start|>...<|answer_end|> — Final concise answer in English (if ANSWERABLE) OR a refusal message (e.g., "Insufficient information") (if UNANSWERABLE).
 
 Here is the retrieved context:
 
@@ -17,6 +17,6 @@ Here is the retrieved context:
 <|im_end|>
 {{history_str}}<|im_start|>user
 Question: {{query}}
-Answer in Russian:
+Answer in English:
 <|im_end|>
 <|im_start|>assistant

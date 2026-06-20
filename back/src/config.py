@@ -45,6 +45,11 @@ DEFAULT_CONFIG = {
             "cheap_model_name": "google/gemini-2.5-flash",
             "api_key": "",
             "base_url": "https://openrouter.ai/api/v1",
+        },
+        "evaluation": {
+            "concurrency": 1,
+            "rpm": 10,
+            "retries": 5
         }
     },
     "embedding": {
@@ -235,6 +240,12 @@ llm:
     model_name: "google/gemini-2.5-flash"
     api_key: ""
     base_url: "https://openrouter.ai/api/v1"
+
+  # Evaluation / LLM-as-a-judge settings
+  evaluation:
+    concurrency: 1
+    rpm: 10
+    retries: 5
 
   # Task-specific input token limits (used to dynamically truncate inputs to fit context)
   extraction_input_limit: 5000
@@ -505,6 +516,27 @@ hyperparameters:
     @property
     def llm_chunk_pool_size(self) -> int:
         return int(self.data["llm"].get("chunk_pool_size", 4))
+
+    @property
+    def llm_evaluation_concurrency(self) -> int:
+        eval_cfg = self.data["llm"].get("evaluation", {})
+        if isinstance(eval_cfg, dict):
+            return int(eval_cfg.get("concurrency", 1))
+        return 1
+
+    @property
+    def llm_evaluation_rpm(self) -> int:
+        eval_cfg = self.data["llm"].get("evaluation", {})
+        if isinstance(eval_cfg, dict):
+            return int(eval_cfg.get("rpm", 10))
+        return 10
+
+    @property
+    def llm_evaluation_retries(self) -> int:
+        eval_cfg = self.data["llm"].get("evaluation", {})
+        if isinstance(eval_cfg, dict):
+            return int(eval_cfg.get("retries", 5))
+        return 5
 
     @property
     def max_expanded_queries(self) -> int:

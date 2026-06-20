@@ -194,3 +194,37 @@ def test_analyze_metrics_with_full_evaluation():
     b1_stats = stats["summary"]["B1"]
     assert b1_stats["retrieval_recall"]["mean"] == 1.0
     assert b1_stats["semantic_accuracy"]["mean"] == 0.95
+
+
+def test_analyze_metrics_with_context_fillness():
+    raw_data = {
+        "metadata": {
+            "date": "2026-06-18 12:00:00",
+            "original_metadata": {
+                "llm": {
+                    "max_tokens": 1000,
+                    "model_max_context": 8000
+                }
+            }
+        },
+        "results": [
+            {
+                "id": "Q1",
+                "query": "Context test",
+                "category": "single-document",
+                "expected_papers": ["paper_1"],
+                "baselines": {
+                    "B1": {
+                        "status": "success",
+                        "latency_sec": 1.0,
+                        "retrieved_papers": ["paper_1"],
+                        "context_token": 1600,
+                    }
+                }
+            }
+        ]
+    }
+    
+    stats = analyze_metrics(raw_data)
+    b1_stats = stats["summary"]["B1"]
+    assert b1_stats["context_fillness"]["mean"] == 0.20

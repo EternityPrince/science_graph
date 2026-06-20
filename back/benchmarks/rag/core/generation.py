@@ -361,14 +361,14 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 recall_val = calculate_retrieval_recall(expected_papers, retrieved)
                 precision_val = calculate_context_precision(expected_papers, chunks)
                 
-                max_input_token = config.data["llm"].get("max_tokens", 1000)
+                max_input_token = config.llm_model_max_context
                 context_token = metrics.get("prompt_tokens", 0)
                 context_fillness = round(context_token / max_input_token, 4) if max_input_token > 0 else 0.0
                 context_fillness = min(max(context_fillness, 0.0), 1.0)
             else:
                 recall_val = 0.0
                 precision_val = 0.0
-                max_input_token = config.data["llm"].get("max_tokens", 1000)
+                max_input_token = config.llm_model_max_context
                 context_token = 0
                 context_fillness = 0.0
             
@@ -432,7 +432,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 "provider": llm_provider_detail,
                 "model_name": llm_model,
                 "temperature": config.data["llm"].get("temp", 0.1),
-                "max_tokens": config.data["llm"].get("max_tokens", 1000)
+                "max_tokens": config.data["llm"].get("max_tokens", 1000),
+                "model_max_context": config.llm_model_max_context
             },
             "embeddings": {
                 "model_name": embedding_model

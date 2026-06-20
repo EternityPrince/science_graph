@@ -428,14 +428,14 @@ class ExtractionService:
                 paper.properties["video_outline"] = outline
                 
                 # Also compile a fallback markdown summary in case a generic UI requests it
-                markdown_summary = f"## 🎥 Обзор ролика\n\n{overview}\n\n"
+                markdown_summary = f"## 🎥 Video Overview\n\n{overview}\n\n"
                 if themes:
-                    markdown_summary += "## 🧠 Основные темы\n\n"
+                    markdown_summary += "## 🧠 Key Themes\n\n"
                     for theme in themes:
                         markdown_summary += f"- {theme}\n"
                     markdown_summary += "\n"
                 if outline:
-                    markdown_summary += "## 📝 Подробный конспект\n\n"
+                    markdown_summary += "## 📝 Detailed Summary\n\n"
                     for outline_item in outline:
                         markdown_summary += f"- {outline_item}\n"
                 
@@ -510,14 +510,14 @@ class ExtractionService:
                 paper.properties["video_outline"] = outline
                 
                 # Also compile a fallback markdown summary in case a generic UI requests it
-                markdown_summary = f"## 🎥 Обзор ролика\n\n{overview}\n\n"
+                markdown_summary = f"## 🎥 Video Overview\n\n{overview}\n\n"
                 if themes:
-                    markdown_summary += "## 🧠 Основные темы\n\n"
+                    markdown_summary += "## 🧠 Key Themes\n\n"
                     for theme in themes:
                         markdown_summary += f"- {theme}\n"
                     markdown_summary += "\n"
                 if outline:
-                    markdown_summary += "## 📝 Подробный конспект\n\n"
+                    markdown_summary += "## 📝 Detailed Summary\n\n"
                     for outline_item in outline:
                         markdown_summary += f"- {outline_item}\n"
                 

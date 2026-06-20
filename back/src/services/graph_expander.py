@@ -695,7 +695,7 @@ class ExperimentalGraphExpander:
         # Step 5: Format output block
         # Format the selected facts as:
         # ### KNOWLEDGE GRAPH ENRICHMENT:
-        # [Тип] Название: Содержание (Связь: Описание связи, если применимо)
+        # [Type] Title/Name: Content (Connection: Connection description, if applicable)
         enrichment_lines = []
         for sid in essential_items:
             meta = short_to_metadata.get(sid)
@@ -708,8 +708,8 @@ class ExperimentalGraphExpander:
                 card_text = meta["card_text"]
                 conn_desc = meta["conn_desc"]
                 
-                # Format: [Тип] Название: Содержание (Связь: Описание связи, если применимо)
-                conn_suffix = f" (Связь: {conn_desc})" if conn_desc else ""
+                # Format: [Type] Title/Name: Content (Connection: Connection description, if applicable)
+                conn_suffix = f" (Connection: {conn_desc})" if conn_desc else ""
                 enrichment_lines.append(f"[{label}] {name_or_title}: {card_text}{conn_suffix}")
             else:
                 p_title = meta["paper_title"]

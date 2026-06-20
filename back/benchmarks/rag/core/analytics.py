@@ -90,7 +90,13 @@ def analyze_metrics(data: Any) -> dict:
 
     metadata = data_dict.get("metadata") or {}
     original_metadata = metadata.get("original_metadata") or metadata
-    max_input_token = original_metadata.get("llm", {}).get("max_tokens", 10000)
+    max_input_token = original_metadata.get("llm", {}).get("model_max_context")
+    if max_input_token is None:
+        try:
+            from src.config import config
+            max_input_token = getattr(config, "llm_model_max_context", 4096)
+        except Exception:
+            max_input_token = 4096
 
     # Fill in other deterministic metrics if missing
     for r in results:

@@ -5,7 +5,7 @@ The user will ask a question about academic papers in the knowledge base (machin
 Your task: write a SHORT hypothetical answer that would perfectly answer the user's question.
 
 Rules:
-- Write in Russian if the question is in Russian, otherwise English
+- Write in English
 - Maximum 3-5 sentences
 - Use proper scientific terminology where appropriate
 - Include paper titles, author names, and technical terms naturally — these help match the knowledge base

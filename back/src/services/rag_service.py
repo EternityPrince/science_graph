@@ -28,6 +28,61 @@ def _safe_int(val: Any, default: int) -> int:
         return default
 
 
+def clean_reasoning_text(text: str) -> str:
+    """
+    Strips structured thinking/reasoning blocks and extracts the final answer.
+    Handles formats like:
+      - 1. _analysis..._ or ### 1. _analysis... or 1. _analysis..._analysis:
+      - up to the answer section (5. _answer..._ or Final Answer:)
+    """
+    if not text:
+        return text
+
+    # 1. Try to find the last answer marker and take everything after it
+    answer_markers = [
+        r"(?:###\s*)?Final\s+Answer\s*:\s*",
+        r"(?:###\s*)?5\.\s*_(?:answer|status|reasoning|analysis|source_analysis)\.\.\.[_a-zA-Z0-9:]*\s*",
+    ]
+    combined_pattern = re.compile(
+        r"|".join(f"(?:{p})" for p in answer_markers),
+        re.IGNORECASE
+    )
+    
+    matches = list(combined_pattern.finditer(text))
+    if matches:
+        last_match = matches[-1]
+        candidate = text[last_match.end():].strip()
+        # If there are still answer markers inside candidate, recurse
+        if combined_pattern.search(candidate):
+            return clean_reasoning_text(candidate)
+        text = candidate
+    else:
+        # 2. Try to strip the entire block from "1. _analysis" to "5. _answer" or "Final Answer"
+        text = re.sub(
+            r"(?:###\s*)?[1-4]\.\s*_(?:analysis|start|reasoning|status|source_analysis)\.\.\..*?(?=(?:###\s*)?(?:5\.\s*_(?:answer|status|reasoning|analysis)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:))",
+            "",
+            text,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+
+    # 3. Clean up any remaining section headers/tags
+    header_pattern = r"(?:###\s*)?[1-5]\.\s*_(?:analysis|start|reasoning|status|answer|source_analysis)\.\.\.[_a-zA-Z0-9:]*"
+    text = re.sub(header_pattern, "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:###\s*)?Final\s+Answer\s*:", "", text, flags=re.IGNORECASE)
+    
+    # Mask source ID tags to preserve them during strip_thinking_tokens
+    text = re.sub(r"<\|source_id\|>", "__SOURCE_ID_TAG__", text, flags=re.IGNORECASE)
+    
+    # Clean generic and specific technical tokens
+    from src.llm_engine.base import strip_thinking_tokens
+    text = strip_thinking_tokens(text)
+    
+    # Unmask source ID tags
+    text = text.replace("__SOURCE_ID_TAG__", "<|source_id|>")
+    
+    return text.strip()
+
+
 def parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
     """
     Parses the raw LLM response to extract the status and the final answer.
@@ -39,7 +94,7 @@ def parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
     logger = logging.getLogger(__name__)
 
     if not raw_response or not isinstance(raw_response, str):
-        return "UNKNOWN", "Ошибка: Пустой или некорректный ответ от модели."
+        return "UNKNOWN", "Error: Empty or incorrect response from model."
 
     # Extract status
     status = "UNKNOWN"
@@ -52,6 +107,22 @@ def parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
         if status_unclosed:
             content = status_unclosed.group(1).split("<|")[0].strip()
             status = content if content else "UNKNOWN"
+
+    # If status is still UNKNOWN, try to extract from 4. _status... section
+    if status == "UNKNOWN":
+        status_sec_match = re.search(
+            r"(?:###\s*)?4\.\s*_(?:status)\.\.\.[_a-zA-Z0-9:]*\s*(.*?)(?=(?:###\s*)?(?:5\.\s*_(?:answer)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:|$))",
+            raw_response,
+            re.IGNORECASE | re.DOTALL
+        )
+        if status_sec_match:
+            status_text = status_sec_match.group(1).strip().upper()
+            if "UNANSWERABLE" in status_text or "NOT ANSWERABLE" in status_text or "INSUFFICIENT" in status_text or "NOT_ANSWERABLE" in status_text:
+                status = "UNANSWERABLE"
+            elif "ANSWERABLE" in status_text or "SUFFICIENT" in status_text:
+                status = "ANSWERABLE"
+            elif "UNKNOWN" in status_text:
+                status = "UNKNOWN"
 
     # Extract answer
     answer_match = re.search(r"<\|answer_start\|>(.*?)<\|answer_end\|>", raw_response, re.DOTALL)
@@ -70,9 +141,8 @@ def parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
                 answer = re.sub(rf"<\|{tag}_start\|>.*?<\|{tag}_end\|>", "", answer, flags=re.DOTALL)
                 answer = re.sub(rf"<\|{tag}_start\|>.*", "", answer, flags=re.DOTALL)
             
-            # Clean generic and specific technical tokens
-            from src.llm_engine.base import strip_thinking_tokens
-            answer = strip_thinking_tokens(answer)
+            # Clean reasoning markers and headers from the final answer
+            answer = clean_reasoning_text(answer)
             
     logger.info(f"RAG reasoning status: {status}")
     return status, answer
@@ -502,8 +572,8 @@ class RAGService:
             "- year_end: end year (integer or null)\n"
             "- author: author name (string or null)\n"
             "- venue: journal/conference name (string or null)\n"
-            "Example: 'статьи за последние 2 года о сверточных сетях'\n"
-            f"Output: {{\"search_query\": \"сверточные сети\", \"year_start\": {current_year - 2}, \"year_end\": {current_year}, \"author\": null, \"venue\": null}}\n"
+            "Example: 'articles from the last 2 years about convolutional networks'\n"
+            f"Output: {{\"search_query\": \"convolutional networks\", \"year_start\": {current_year - 2}, \"year_end\": {current_year}, \"author\": null, \"venue\": null}}\n"
             f"Query: {query}\n"
             "Return ONLY JSON."
         )
@@ -771,7 +841,7 @@ class RAGService:
     def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> str:
         final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)
         if not final_chunks:
-            return "Не найдено релевантных фрагментов статей в базе данных. Пожалуйста, сначала проиндексируйте документы."  # noqa: E501
+            return "No relevant article chunks found in the database. Please index documents first."  # noqa: E501
 
         # Build initial context
         context_text, context_graph = self.build_context(final_chunks, limit=limit)

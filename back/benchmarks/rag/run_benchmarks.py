@@ -12,10 +12,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import yaml
 from src.services.container import container
 from src.config import config
 from src import console as con
 from src.prompts import prompts
+
+from config_creator import (
+    build_custom_config,
+    patch_config_for_custom,
+    add_custom_config_arguments
+)
 
 # Backward compatibility exports in case other files import them from here
 from typing import Any, Tuple
@@ -74,7 +81,24 @@ def main():
         "--limit", "-l", type=int, default=None,
         help="Limit the number of questions to evaluate (for testing/SciQ default)."
     )
+    add_custom_config_arguments(parser)
     args = parser.parse_args()
+
+    # Load file config if specified
+    file_config = None
+    if args.config_file:
+        config_path = Path(args.config_file)
+        if not config_path.exists():
+            con.error(f"Config file not found: {config_path}")
+            sys.exit(1)
+        with open(config_path, "r", encoding="utf-8") as f:
+            file_config = yaml.safe_load(f)
+
+    # Build final custom configuration overrides
+    custom_comp, custom_hype = build_custom_config(args, file_config)
+
+    # Apply dynamic patch
+    patch_config_for_custom(custom_comp, custom_hype)
 
     run_benchmarking(args, config, prompts, container, con)
 

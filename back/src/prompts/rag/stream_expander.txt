@@ -7,6 +7,6 @@ Always cite paper titles, years, and authors. Use the graph connections if relev
 <|im_end|>
 <|im_start|>user
 Question: {{question}}
-Answer in Russian:
+Answer in English:
 <|im_end|>
 <|im_start|>assistant

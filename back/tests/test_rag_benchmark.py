@@ -391,17 +391,21 @@ class TestRagBenchmark(unittest.TestCase):
             self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88"])
 
     @patch("benchmarks.rag.run_pipeline.subprocess.run")
-    def test_run_pipeline_orchestration(self, mock_run):
+    @patch("benchmarks.rag.run_pipeline.run_command_with_progress")
+    def test_run_pipeline_orchestration(self, mock_run_progress, mock_run):
         """Verifies that run_pipeline.py runs all three stages in sequence with correct arguments."""
         import sys
         import tempfile
         from unittest.mock import patch
         from benchmarks.rag.run_pipeline import main as pipeline_main
         
+        mock_run_progress.return_value = 1.0
+        
         with tempfile.TemporaryDirectory() as tmpdir:
             dataset_yaml = Path(tmpdir) / "test_smoke.yaml"
+            test_cases = [{"id": f"Q{i:02d}", "query": f"Query {i}", "golden_answer": "ans", "expected_papers": []} for i in range(1, 11)]
             with open(dataset_yaml, "w", encoding="utf-8") as f:
-                f.write("[]")
+                yaml.dump(test_cases, f)
                 
             test_args = [
                 "run_pipeline.py",
@@ -409,6 +413,7 @@ class TestRagBenchmark(unittest.TestCase):
                 "--baselines", "B0,B1",
                 "--concurrency", "5",
                 "--rpm", "100",
+                "--retries", "5",
                 "--limit", "10",
                 "--clear-checkpoint",
                 "--no-unique-dir",
@@ -418,11 +423,12 @@ class TestRagBenchmark(unittest.TestCase):
             with patch.object(sys, "argv", test_args):
                 pipeline_main()
                 
-        self.assertEqual(mock_run.call_count, 4)
+        self.assertEqual(mock_run_progress.call_count, 3)
+        self.assertEqual(mock_run.call_count, 1)
         
-        # Verify call 1: run_retrieve.py
-        call1_args = mock_run.call_args_list[0][0][0]
-        self.assertIn("run_retrieve.py", call1_args[1])
+        # Verify call 1: run_custom_retrieve.py
+        call1_args = mock_run_progress.call_args_list[0][0][0]
+        self.assertTrue("run_retrieve.py" in call1_args[1] or "run_custom_retrieve.py" in call1_args[1])
         self.assertIn("--dataset", call1_args)
         self.assertIn(str(dataset_yaml.resolve()), call1_args)
         self.assertIn("--output", call1_args)
@@ -430,7 +436,7 @@ class TestRagBenchmark(unittest.TestCase):
         self.assertIn("B0,B1", call1_args)
         
         # Verify call 2: run_benchmarks.py
-        call2_args = mock_run.call_args_list[1][0][0]
+        call2_args = mock_run_progress.call_args_list[1][0][0]
         self.assertIn("run_benchmarks.py", call2_args[1])
         self.assertIn("--dataset", call2_args)
         self.assertIn(str(dataset_yaml.resolve()), call2_args)
@@ -439,18 +445,20 @@ class TestRagBenchmark(unittest.TestCase):
         self.assertIn("B0,B1", call2_args)
         
         # Verify call 3: run_evaluator.py
-        call3_args = mock_run.call_args_list[2][0][0]
+        call3_args = mock_run_progress.call_args_list[2][0][0]
         self.assertIn("run_evaluator.py", call3_args[1])
         self.assertIn("--concurrency", call3_args)
         self.assertIn("5", call3_args)
         self.assertIn("--rpm", call3_args)
         self.assertIn("100", call3_args)
+        self.assertIn("--retries", call3_args)
+        self.assertIn("5", call3_args)
         self.assertIn("--limit", call3_args)
         self.assertIn("10", call3_args)
         self.assertIn("--clear-checkpoint", call3_args)
         
         # Verify call 4: parse_metrics.py
-        call4_args = mock_run.call_args_list[3][0][0]
+        call4_args = mock_run.call_args_list[0][0][0]
         self.assertIn("parse_metrics.py", call4_args[1])
         self.assertIn("--csv-summary", call4_args)
         self.assertIn("--csv-details", call4_args)

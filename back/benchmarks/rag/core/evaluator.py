@@ -24,7 +24,7 @@ from core.metrics import (
 
 class CloudEvaluator:
     """Interacts with the Cloud LLM provider (OpenAI API compatible) to score generated answers."""
-    def __init__(self, api_key: str, base_url: str, model_name: str, concurrency: int, rpm: int):
+    def __init__(self, api_key: str, base_url: str, model_name: str, concurrency: int, rpm: int, max_retries: int = 5):
         try:
             import openai
         except ImportError:
@@ -34,9 +34,12 @@ class CloudEvaluator:
         self.model_name = model_name
         self.semaphore = asyncio.Semaphore(concurrency)
         self.rate_limiter = AsyncRateLimiter(rpm)
+        self.max_retries = max_retries
 
-    async def call_llm(self, system_prompt: str, user_prompt: str, max_retries: int = 5) -> str:
+    async def call_llm(self, system_prompt: str, user_prompt: str, max_retries: Optional[int] = None) -> str:
         """Invokes the cloud model using exponential backoff with jitter on error."""
+        if max_retries is None:
+            max_retries = self.max_retries
         from src import console as con
         async with self.semaphore:
             for attempt in range(max_retries):
@@ -183,7 +186,7 @@ async def evaluate_baseline_case(
     
     # For LLM-as-a-judge, extract only the clean answer without technical tags
     judge_answer = generated_answer
-    if "<|" in generated_answer:
+    if generated_answer:
         try:
             from src.services.rag_service import parse_reasoning_response
             _, judge_answer = parse_reasoning_response(generated_answer)
@@ -342,7 +345,8 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
     # Initialize Cloud Evaluator
     api_key, base_url, model_name = get_cloud_credentials(config)
     con.info(f"Initializing Cloud LLM Evaluator ({model_name}) ...")
-    evaluator = CloudEvaluator(api_key, base_url, model_name, args.concurrency, args.rpm)
+    retries = getattr(args, "retries", None) or getattr(config, "llm_evaluation_retries", 5)
+    evaluator = CloudEvaluator(api_key, base_url, model_name, args.concurrency, args.rpm, retries)
 
     # Handle checkpoint
     checkpoint_path = output_path.parent / ".eval_checkpoint.json"
@@ -382,7 +386,9 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
 
             original_metadata = input_data.get("metadata", {})
             original_metadata = original_metadata.get("original_metadata", original_metadata)
-            max_tokens_val = original_metadata.get("llm", {}).get("max_tokens", 10000)
+            max_tokens_val = original_metadata.get("llm", {}).get("model_max_context")
+            if max_tokens_val is None:
+                max_tokens_val = getattr(config, "llm_model_max_context", 4096)
 
             evaluation_futures.append((
                 case_id,
@@ -409,7 +415,13 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
     for case_id, baseline_name, _, coro in evaluation_futures:
         results_map[f"{case_id}_{baseline_name}"] = asyncio.create_task(coro)
 
-    await asyncio.gather(*results_map.values())
+    # Execute with live progress logging for the pipeline dashboard
+    completed_count = 0
+    total_count = len(results_map)
+    for fut in asyncio.as_completed(results_map.values()):
+        await fut
+        completed_count += 1
+        con.info(f"Evaluated case {completed_count}/{total_count}")
 
     con.info("All evaluations complete. Aggregating results...")
     

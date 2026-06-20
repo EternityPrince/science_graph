@@ -214,7 +214,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         # Empty retrieval
         with patch.object(self.service, "retrieve_relevant_chunks", return_value=[]):
             res = self.service.ask("query")
-            self.assertTrue(res.startswith("Не найдено"))
+            self.assertTrue(res.startswith("No relevant"))
 
         chunk = MagicMock(spec=Chunk)
         self.llm_engine.generate_response.return_value = (
@@ -313,6 +313,69 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         status, answer = parse_reasoning_response(raw7)
         self.assertEqual(status, "ANSWERABLE")
         self.assertEqual(answer, "Ответ.")
+
+        # Test case 8: Step-by-step format with Final Answer (user example)
+        raw8 = (
+            "### 1. _analysis... The user's question asks for the mechanism...\n"
+            "### 2. _start... The sources contain...\n"
+            "### 3. _reasoning... The question asks...\n"
+            "### 4. _status... The sources are sufficient to answer the question.\n"
+            "### 5. _answer... Microbes use chemicals to make food. (or alternatively...)\n"
+            "### Final Answer: Microbes use chemicals to make food."
+        )
+        status, answer = parse_reasoning_response(raw8)
+        self.assertEqual(status, "ANSWERABLE")
+        self.assertEqual(answer, "Microbes use chemicals to make food.")
+
+        # Test case 9: Step-by-step format with 5. _answer..._
+        raw9 = (
+            "1. _analysis..._ The user's question asks for...\n"
+            "2. _start..._ ...\n"
+            "3. _reasoning..._ ...\n"
+            "4. _status..._ ANSWERABLE\n"
+            "5. _answer..._ The feature is the backbone."
+        )
+        status, answer = parse_reasoning_response(raw9)
+        self.assertEqual(status, "ANSWERABLE")
+        self.assertEqual(answer, "The feature is the backbone.")
+
+        # Test case 10: Step-by-step format with 5. _answer..._answer:
+        raw10 = (
+            "1. _analysis..._analysis: The user asks...\n"
+            "2. _start..._start: ...\n"
+            "3. _reasoning..._reasoning: ...\n"
+            "4. _status..._status: UNANSWERABLE\n"
+            "5. _answer..._answer: The answer is \"magnification\"."
+        )
+        status, answer = parse_reasoning_response(raw10)
+        self.assertEqual(status, "UNANSWERABLE")
+        self.assertEqual(answer, 'The answer is "magnification".')
+
+        # Test case 11: Unclosed reasoning trace without 5. _answer / Final Answer
+        raw11 = (
+            "1. _analysis..._ The user asks for definition.\n"
+            "2. _start..._ source1 has the info.\n"
+            "Some intermediate text."
+        )
+        status, answer = parse_reasoning_response(raw11)
+        self.assertEqual(status, "UNKNOWN")
+        self.assertEqual(answer, "The user asks for definition.\n source1 has the info.\nSome intermediate text.")
+
+        # Test case 12: Only Final Answer prefix
+        raw12 = "Final Answer: Heat."
+        status, answer = parse_reasoning_response(raw12)
+        self.assertEqual(status, "UNKNOWN")
+        self.assertEqual(answer, "Heat.")
+
+        # Test case 13: Status extraction with "insufficient" text
+        raw13 = (
+            "1. _analysis..._ ...\n"
+            "4. _status..._ The context is insufficient.\n"
+            "5. _answer..._ UNANSWERABLE"
+        )
+        status, answer = parse_reasoning_response(raw13)
+        self.assertEqual(status, "UNANSWERABLE")
+        self.assertEqual(answer, "UNANSWERABLE")
 
 
 

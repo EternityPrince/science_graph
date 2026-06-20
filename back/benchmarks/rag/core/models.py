@@ -41,7 +41,7 @@ class BaselineOutput(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     status: str
-    latency_sec: float = 0.0
+    latency_sec: Optional[float] = 0.0
     retrieved_papers: List[str] = Field(default_factory=list)
     retrieved_chunks: List[RetrievedChunk] = Field(default_factory=list)
     trimmed_text: Optional[str] = ""
