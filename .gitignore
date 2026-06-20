@@ -160,3 +160,4 @@ Thumbs.db
 /article/*
 ./back/benchmarks/rag/reports/*
 ./back/benchmarks/rag/dataset/
+./back/benchmarks/rag/reports/custom_retrieved_contexts.yaml
