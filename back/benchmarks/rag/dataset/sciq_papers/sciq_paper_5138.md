@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 5138"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Watch this video (http://openstaxcollege. org/l/rotating_DNA) that animates the three-dimensional structure of the DNA molecule shown in Figure 1.15. Some cells contain aggregates of macromolecules surrounded by membranes; these are called organelles. Organelles are small structures that exist within cells. Examples of organelles include mitochondria and chloroplasts, which carry out indispensable functions: mitochondria produce energy to power the cell, while chloroplasts enable green plants to utilize the energy in sunlight to make sugars. All living things are made of cells; the cell itself is the smallest fundamental unit of structure and function in living organisms. (This requirement is why viruses are not considered living: they are not made of cells. To make new viruses, they have to invade and hijack the reproductive mechanism of a living cell; only then can they obtain the materials they need to reproduce. ) Some organisms consist of a single cell and others are multicellular. Cells are classified as prokaryotic or eukaryotic. Prokaryotes are single-celled or colonial organisms that do not have membranebound nuclei; in contrast, the cells of eukaryotes do have membrane-bound organelles and a membrane-bound nucleus. In larger organisms, cells combine to make tissues, which are groups of similar cells carrying out similar or related functions. Organs are collections of tissues grouped together performing a common function. Organs are present not only.

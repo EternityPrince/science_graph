@@ -159,3 +159,4 @@ Thumbs.db
 
 /article/*
 ./back/benchmarks/rag/reports/*
+./back/benchmarks/rag/dataset/

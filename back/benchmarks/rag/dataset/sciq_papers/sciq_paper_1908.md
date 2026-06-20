@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 1908"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Chapter 7 The Periodic Table and Periodic Trends In , we presented the contemporary quantum mechanical model of the atom. In using this model to describe the electronic structures of the elements in order of increasing atomic number, we saw that periodic similarities in electron configuration correlate with periodic similarities in properties, which is the basis for the structure of the periodic table. For example, the noble gases have what is often called filled or closed-shell valence electron configurations. These closed shells are actually filled s and psubshells with a total of eight electrons, which are called octets; helium is an exception, with a closed 1s shell that has only two electrons. Because of their filled valence shells, the noble gases are generally unreactive. In contrast, the alkali metals have a single valence electron outside a closed shell and readily lose this electron to elements that require electrons to achieve an octet, such as the halogens. Thus because of their periodic similarities in electron configuration, atoms in the same column of the periodic table tend to form compounds with the same oxidation states and stoichiometries. ended with the observation that, because all the elements in a column have the same valence electron configuration, the periodic table can be used to find the electron configuration of most of the elements at a glance.

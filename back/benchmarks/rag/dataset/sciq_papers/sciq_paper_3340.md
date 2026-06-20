@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 3340"
-authors: ["SciQ Author"]
-year: 2026
----
-
-What is a cell? Gradient Physical difference between two regions of space, in such a way that the molecules tend to move in response to the gradients. Diffusion Movement of the molecules in a fluid, from the regions of high concentration to those of low concentration. Passive transport Movement of substances in a membrane that doesn’t need to use energy. Simple diffusion Diffusion of water, gases or molecules across the membrane. Facilitated diffusion Diffusion of molecules across the membranes with the participation of proteins. Osmosis Diffusion of the water across a membrane with differential permeability. Transport that needs energy Movement of substances across a membrane generally in opposition to a gradient of concentration with the requirement of energy. Active transport Movement of small molecules using energy (ATP). Endocytosis Movement of big particles towards the interior of the cell using energy. The cells enclose particles or liquids. Pinocytosis (Literally cell drinking) Form in which the cell introduces liquids. Phagocytosis Way of eating of the cells. It feeds in this case of big particles or entire microorganisms. Pseudopods False feet (the amoeba). Exocitosis Movement of materials out of the cell with the use of energy. It throws waste material. Isotonic The cytoplasm fluid of the interior of the cells is the same that the outer. Hypertonic solution.

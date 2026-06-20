@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 7354"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Hydrogen is the most abundant element in the universe. The sun and other stars are composed largely of hydrogen. Astronomers estimate that 90% of the atoms in the universe are hydrogen atoms. Hydrogen is a component of more compounds than any other element. Water is the most abundant compound of hydrogen found on earth. Hydrogen is an important part of petroleum, many minerals, cellulose and starch, sugar, fats, oils, alcohols, acids, and thousands of other substances. At ordinary temperatures, hydrogen is a colorless, odorless, tasteless, and nonpoisonous gas consisting of the diatomic molecule H2. Hydrogen is composed of three isotopes, and unlike other elements, these isotopes have different names and chemical symbols: protium, 1H, deuterium, 2H (or “D”), and tritium 3H (or “T”). In a naturally occurring sample of hydrogen, there is one atom of deuterium for every 7000 H atoms and one atom of radioactive tritium for every 1018 H atoms. The chemical properties of the different isotopes are very similar because they have identical electron structures, but they differ in some physical properties because of their differing atomic masses. Elemental deuterium and tritium have lower vapor pressure than ordinary hydrogen. Consequently, when liquid hydrogen evaporates, the heavier isotopes are concentrated in the last portions to evaporate. Electrolysis of heavy water, D2O, yields deuterium. Most tritium originates from nuclear reactions.

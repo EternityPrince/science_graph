@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 7162"
-authors: ["SciQ Author"]
-year: 2026
----
-
--16O817O17oxygen -17O818O18oxygen -18 Because the number of neutrons is equal to A − Z, we see that the first isotope of oxygen has 8 neutrons, the second isotope 9 neutrons, and the third isotope 10 neutrons. Isotopes of all naturally occurring elements on Earth are present in nearly fixed proportions, with each proportion constituting an isotope’s natural abundance. For example, in a typical terrestrial sample of oxygen, 99.76% of the O atoms is oxygen-16, 0.20% is oxygen-18, and 0.04% is oxygen-17. Any nucleus that is unstable and decays spontaneously is said to be radioactive, emitting subatomic particles and electromagnetic radiation. The emissions are collectively called radioactivity and can be measured. Isotopes that emit radiation are called radioisotopes. As you learned in Chapter 14 "Chemical Kinetics", the rate at which radioactive decay occurs is characteristic of the isotope and is generally reported as a half-life (t1/2), the amount of time required for half of the initial number of nuclei present to decay in a first-order reaction. (For more information on half-life, seeChapter 14 "Chemical Kinetics", Section 14.5 "Half-Lives and Radioactive Decay Kinetics". ) An isotope’s half-life can range from fractions of a second to billions of years and, among other applications, can be used to measure the age of ancient objects. Example 1 and its corresponding exercise review the calculations involving radioactive decay rates and half-lives.

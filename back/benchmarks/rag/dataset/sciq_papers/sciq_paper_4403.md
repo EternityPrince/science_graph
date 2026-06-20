@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 4403"
-authors: ["SciQ Author"]
-year: 2026
----
-
-motor nucleus), and their target (sensory nucleus or skeletal muscle). They are listed here with a brief explanation of each nerve (Figure 13.23). The olfactory nerve and optic nerve are responsible for the sense of smell and vision, respectively. The oculomotor nerve is responsible for eye movements by controlling four of the extraocular muscles. It is also responsible for lifting the upper eyelid when the eyes point up, and for pupillary constriction. The trochlear nerve and the abducens nerve are both responsible for eye movement, but do so by controlling different extraocular muscles. The trigeminal nerve is responsible for cutaneous sensations of the face and controlling the muscles of mastication. The facial nerve is responsible for the muscles involved in facial expressions, as well as part of the sense of taste and the production of saliva. The vestibulocochlear nerve is responsible for the senses of hearing and balance. The glossopharyngeal nerve is responsible for controlling muscles in the oral cavity and upper throat, as well as part of the sense of taste and the production of saliva. The vagus nerve is responsible for contributing to homeostatic control of the organs of the thoracic and upper abdominal cavities. The spinal accessory nerve is responsible for controlling the muscles of the neck, along with cervical spinal nerves. The hypoglossal nerve is responsible for controlling the muscles of the lower throat and tongue.

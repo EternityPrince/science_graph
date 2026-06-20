@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 3338"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Structures of the Nonmetals The structures of the nonmetals differ dramatically from those of metals. Metals crystallize in closely packed arrays that do not contain molecules or covalent bonds. Nonmetal structures contain covalent bonds, and many nonmetals consist of individual molecules. The electrons in nonmetals are localized in covalent bonds, whereas in a metal, there is delocalization of the electrons throughout the solid. The noble gases are all monatomic, whereas the other nonmetal gases—hydrogen, nitrogen, oxygen, fluorine, and chlorine—normally exist as the diatomic molecules H2, N2, O2, F2, and Cl2. The other halogens are also diatomic; Br2 is a liquid and I2 exists as a solid under normal conditions. The changes in state as one moves down the halogen family offer excellent examples of the increasing strength of intermolecular London forces with increasing molecular mass and increasing polarizability. Oxygen has two allotropes: O2, dioxygen, and O3, ozone. Phosphorus has three common allotropes, commonly referred to by their colors: white, red, and black. Sulfur has several allotropes. There are also many carbon allotropes. Most people know of diamond, graphite, and charcoal, but fewer people know of the recent discovery of fullerenes, carbon nanotubes, and graphene. Descriptions of the physical properties of three nonmetals that are characteristic of molecular solids follow.

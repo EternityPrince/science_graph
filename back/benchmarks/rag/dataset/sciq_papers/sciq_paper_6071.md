@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 6071"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Mutations, a change in the DNA or RNA sequence, may have no effect, may be beneficial or may be harmful. There are numerous ways that the genetic information can be changed. Some of these changes can be inherited. In multicellular organisms, mutations can be subdivided into germline mutations , which can be passed on to descendants, and somatic mutations , which cannot be transmitted to the next generation. Germline mutations change the DNA sequence within a sperm or egg cell, and therefore can be inherited. This inherited mutation may result in a class of diseases known as a genetic disease. The mutation may lead to a nonfunctional protein, and the embryo may not develop properly or survive. Somatic mutations may affect the proper functioning of the cell with the mutation. During DNA replication, the mutation will be copied. The two daughter cells formed after cell division will both carry the mutation. This may lead to the development of many cells that do not function optimally, resulting a less than optimal phenotype. Various types of mutations can all have severe effects on the individual. These include point mutations, framehift mutations and chromosomal alterations. Keep in mind, some mutations may be beneficial or have no effect. Mutations that have no effect will not affect the expression of the gene or the sequence of amino acids in an encoded protein.

@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 1716"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Why must hadrons be white? The color scheme is intentionally devised to explain why baryons have three quarks and mesons have a quark and an antiquark. Quark color is thought to be similar to charge, but with more values. An ion, by analogy, exerts much stronger forces than a neutral molecule. When the color of a combination of quarks is white, it is like a neutral atom. The forces a white particle exerts are like the polarization forces in molecules, but in hadrons these leftovers are the strong nuclear force. When a combination of quarks has color other than white, it exerts extremely large forces—even larger than the strong force—and perhaps cannot be stable or permanently separated. This is part of the theory of quark confinement, which explains how quarks can exist and yet never be isolated or directly observed. Finally, an extra quantum number with three values (like those we assign to color) is necessary for quarks to obey the Pauli exclusion principle. Particles such as the Ω − , which is ++ composed of three strange quarks, sss , and the Δ , which is three up quarks, uuu, can exist because the quarks have different colors and do not have the same quantum numbers. Color is consistent with all observations and is now widely accepted. Quark theory including color is called quantum chromodynamics (QCD), also named by Gell-Mann.

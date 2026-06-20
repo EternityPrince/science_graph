@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 4938"
-authors: ["SciQ Author"]
-year: 2026
----
-
-16.7 | Cancer and Gene Regulation By the end of this section, you will be able to: • Describe how changes to gene expression can cause cancer • Explain how changes to gene expression at different levels can disrupt the cell cycle • Discuss how understanding regulation of gene expression can lead to better drug design Cancer is not a single disease but includes many different diseases. In cancer cells, mutations modify cell-cycle control and cells don’t stop growing as they normally would. Mutations can also alter the growth rate or the progression of the cell through the cell cycle. One example of a gene modification that alters the growth rate is increased phosphorylation of cyclin B, a protein that controls the progression of a cell through the cell cycle and serves as a cell-cycle checkpoint protein. For cells to move through each phase of the cell cycle, the cell must pass through checkpoints. This ensures that the cell has properly completed the step and has not encountered any mutation that will alter its function. Many proteins, including cyclin B, control these checkpoints. The phosphorylation of cyclin B, a post-translational event, alters its function. As a result, cells can progress through the cell cycle unimpeded, even if mutations exist in the cell and its growth should be terminated. This post-translational change of cyclin B prevents it from controlling the cell cycle and contributes to the development of cancer.

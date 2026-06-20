@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 6526"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Atomic Theory through the Nineteenth Century The earliest recorded discussion of the basic structure of matter comes from ancient Greek philosophers, the scientists of their day. In the fifth century BC, Leucippus and Democritus argued that all matter was composed of small, finite particles that they called atomos, a term derived from the Greek word for “indivisible. ” They thought of atoms as moving particles that differed in shape and size, and which could join together. Later, Aristotle and others came to the conclusion that matter consisted of various combinations of the four “elements”—fire, earth, air, and water—and could be infinitely divided. Interestingly, these philosophers thought about atoms and “elements” as philosophical concepts, but apparently never considered performing experiments to test their ideas. The Aristotelian view of the composition of matter held sway for over two thousand years, until English schoolteacher John Dalton helped to revolutionize chemistry with his hypothesis that the behavior of matter could be explained using an atomic theory. First published in 1807, many of Dalton’s hypotheses about the microscopic features of matter are still valid in modern atomic theory. Here are the postulates of Dalton’s atomic theory. Matter is composed of exceedingly small particles called atoms. An atom is the smallest unit of an element.

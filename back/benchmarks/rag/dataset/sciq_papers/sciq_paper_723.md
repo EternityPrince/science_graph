@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 723"
-authors: ["SciQ Author"]
-year: 2026
----
-
-end is also anchored to the first rib by the costoclavicular ligament. The acromial end of the clavicle articulates with the acromion of the scapula at the acromioclavicular joint. This end is also anchored to the coracoid process of the scapula by the coracoclavicular ligament, which provides indirect support for the acromioclavicular joint. The clavicle supports the scapula, transmits the weight and forces from the upper limb to the body trunk, and protects the underlying nerves and blood vessels. The scapula lies on the posterior aspect of the pectoral girdle. It mediates the attachment of the upper limb to the clavicle, and contributes to the formation of the glenohumeral (shoulder) joint. This triangular bone has three sides called the medial, lateral, and superior borders. The suprascapular notch is located on the superior border. The scapula also has three corners, two of which are the superior and inferior angles. The third corner is occupied by the glenoid cavity. Posteriorly, the spine separates the supraspinous and infraspinous fossae, and then extends laterally as the acromion. The subscapular fossa is located on the anterior surface of the scapula. The coracoid process projects anteriorly, passing inferior to the lateral end of the clavicle.

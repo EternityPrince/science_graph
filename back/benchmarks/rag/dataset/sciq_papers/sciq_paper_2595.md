@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 2595"
-authors: ["SciQ Author"]
-year: 2026
----
-
-wave functions can predict within a certain level of probability where an electron might be at any given time. The area where an electron is most likely to be found is called its orbital. Recall that the Bohr model depicts an atom’s electron shell configuration. Within each electron shell are subshells, and each subshell has a specified number of orbitals containing electrons. While it is impossible to calculate exactly where an electron is located, scientists know that it is most probably located within its orbital path. Subshells are designated by the letter s, p, d, and f. The s subshell is spherical in shape and has one orbital. Principal shell 1n has only a single s orbital, which can hold two electrons. Principal shell 2n has one s and one p subshell, and can hold a total of eight electrons. The p subshell has three dumbbell-shaped orbitals, as illustrated in Figure 2.8. Subshells d and f have more complex shapes and contain five and seven orbitals, respectively. These are not shown in the illustration. Principal shell 3n has s, p, and d subshells and can hold 18 electrons. Principal shell 4n has s, p, d and f orbitals and can hold 32 electrons. Moving away from the nucleus, the number of electrons and orbitals found in the energy levels increases. Progressing from one atom to the next in the periodic table, the electron structure can be worked out by fitting an extra electron into the next available orbital.

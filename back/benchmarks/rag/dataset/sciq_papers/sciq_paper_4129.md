@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 4129"
-authors: ["SciQ Author"]
-year: 2026
----
-
-24.5 Metabolic States of the Body There are three main metabolic states of the body: absorptive (fed), postabsorptive (fasting), and starvation. During any given day, your metabolism switches between absorptive and postabsorptive states. Starvation states happen very rarely in generally well-nourished individuals. When the body is fed, glucose, fats, and proteins are absorbed across the intestinal membrane and enter the bloodstream and lymphatic system to be used immediately for fuel. Any excess is stored for later fasting stages. As blood glucose levels rise, the pancreas releases insulin to stimulate the uptake of glucose by hepatocytes in the liver, muscle cells/fibers, and adipocytes (fat cells), and to promote its conversion to glycogen. As the postabsorptive state begins, glucose levels drop, and there is a corresponding drop in insulin levels. Falling glucose levels trigger the pancreas to release glucagon to turn off glycogen synthesis in the liver and stimulate its breakdown into glucose. The glucose is released into the bloodstream to serve as a fuel source for cells throughout the body. If glycogen stores are depleted during fasting, alternative sources, including fatty acids and proteins, can be metabolized and used as fuel. When the body once again enters the absorptive state after fasting, fats and proteins are digested and used to replenish fat.

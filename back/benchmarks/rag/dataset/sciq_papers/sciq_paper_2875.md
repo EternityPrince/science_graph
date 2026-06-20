@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 2875"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Recall that the four different sublevels (s, p, d, and f) each consist of a different number of orbitals. The s sublevel has one orbital, the p sublevel has three orbitals, the d sublevel has five orbitals, and the f sublevel has seven orbitals. In the first period, only the 1s sublevel is being filled. Since all orbitals can hold two electrons, the entire first period consists of just two elements. In the second period, the 2s sublevel, with two electrons, and the 2p sublevel, with six electrons, are being filled. Consequently, the second period contains eight elements. The third period is similar to the second, except the 3s and 3p sublevels are being filled. Because the 3d sublevel does not fill until after the 4s sublevel, the fourth period contains 18 elements, due to the 10 additional electrons that can be accommodated by the 3d orbitals. The fifth period is similar to the fourth. After the 6s sublevel fills, the 4f sublevel is populated with up to 14 electrons. This is followed by the 5d and the 6p sublevels. The total number of elements in the sixth period is 32. The seventh period also contains 32 elements, most of which are too unstable to be found in nature. All 32 have been detected or synthesized, although for some of the later elements in this period, only a handful of atoms have ever been made.

@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 5667"
-authors: ["SciQ Author"]
-year: 2026
----
-
-in color. Golden algae are found in both freshwater and marine environments, where they form a major part of the plankton community. The brown algae are primarily marine, multicellular organisms that are known colloquially as seaweeds. Giant kelps are a type of brown algae. Some brown algae have evolved specialized tissues that resemble terrestrial plants, with root-like holdfasts, stem-like stipes, and leaf-like blades that are capable of photosynthesis. The stipes of giant kelps are enormous, extending in some cases for 60 meters. A variety of algal life cycles exists, but the most complex is alternation of generations, in which both haploid and diploid stages involve multicellularity. Compare this life cycle to that of humans, for instance. Haploid gametes produced by meiosis (sperm and egg) combine in fertilization to generate a diploid zygote that undergoes many rounds of mitosis to produce a multicellular embryo and then a fetus. However, the individual sperm and egg themselves never become multicellular beings. Terrestrial plants also have evolved alternation of generations. In the brown algae genus Laminaria, haploid spores develop into multicellular gametophytes, which produce haploid gametes that combine to produce diploid organisms that then become multicellular organisms with a different structure from the haploid form (Figure 23.19). Certain other organisms perform alternation of generations in which both the haploid and diploid forms look the same.

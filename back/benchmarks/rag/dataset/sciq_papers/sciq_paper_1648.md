@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 1648"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Basal Ganglia Interconnected brain areas called the basal ganglia (or basal nuclei), shown in Figure 35.20b, play important roles in movement control and posture. Damage to the basal ganglia, as in Parkinson’s disease, leads to motor impairments like a shuffling gait when walking. The basal ganglia also regulate motivation. For example, when a wasp sting led to bilateral basal ganglia damage in a 25-year-old businessman, he began to spend all his days in bed and showed no interest in anything or anybody. But when he was externally stimulated—as when someone asked to play a card game with him—he was able to function normally. Interestingly, he and other similar patients do not report feeling bored or frustrated by their state. Thalamus The thalamus (Greek for “inner chamber”), illustrated in Figure 35.24, acts as a gateway to and from the cortex. It receives sensory and motor inputs from the body and also receives feedback from the cortex. This feedback mechanism can modulate conscious awareness of sensory and motor inputs depending on the attention and arousal state of the animal. The thalamus helps regulate consciousness, arousal, and sleep states. A rare genetic disorder called fatal familial insomnia causes the degeneration of thalamic neurons and glia. This disorder prevents affected patients from being able to sleep, among other symptoms, and is eventually fatal.

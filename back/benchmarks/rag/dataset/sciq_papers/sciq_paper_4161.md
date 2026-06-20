@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 4161"
-authors: ["SciQ Author"]
-year: 2026
----
-
-O 3(g) ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ → O(g) + O 2(g) The reactive oxygen atoms recombine with molecular oxygen to complete the ozone cycle. The presence of stratospheric ozone decreases the frequency of skin cancer and other damaging effects of ultraviolet radiation. It has been clearly demonstrated that chlorofluorocarbons, CFCs (known commercially as Freons), which were present as aerosol propellants in spray cans and as refrigerants, caused depletion of ozone in the stratosphere. This occurred because ultraviolet light also causes CFCs to decompose, producing atomic chlorine. The chlorine atoms react with ozone molecules, resulting in a net removal of O3 molecules from stratosphere. This process is explored in detail in our coverage of chemical kinetics. There is a worldwide effort to reduce the amount of CFCs used commercially, and the ozone hole is already beginning to decrease in size as atmospheric concentrations of atomic chlorine decrease. While ozone in the stratosphere helps protect us, ozone in the troposphere is a problem. This ozone is a toxic component of photochemical smog. The uses of ozone depend on its reactivity with other substances. It can be used as a bleaching agent for oils, waxes, fabrics, and starch: It oxidizes the colored compounds in these substances to colorless compounds. It is an alternative to chlorine as a disinfectant for water.

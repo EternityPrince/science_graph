@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 6658"
-authors: ["SciQ Author"]
-year: 2026
----
-
-The Major Divisions of Land Plants The green algae and land plants are grouped together into a subphylum called the Streptophytina, and thus are called Streptophytes. In a further division, land plants are classified into two major groups according to the absence or presence of vascular tissue, as detailed in Figure 25.6. Plants that lack vascular tissue, which is formed of specialized cells for the transport of water and nutrients, are referred to as non-vascular plants. Liverworts, mosses, and hornworts are seedless, non-vascular plants that likely appeared early in land plant evolution. Vascular plants developed a network of cells that conduct water and solutes. The first vascular plants appeared in the late Ordovician and were probably similar to lycophytes, which include club mosses (not to be confused with the mosses) and the pterophytes (ferns, horsetails, and whisk ferns). Lycophytes and pterophytes are referred to as seedless vascular plants, because they do not produce seeds. The seed plants, or spermatophytes, form the largest group of all existing plants, and hence dominate the landscape. Seed plants include gymnosperms, most notably conifers (Gymnosperms), which produce “naked seeds,” and the most successful of all plants, the flowering plants (Angiosperms). Angiosperms protect their seeds inside chambers at the center of a flower; the walls of the chamber later develop into a fruit.

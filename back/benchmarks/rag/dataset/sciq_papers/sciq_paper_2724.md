@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 2724"
-authors: ["SciQ Author"]
-year: 2026
----
-
-The simplest organic compounds are those composed of only two elements: carbon and hydrogen. These compounds are called hydrocarbons. Hydrocarbons themselves are separated into two types: aliphatic hydrocarbons and aromatic hydrocarbons. Aliphatic hydrocarbons are hydrocarbons based on chains of C atoms. There are three types of aliphatic hydrocarbons. Alkanes are aliphatic hydrocarbons with only single covalent bonds. Alkenes are hydrocarbons that contain at least one C–C double bond, and alkynes are hydrocarbons that contain a C–C triple bond. Occasionally, we find an aliphatic hydrocarbon with a ring of C atoms; these hydrocarbons are calledcycloalkanes (or cycloalkenes or cycloalkynes). Aromatic hydrocarbons have a special six-carbon ring called a benzene ring. Electrons in the benzene ring have special energetic properties that give benzene physical and chemical properties that are markedly different from alkanes. Originally, the term aromatic was used to describe this class of compounds because they were particularly fragrant. However, in modern chemistry the term aromatic denotes the presence of a six-membered ring that imparts different and unique properties to a molecule. The simplest alkanes have their C atoms bonded in a straight chain; these are callednormal alkanes. They are named according to the number of C atoms in the chain. The smallest alkane is methane:.

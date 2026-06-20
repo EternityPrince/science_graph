@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 4735"
-authors: ["SciQ Author"]
-year: 2026
----
-
-into the brain, and the posterior region becomes the spinal cord. Tissues at the edges of the neural groove, when it closes off, are called the neural crest and migrate through the embryo to give rise to PNS structures as well as some non-nervous tissues. The brain develops from this early tube structure and gives rise to specific regions of the adult brain. As the neural tube grows and differentiates, it enlarges into three vesicles that correspond to the forebrain, midbrain, and hindbrain regions of the adult brain. Later in development, two of these three vesicles differentiate further, resulting in five vesicles. Those five vesicles can be aligned with the four major regions of the adult brain. The cerebrum is formed directly from the telencephalon. The diencephalon is the only region that keeps its embryonic name. The mesencephalon, metencephalon, and myelencephalon become the brain stem. The cerebellum also develops from the metencephalon and is a separate region of the adult brain. The spinal cord develops out of the rest of the neural tube and retains the tube structure, with the nervous tissue thickening and the hollow center becoming a very small central canal through the cord. The rest of the hollow center of the neural tube corresponds to open spaces within the brain called the ventricles, where cerebrospinal fluid is found.

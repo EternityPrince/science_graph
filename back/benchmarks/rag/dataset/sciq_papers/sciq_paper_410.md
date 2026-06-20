@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 410"
-authors: ["SciQ Author"]
-year: 2026
----
-
-9.5 | Types of Body Movements By the end of this section, you will be able to: • Define the different types of body movements • Identify the joints that allow for these motions Synovial joints allow the body a tremendous range of movements. Each movement at a synovial joint results from the contraction or relaxation of the muscles that are attached to the bones on either side of the articulation. The type of movement that can be produced at a synovial joint is determined by its structural type. While the ball-and-socket joint gives the greatest range of movement at an individual joint, in other regions of the body, several joints may work together to produce a particular movement. Overall, each type of synovial joint is necessary to provide the body with its great flexibility and mobility. There are many types of movement that can occur at synovial joints (Table 9.1). Movement types are generally paired, with one being the opposite of the other. Body movements are always described in relation to the anatomical position of the body: upright stance, with upper limbs to the side of body and palms facing forward. Refer to Figure 9.12 as you go through this section.

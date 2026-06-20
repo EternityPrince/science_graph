@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 751"
-authors: ["SciQ Author"]
-year: 2026
----
-
-strong enough to keep the particles of substance together but not in place. Thus, the particles are free to move over each other but still remain in contact. In gases, the intermolecular interactions are weak enough that the individual particles are separated from each other in space. The kinetic theory of gases is a collection of statements that describe the fundamental behavior of all gases. Among other properties, gases exert a pressure on their container. Pressure is measured using units like pascal, bar, atmosphere, or mmHg (also called atorr). There are several simple relationships between the variables used to describe a quantity of gas. These relationships are called gas laws. Boyle’s law relates the pressure and volume of a gas, while Charles’s law relates the volume and absolute temperature of a gas. The combined gas law relates the volume, pressure, and absolute temperature of a gas sample. All of these gas laws allow us to understand the changing conditions of a gas. The ideal gas law relates the pressure, volume, amount, and absolute temperature of a gas under any conditions. These four variables are related to the ideal gas law constant, which is the proportionality constant used to calculate the conditions of a gas. Because the conditions of a gas can change, a set of benchmark conditions called standard temperature and pressure (STP) is defined. Standard temperature is 0ºC, and standard pressure is 1.00 atm.

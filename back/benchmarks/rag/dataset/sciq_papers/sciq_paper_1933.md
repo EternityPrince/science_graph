@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 1933"
-authors: ["SciQ Author"]
-year: 2026
----
-
-years or more. During this time, a girl’s height can increase 3 inches a year. The next step in puberty is menarche, the start of menstruation. In boys, the growth of the testes is typically the first physical sign of the beginning of puberty, which is followed by growth and pigmentation of the scrotum and growth of the penis. The next step is the growth of hair, including armpit, pubic, chest, and facial hair. Testosterone stimulates the growth of the larynx and thickening and lengthening of the vocal folds, which causes the voice to drop in pitch. The first fertile ejaculations typically appear at approximately 15 years of age, but this age can vary widely across individual boys. Unlike the early growth spurt observed in females, the male growth spurt occurs toward the end of puberty, at approximately age 11 to 13, and a boy’s height can increase as much as 4 inches a year. In some males, pubertal development can continue through the early 20s.

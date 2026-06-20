@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 6634"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Hot lower mantle material rises upwards ( Figure below ). As it rises, it cools. At the top of the mantle it moves horizontally. Over time it becomes cool and dense enough that it sinks. Back at the bottom of the mantle, it travels horizontally. Eventually the material gets to the location where warm mantle material is rising. The rising and sinking of warm and cooler material is convection. The motion described creates a convection cell.

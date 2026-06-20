@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 4312"
-authors: ["SciQ Author"]
-year: 2026
----
-
-8.4 Elastic Collisions in One Dimension Let us consider various types of two-object collisions. These collisions are the easiest to analyze, and they illustrate many of the physical principles involved in collisions. The conservation of momentum principle is very useful here, and it can be used whenever the net external force on a system is zero. We start with the elastic collision of two objects moving along the same line—a one-dimensional problem. An elastic collision is one that also conserves internal kinetic energy. Internal kinetic energy is the sum of the kinetic energies of the objects in the system. Figure 8.6 illustrates an elastic collision in which internal kinetic energy and momentum are conserved. Truly elastic collisions can only be achieved with subatomic particles, such as electrons striking nuclei. Macroscopic collisions can be very nearly, but not quite, elastic—some kinetic energy is always converted into other forms of energy such as heat transfer due to friction and sound. One macroscopic collision that is nearly elastic is that of two steel blocks on ice. Another nearly elastic collision is that between two carts with spring bumpers on an air track. Icy surfaces and air tracks are nearly frictionless, more readily allowing nearly elastic collisions on them. Elastic Collision An elastic collision is one that conserves internal kinetic energy. Internal Kinetic Energy Internal kinetic energy is the sum of the kinetic energies of the objects in the system.

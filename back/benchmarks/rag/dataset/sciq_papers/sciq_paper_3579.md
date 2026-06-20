@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 3579"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Can Snail Venom Be Used as a Pharmacological Painkiller? Marine snails of the genus Conus (Figure 28.25) attack prey with a venomous sting. The toxin released, known as conotoxin, is a peptide with internal disulfide linkages. Conotoxins can bring about paralysis in humans, indicating that this toxin attacks neurological targets. Some conotoxins have been shown to block neuronal ion channels. These findings have led researchers to study conotoxins for possible medical applications. Conotoxins are an exciting area of potential pharmacological development, since these peptides may be possibly modified and used in specific medical conditions to inhibit the activity of specific neurons. For example, these toxins may be used to induce paralysis in muscles in specific health applications, similar to the use of botulinum toxin. Since the entire spectrum of conotoxins, as well as their mechanisms of action, are not completely known, the study of their potential applications is still in its infancy. Most research to date has focused on their use to treat neurological diseases. They have also shown some efficacy in relieving chronic pain, and the pain associated with conditions like sciatica and shingles. The study and use of biotoxins—toxins derived from living organisms—are an excellent example of the application of biological science to modern medicine.

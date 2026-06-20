@@ -1,7 +1,0 @@
----
-title: "SciQ Paper 3575"
-authors: ["SciQ Author"]
-year: 2026
----
-
-Substances can change phase—often because of a temperature change. At low temperatures, most substances are solid; as the temperature increases, they become liquid; at higher temperatures still, they become gaseous. The process of a solid becoming a liquid is called melting (an older term that you may see sometimes is fusion). The opposite process, a liquid becoming a solid, is called solidification. For any pure substance, the temperature at which melting occurs—known as the melting point—is a characteristic of that substance. It requires energy for a solid to melt into a liquid. Every pure substance has a certain amount of energy it needs to change from a solid to a liquid. This amount is called theenthalpy of fusion (or heat of fusion) of the substance, represented as ΔHfus. Some ΔHfus values are listed in Table 10.2 "Enthalpies of Fusion for Various Substances"; it is assumed that these values are for the melting point of the substance. Note that the unit of ΔHfus is kilojoules per mole, so we need to know the quantity of material to know how much energy is involved. The ΔHfus is always tabulated as a positive number. However, it can be used for both the melting and the solidification processes as long as you keep in mind that melting is always endothermic (so ΔH will be positive), while solidification is always exothermic (so ΔH will be negative). Table 10.2 Enthalpies of Fusion for Various Substances Substance (Melting Point).
