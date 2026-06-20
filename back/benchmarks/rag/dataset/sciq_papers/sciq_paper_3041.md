@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 3041"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+6.2 Potential, Kinetic, Free, and Activation Energy Energy comes in many different forms. Objects in motion do physical work, and kinetic energy is the energy of objects in motion. Objects that are not in motion may have the potential to do work, and thus, have potential energy. Molecules also have potential energy because the breaking of molecular bonds has the potential to release energy. Living cells depend on the harvesting of potential energy from molecular bonds to perform work. Free energy is a measure of energy that is available to do work. The free energy of a system changes during energy transfers such as chemical reactions, and this change is referred to as ∆G. The ∆G of a reaction can be negative or positive, meaning that the reaction releases energy or consumes energy, respectively. A reaction with a negative ∆G that gives off energy is called an exergonic reaction. One with a positive ∆G that requires energy input is called an endergonic reaction. Exergonic reactions are said to be spontaneous, because their products have less energy than their reactants. The products of endergonic reactions have a higher energy state than the reactants, and so these are nonspontaneous reactions. However, all reactions (including spontaneous -∆G reactions) require an initial input of energy in order to reach the transition state, at which they’ll proceed. This initial input of energy is called the activation energy.

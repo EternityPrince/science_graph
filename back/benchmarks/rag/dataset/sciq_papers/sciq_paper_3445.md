@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 3445"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+M = dRTP Exercise Radon (Rn) is a radioactive gas formed by the decay of naturally occurring uranium in rocks such as granite. It tends to collect in the basements of houses and poses a significant health risk if present in indoor air. Many states now require that houses be tested for radon before they are sold. Calculate the density of radon at 1.00 atm pressure and 20°C and compare it with the density of nitrogen gas, which constitutes 80% of the atmosphere, under the same conditions to see why radon is found in basements rather than in attics. Answer: radon, 9.23 g/L; N2, 1.17 g/L A common use of Equation 10.23 is to determine the molar mass of an unknown gas by measuring its density at a known temperature and pressure. This method is particularly useful in identifying a gas that has been produced in a reaction, and it is not difficult to carry out. A flask or glass bulb of known volume is carefully dried, evacuated, sealed, and weighed empty. It is then filled with a sample of a gas at a known temperature and pressure and reweighed. The difference in mass between the two readings is the mass of the gas. The volume of the flask is usually determined by weighing the flask when empty and when filled with a liquid of known density such as water. The use of density measurements to calculate molar masses is illustrated in Example 10.

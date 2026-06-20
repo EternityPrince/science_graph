@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 6504"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+CHAPTER SUMMARY 17.1 Viruses Viruses are acellular entities that can usually only be seen with an electron microscope. Their genomes contain either DNA or RNA, and they replicate using the replication proteins of a host cell. Viruses are diverse, infecting archaea, bacteria, fungi, plants, and animals. Viruses consist of a nucleic-acid core surrounded by a protein capsid with or without an outer lipid envelope. Viral replication within a living cell always produces changes in the cell, sometimes resulting in cell death and sometimes slowly killing the infected cells. There are six basic stages in the virus replication cycle: attachment, penetration, uncoating, replication, assembly, and release. A viral infection may be productive, resulting in new virions, or nonproductive, meaning the virus remains inside the cell without producing new virions. Viruses cause a variety of diseases in humans. Many of these diseases can be prevented by the use of viral vaccines, which stimulate protective immunity against the virus without causing major disease. Viral vaccines may also be used in active viral infections, boosting the ability of the immune system to control or destroy the virus. Antiviral drugs that target enzymes and other protein products of viral genes have been developed and used with mixed success. Combinations of anti-HIV drugs have been used to effectively control the virus, extending the lifespan of infected individuals.

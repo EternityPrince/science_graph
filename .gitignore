@@ -156,4 +156,6 @@ Thumbs.db
 .antigravitycli/
 .ruff_cache/
 .codegraph/
+
 /article/*
+./back/benchmarks/rag/reports/*

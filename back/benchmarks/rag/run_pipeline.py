@@ -115,6 +115,8 @@ def main():
         "--baselines", args.baselines,
         "--no-unique-dir"
     ]
+    if args.limit is not None:
+        retrieve_cmd.extend(["--limit", str(args.limit)])
     if args.cloud:
         retrieve_cmd.append("--cloud")
 
@@ -139,6 +141,8 @@ def main():
         "--consume-contexts", str(retrieved_contexts_file),
         "--no-unique-dir"
     ]
+    if args.limit is not None:
+        gen_cmd.extend(["--limit", str(args.limit)])
     if args.cloud:
         gen_cmd.append("--cloud")
 

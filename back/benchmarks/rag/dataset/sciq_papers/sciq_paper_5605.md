@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5605"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+15.1 | Features of the Animal Kingdom By the end of this section, you will be able to: • List the features that distinguish the animal kingdom from other kingdoms • Explain the processes of animal reproduction and embryonic development • Describe the hierarchy of basic animal classification • Compare and contrast the embryonic development of protostomes and deuterostomes Even though members of the animal kingdom are incredibly diverse, animals share common features that distinguish them from organisms in other kingdoms. All animals are eukaryotic, multicellular organisms, and almost all animals have specialized tissues. Most animals are motile, at least during certain life stages. Animals require a source of food to grow and develop. All animals are heterotrophic, ingesting living or dead organic matter. This form of obtaining energy distinguishes them from autotrophic organisms, such as most plants, which make their own nutrients through photosynthesis and from fungi that digest their food externally. Animals may be carnivores, herbivores, omnivores, or parasites (Figure 15.2). Most animals reproduce sexually: The offspring pass through a series of developmental stages that establish a determined body plan, unlike plants, for example, in which the exact shape of the body is indeterminate. The body plan refers to the shape of an animal.

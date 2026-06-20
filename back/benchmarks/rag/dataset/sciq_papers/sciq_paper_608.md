@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 608"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Breathing certainly is a major contribution to your health! Without breathing, we could not survive. Curiously, the act of breathing itself is little more than an application of Boyle’s law. The lungs are a series of ever-narrowing tubes that end in a myriad of tiny sacs called alveoli. It is in the alveoli that oxygen from the air transfers to the bloodstream and carbon dioxide from the bloodstream transfers to the lungs for exhalation. For air to move in and out of the lungs, the pressure inside the lungs must change, forcing the lungs to change volume—just as predicted by Boyle’s law. The pressure change is caused by the diaphragm, a muscle that covers the bottom of the lungs. When the diaphragm moves down, it expands the size of our lungs. When this happens, the air pressure inside our lungs decreases slightly. This causes new air to rush in, and we inhale. The pressure decrease is slight—only 3 torr, or about 0.4% of an atmosphere. We inhale only 0.5–1.0 L of air per normal breath. Exhaling air requires that we relax the diaphragm, which pushes against the lungs and slightly decreases the volume of the lungs. This slightly increases the pressure of the air in the lungs, and air is forced out; we exhale. Only 1–2 torr of extra pressure is needed to exhale. So with every breath, our own bodies are performing an experimental test of Boyle’s law.

@@ -87,7 +87,7 @@ CUSTOM_PRESET_HYPERPARAMS_NT = CustomPresetHyperparams(
         score_blend_rrf_weight=0.25,
         rrf_k=60.0,
         dynamic_alpha_threshold_low=1.2,
-        dynamic_alpha_val_low=0.15,
+        dynamic_alpha_val_low=1.0,
         dynamic_alpha_threshold_mid=3.0,
         dynamic_alpha_val_mid=0.5,
         dynamic_alpha_val_high=1.0,
@@ -103,10 +103,10 @@ CUSTOM_PRESET_HYPERPARAMS_NT = CustomPresetHyperparams(
         essential_fact_threshold=0.5,
         sigmoid_slope=0.0,
         sigmoid_center=0.5,
-        weight_authored=0.8,
-        weight_cites=0.7,
-        weight_mentions_concept=0.6,
-        weight_default=0.5,
+        weight_authored=1.0,
+        weight_cites=1.0,
+        weight_mentions_concept=1.,
+        weight_default=1.0,
     ),
     bm25=BM25Preset(
         k1=1.5,
@@ -467,6 +467,10 @@ def main():
     # BM25 Hyperparameters overrides
     parser.add_argument("--bm25-k1", type=float, default=None)
     parser.add_argument("--bm25-b", type=float, default=None)
+    parser.add_argument(
+        "--limit", "-l", type=int, default=-1,
+        help="Limit the number of questions to evaluate (default: -1 which means no limit/all)."
+    )
 
     args = parser.parse_args()
 

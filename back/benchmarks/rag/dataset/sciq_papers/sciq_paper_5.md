@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Occurrence, Preparation, and Compounds of Boron and Silicon Boron constitutes less than 0.001% by weight of the earth’s crust. In nature, it only occurs in compounds with oxygen. Boron is widely distributed in volcanic regions as boric acid, B(OH)3, and in dry lake regions, including the desert areas of California, as borates and salts of boron oxyacids, such as borax, Na2B4O7⋅10H2O. Elemental boron is chemically inert at room temperature, reacting with only fluorine and oxygen to form boron trifluoride, BF3, and boric oxide, B2O3, respectively. At higher temperatures, boron reacts with all nonmetals, except tellurium and the noble gases, and with nearly all metals; it oxidizes to B2O3 when heated with concentrated nitric or sulfuric acid. Boron does not react with nonoxidizing acids. Many boron compounds react readily with water to give boric acid, B(OH)3 (sometimes written as H3BO3). Reduction of boric oxide with magnesium powder forms boron (95–98.5% pure) as a brown, amorphous powder: B 2 O 3(s) + 3Mg(s) ⟶ 2B(s) + 3MgO(s) An amorphous substance is a material that appears to be a solid, but does not have a long-range order like a true solid. Treatment with hydrochloric acid removes the magnesium oxide. Further purification of the boron begins with conversion of the impure boron into boron trichloride. The next step is to heat a mixture of boron trichloride and hydrogen: 1500 °C.

@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 2718"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+In nature, elements rarely occur alone. Instead, they combine to form compounds. A compound is a substance composed of two or more elements joined by chemical bonds. For example, the compound glucose is an important body fuel. It is always composed of the same three elements: carbon, hydrogen, and oxygen. Moreover, the elements that make up any given compound always occur in the same relative amounts. In glucose, there are always six carbon and six oxygen units for every twelve hydrogen units. But what, exactly, are these “units” of elements?.

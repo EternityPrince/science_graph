@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 2495"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+The Antibiotic Crisis The word antibiotic comes from the Greek anti, meaning “against,” and bios, meaning “life. ” An antibiotic is an organismproduced chemical that is hostile to the growth of other organisms. Today’s news and media often address concerns about an antibiotic crisis. Are antibiotics that were used to treat bacterial infections easily treatable in the past becoming obsolete? Are there new “superbugs”—bacteria that have evolved to become more resistant to our arsenal of antibiotics? Is this the beginning of the end of antibiotics? All of these questions challenge the healthcare community. One of the main reasons for resistant bacteria is the overuse and incorrect use of antibiotics, such as not completing a full course of prescribed antibiotics. The incorrect use of an antibiotic results in the natural selection of resistant forms of bacteria. The antibiotic kills most of the infecting bacteria, and therefore only the resistant forms remain. These resistant forms reproduce, resulting in an increase in the proportion of resistant forms over non-resistant ones. Another problem is the excessive use of antibiotics in livestock. The routine use of antibiotics in animal feed promotes bacterial resistance as well. In the United States, 70 percent of the antibiotics produced are fed to animals. The antibiotics are not used to prevent disease, but to enhance production of their products.

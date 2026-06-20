@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 1428"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+In the lungs, air is diverted into smaller and smaller passages, or bronchi. Air enters the lungs through the two primary (main) bronchi (singular: bronchus). Each bronchus divides into secondary bronchi, then into tertiary bronchi, which in turn divide, creating smaller and smaller diameter bronchioles as they split and spread through the lung. Like the trachea, the bronchi are made of cartilage and smooth muscle. At the bronchioles, the cartilage is replaced with elastic fibers. Bronchi are innervated by nerves of both the parasympathetic and sympathetic nervous systems that control muscle contraction (parasympathetic) or relaxation (sympathetic) in the bronchi and bronchioles, depending on the nervous system’s cues. In humans, bronchioles with a diameter smaller than 0.5 mm are the respiratory bronchioles. They lack cartilage and therefore rely on inhaled air to support their shape. As the passageways decrease in diameter, the relative amount of smooth muscle increases. The terminal bronchioles subdivide into microscopic branches called respiratory bronchioles. The respiratory bronchioles subdivide into several alveolar ducts. Numerous alveoli and alveolar sacs surround the alveolar ducts. The alveolar sacs resemble bunches of grapes tethered to the end of the bronchioles (Figure 39.10). In the acinar region, the alveolar ducts.

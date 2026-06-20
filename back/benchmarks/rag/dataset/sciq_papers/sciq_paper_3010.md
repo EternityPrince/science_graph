@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 3010"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Community Dynamics Community dynamics are the changes in community structure and composition over time, often following environmental disturbances such as volcanoes, earthquakes, storms, fires, and climate change. Communities with a relatively constant number of species are said to be at equilibrium. The equilibrium is dynamic with species identities and relationships changing over time, but maintaining relatively constant numbers. Following a disturbance, the community may or may not return to the equilibrium state. Succession describes the sequential appearance and disappearance of species in a community over time after a severe disturbance. In primary succession, newly exposed or newly formed rock is colonized by living organisms; in secondary succession, a part of an ecosystem is disturbed and remnants of the previous community remain. In both cases, there is a sequential change in species until a more or less permanent community develops. Primary Succession and Pioneer Species Primary succession occurs when new land is formed, for example, following the eruption of volcanoes, such as those on the Big Island of Hawaii. As lava flows into the ocean, new land is continually being formed. On the Big Island, approximately 32 acres of land is added to it its size each year. Weathering and other natural forces break down the rock enough for the.

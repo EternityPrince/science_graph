@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 4147"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+During fetal development, the body is flexed anteriorly into the fetal position, giving the entire vertebral column a single curvature that is concave anteriorly. In the adult, this fetal curvature is retained in two regions of the vertebral column as the thoracic curve, which involves the thoracic vertebrae, and the sacrococcygeal curve, formed by the sacrum and coccyx. Each of these is thus called a primary curve because they are retained from the original fetal curvature of the vertebral column. A secondary curve develops gradually after birth as the child learns to sit upright, stand, and walk. Secondary curves are concave posteriorly, opposite in direction to the original fetal curvature. The cervical curve of the neck region develops as the infant begins to hold their head upright when sitting. Later, as the child begins to stand and then to walk, the lumbar curve of the lower back develops. In adults, the lumbar curve is generally deeper in females. Disorders associated with the curvature of the spine include kyphosis (an excessive posterior curvature of the thoracic region), lordosis (an excessive anterior curvature of the lumbar region), and scoliosis (an abnormal, lateral curvature, accompanied by twisting of the vertebral column).

@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 4375"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Matter is anything that occupies space and has mass. The three states of matter are solid, liquid, and gas. A physical change involves the conversion of a substance from one state of matter to another, without changing its chemical composition. Most matter consists of mixtures of pure substances, which can behomogeneous (uniform in composition) or heterogeneous (different regions possess different compositions and properties). Pure substances can be either chemical compounds or elements. Compounds can be broken down into elements by chemical reactions, but elements cannot be separated into simpler substances by chemical means. The properties of substances can be classified as either physical or chemical. Scientists can observe physical properties without changing the composition of the substance, whereas chemical propertiesdescribe the tendency of a substance to undergo chemical changes (chemical reactions) that change its chemical composition. Physical properties can be intensive or extensive. Intensive properties are the same for all samples; do not depend on sample size; and include, for example, color, physical state, and melting and boiling points. Extensive properties depend on the amount of material and include mass and volume. The ratio of two extensive properties, mass and volume, is an important intensive property called density.

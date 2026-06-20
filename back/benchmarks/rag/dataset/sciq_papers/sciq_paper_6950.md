@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 6950"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+In the jellyfish, a mouth opening is present on the underside of the animal, surrounded by tentacles bearing nematocysts. Scyphozoans live most of their life cycle as free-swimming, solitary carnivores. The mouth leads to the gastrovascular cavity, which may be sectioned into four interconnected sacs, called diverticuli. In some species, the digestive system may be further branched into radial canals. Like the septa in anthozoans, the branched gastrovascular cells serve two functions: to increase the surface area for nutrient absorption and diffusion; thus, more cells are in direct contact with the nutrients in the gastrovascular cavity. In scyphozoans, nerve cells are scattered all over the body. Neurons may even be present in clusters called rhopalia. These animals possess a ring of muscles lining the dome of the body, which provides the contractile force required to swim through water. Scyphozoans are dioecious animals, that is, the sexes are separate. The gonads are formed from the gastrodermis and gametes are expelled through the mouth. Planula larvae are formed by external fertilization; they settle on a substratum in a polypoid form known as scyphistoma. These forms may produce additional polyps by budding or may transform into the medusoid form. The life cycle (Figure 28.10) of these animals can be described as polymorphic, because they exhibit both a medusal and polypoid body plan at some point in their life cycle.

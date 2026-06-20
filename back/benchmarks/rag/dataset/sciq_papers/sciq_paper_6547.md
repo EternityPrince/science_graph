@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 6547"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Sexual Reproduction in Angiosperms The lifecycle of angiosperms follows the alternation of generations explained previously. The haploid gametophyte alternates with the diploid sporophyte during the sexual reproduction process of angiosperms. Flowers contain the plant’s reproductive structures. Flower Structure A typical flower has four main parts—or whorls—known as the calyx, corolla, androecium, and gynoecium (Figure 32.3). The outermost whorl of the flower has green, leafy structures known as sepals. The sepals, collectively called the calyx, help to protect the unopened bud. The second whorl is comprised of petals—usually, brightly colored—collectively called the corolla. The number of sepals and petals varies depending on whether the plant is a monocot or dicot. In monocots, petals usually number three or multiples of three; in dicots, the number of petals is four or five, or multiples of four and five. Together, the calyx and corolla are known as the perianth. The third whorl contains the male reproductive structures and is known as the androecium. The androecium has stamens with anthers that contain the microsporangia. The innermost group of structures in the flower is the gynoecium, or the female reproductive component(s). The carpel is the individual unit of the gynoecium and has a stigma, style, and ovary. A flower may have one or multiple carpels.

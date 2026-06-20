@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 2536"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Note that there is a system for naming some polyatomic ions; -ate and -ite are suffixes designating polyatomic ions containing more or fewer oxygen atoms. Per- (short for “hyper”) and hypo- (meaning “under”) are prefixes meaning more oxygen atoms than -ate and fewer oxygen atoms than -ite, respectively. For example, perchlorate is ClO 4 − , chlorate is ClO 3 − , chlorite is ClO 2 − and hypochlorite is ClO−. Unfortunately, the number of oxygen atoms corresponding to a given suffix or prefix is not consistent; for example, nitrate is NO 3 − while sulfate is SO 4 2−. This will be covered in more detail in the next module on nomenclature. The nature of the attractive forces that hold atoms or ions together within a compound is the basis for classifying chemical bonding. When electrons are transferred and ions form, ionic bonds result. Ionic bonds are electrostatic forces of attraction, that is, the attractive forces experienced between objects of opposite electrical charge (in this case, cations and anions). When electrons are “shared” and molecules form, covalent bonds result. Covalent bonds are the attractive forces between the positively charged nuclei of the bonded atoms and one or more pairs of electrons that are located between the atoms. Compounds are classified as ionic or molecular (covalent) on the basis of the bonds present in them.

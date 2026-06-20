@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 2890"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+make up the middle layer and the bulk of the heart wall. The outer layer of cells is called the epicardium, of which the second layer is a membranous layered structure called the pericardium that surrounds and protects the heart; it allows enough room for vigorous pumping but also keeps the heart in place to reduce friction between the heart and other structures. The heart has its own blood vessels that supply the heart muscle with blood. The coronary arteries branch from the aorta and surround the outer surface of the heart like a crown. They diverge into capillaries where the heart muscle is supplied with oxygen before converging again into the coronary veins to take the deoxygenated blood back to the right atrium where the blood will be re-oxygenated through the pulmonary circuit. The heart muscle will die without a steady supply of blood. Atherosclerosis is the blockage of an artery by the buildup of fatty plaques. Because of the size (narrow) of the coronary arteries and their function in serving the heart itself, atherosclerosis can be deadly in these arteries. The slowdown of blood flow and subsequent oxygen deprivation that results from atherosclerosis causes severe pain, known as angina, and complete blockage of the arteries will cause myocardial infarction: the death of cardiac muscle tissue, commonly known as a heart attack.

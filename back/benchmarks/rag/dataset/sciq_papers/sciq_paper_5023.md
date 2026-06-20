@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5023"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+At 1600 °C, quartz melts to yield a viscous liquid. When the liquid cools, it does not crystallize readily but usually supercools and forms a glass, also called silica. The SiO4 tetrahedra in glassy silica have a random arrangement characteristic of supercooled liquids, and the glass has some very useful properties. Silica is highly transparent to both visible and ultraviolet light. For this reason, it is important in the manufacture of lamps that give radiation rich in ultraviolet light and in certain optical instruments that operate with ultraviolet light. The coefficient of expansion of silica glass is very low; therefore, rapid temperature changes do not cause it to fracture. CorningWare and other ceramic cookware contain amorphous silica. Silicates are salts containing anions composed of silicon and oxygen. In nearly all silicates, sp3-hybridized silicon atoms occur at the centers of tetrahedra with oxygen at the corners. There is a variation in the silicon-to-oxygen ratio that occurs because silicon-oxygen tetrahedra may exist as discrete, independent units or may share oxygen atoms at corners in a variety of ways. In addition, the presence of a variety of cations gives rise to the large number of silicate minerals. Many ceramics are composed of silicates. By including small amounts of other compounds, it is possible to modify the physical properties of the silicate materials to produce ceramics with useful characteristics.

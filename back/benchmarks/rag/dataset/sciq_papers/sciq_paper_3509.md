@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 3509"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+External Female Genitals The external female reproductive structures are referred to collectively as the vulva (Figure 27.10). The mons pubis is a pad of fat that is located at the anterior, over the pubic bone. After puberty, it becomes covered in pubic hair. The labia majora (labia = “lips”; majora = “larger”) are folds of hair-covered skin that begin just posterior to the mons pubis. The thinner and more pigmented labia minora (labia = “lips”; minora = “smaller”) extend medial to the labia majora. Although they naturally vary in shape and size from woman to woman, the labia minora serve to protect the female urethra and the entrance to the female reproductive tract. The superior, anterior portions of the labia minora come together to encircle the clitoris (or glans clitoris), an organ that originates from the same cells as the glans penis and has abundant nerves that make it important in sexual sensation and orgasm. The hymen is a thin membrane that sometimes partially covers the entrance to the vagina. An intact hymen cannot be used as an indication of “virginity”; even at birth, this is only a partial membrane, as menstrual fluid and other secretions must be able to exit the body, regardless of penile–vaginal intercourse. The vaginal opening is located between the opening of the urethra and the anus. It is flanked by outlets to the Bartholin’s glands (or greater vestibular glands).

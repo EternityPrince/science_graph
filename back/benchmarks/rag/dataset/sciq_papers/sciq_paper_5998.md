@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5998"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Biodiversity, Species Richness, and Relative Species Abundance Biodiversity describes a community’s biological complexity: it is measured by the number of different species (species richness) in a particular area and their relative abundance (species evenness). The area in question could be a habitat, a biome, or the entire biosphere. Species richness is the term that is used to describe the number of species living in a habitat or biome. Species richness varies across the globe (Figure 45.29). One factor in determining species richness is latitude, with the greatest species richness occurring in ecosystems near the equator, which often have warmer temperatures, large amounts of rainfall, and low seasonality. The lowest species richness occurs near the poles, which are much colder, drier, and thus less conducive to life in Geologic time (time since glaciations). The predictability of climate or productivity is also an important factor. Other factors influence species richness as well. For example, the study of island biogeography attempts to explain the relatively high species richness found in certain isolated island chains, including the Galápagos Islands that inspired the young Darwin. Relative species abundance is the number of individuals in a species relative to the total number of individuals in all species within a habitat, ecosystem, or biome. Foundation species often have the highest relative abundance of species.

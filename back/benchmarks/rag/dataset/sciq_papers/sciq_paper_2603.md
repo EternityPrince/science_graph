@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 2603"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Oral Cavity Both physical and chemical digestion begin in the mouth or oral cavity, which is the point of entry of food into the digestive system. The food is broken into smaller particles by mastication, the chewing action of the teeth. All mammals have teeth and can chew their food to begin the process of physically breaking it down into smaller particles. The chemical process of digestion begins during chewing as food mixes with saliva, produced by the salivary glands (Figure 16.5). Saliva contains mucus that moistens food and buffers the pH of the food. Saliva also contains lysozyme, which has antibacterial action. It also contains an enzyme called salivary amylase that begins the process of converting starches in the food into a disaccharide called maltose. Another enzyme called lipase is produced by cells in the tongue to break down fats. The chewing and wetting action provided by the teeth and saliva prepare the food into a mass called the bolus for swallowing. The tongue helps in swallowing—moving the bolus from the mouth into the pharynx. The pharynx opens to two passageways: the esophagus and the trachea. The esophagus leads to the stomach and the trachea leads to the lungs. The epiglottis is a flap of tissue that covers the tracheal opening during swallowing to prevent food from entering the lungs.

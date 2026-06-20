@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 7130"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+In the last lesson, we began investigating how a chemical equation can represent a given chemical reaction. In this lesson, we are going to study the ways in which chemical reactions are classified. There are literally thousands of chemical reactions that take place every day in our lives. Some reactions take place in the atmosphere, such as the combustion of fossil fuels. Others occur in solution, like the reactions responsible for photosynthesis or the reactions that break down our food to give us energy. Chemical reactions can take place in a variety of environments. Reactions happen on the sea floor, in our cells, and in the upper atmosphere. As we look at chemical reactions, we notice some commonalities and trends. When we studied the elements, we saw characteristics that allowed us to categorize them by family. There are also various ways to categorize chemical reactions. Some reactions produce heat, while others consume it. Some reactions are spontaneous, while others are not. Some reactions happen in nanoseconds, while others happen over longer spans of time. Some produce electricity, some emit light, and some release gaseous products. The products of chemical reactions tell us a lot about the chemistry of the process. In the above video, we see mercury(II) oxide decomposing into elemental mercury and oxygen gas. Decomposition was one of the first reaction types to be identified by chemists. Decomposition is one type of reaction you'll learn about in this lesson.

@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 4756"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Equilibrium (Balance) Along with audition, the inner ear is responsible for encoding information about equilibrium, the sense of balance. A similar mechanoreceptor—a hair cell with stereocilia—senses head position, head movement, and whether our bodies are in motion. These cells are located within the vestibule of the inner ear. Head position is sensed by the utricle and saccule, whereas head movement is sensed by the semicircular canals. The neural signals generated in the vestibular ganglion are transmitted through the vestibulocochlear nerve to the brain stem and cerebellum. The utricle and saccule are both largely composed of macula tissue (plural = maculae). The macula is composed of hair cells surrounded by support cells. The stereocilia of the hair cells extend into a viscous gel called the otolithic membrane (Figure 14.11). On top of the otolithic membrane is a layer of calcium carbonate crystals, called otoliths. The otoliths essentially make the otolithic membrane top-heavy. The otolithic membrane moves separately from the macula in response to head movements. Tilting the head causes the otolithic membrane to slide over the macula in the direction of gravity. The moving otolithic membrane, in turn, bends the sterocilia, causing some hair cells to depolarize as others hyperpolarize. The exact position of the head is interpreted by the brain based on the pattern of hair-cell depolarization.

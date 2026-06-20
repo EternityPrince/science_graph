@@ -70,6 +70,10 @@ def main():
         "--consume-contexts", type=str, default=None,
         help="Path to pre-retrieved contexts YAML file to consume and bypass retrieval stages."
     )
+    parser.add_argument(
+        "--limit", "-l", type=int, default=None,
+        help="Limit the number of questions to evaluate (for testing/SciQ default)."
+    )
     args = parser.parse_args()
 
     run_benchmarking(args, config, prompts, container, con)

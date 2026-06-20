@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5858"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+The high specific heat of liquid water has important implications for life on Earth. A given mass of water releases more than five times as much heat for a 1°C temperature change as does the same mass of limestone or granite. Consequently, coastal regions of our planet tend to have less variable climates than regions in the center of a continent. After absorbing large amounts of thermal energy from the sun in summer, the water slowly releases the energy during the winter, thus keeping coastal areas warmer than otherwise would be expected (Figure 5.13 "The High Specific Heat of Liquid Water Has Major Effects on Climate"). Water’s capacity to absorb large amounts of energy without undergoing a large increase in temperature also explains why swimming pools and waterbeds are usually heated. Heat must be applied to raise the temperature of the water to a comfortable level for swimming or sleeping and to maintain that level as heat is exchanged with the surroundings. Moreover, because the human body is about 70% water by mass, a great deal of energy is required to change its temperature by even 1°C. Consequently, the mechanism for maintaining our body temperature at about 37°C does not have to be as finely tuned as would be necessary if our bodies were primarily composed of a substance with a lower specific heat. Figure 5.13 The High Specific Heat of Liquid Water Has Major Effects on Climate.

@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 1464"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+functionality of pepsin. Second, the stomach has a thick mucus lining that protects the underlying tissue from the action of the digestive juices. When this mucus lining is ruptured, ulcers can form in the stomach. Ulcers are open wounds in or on an organ caused by bacteria (Helicobacter pylori) when the mucus lining is ruptured and fails to reform. Small Intestine Chyme moves from the stomach to the small intestine. The small intestine is the organ where the digestion of protein, fats, and carbohydrates is completed. The small intestine is a long tube-like organ with a highly folded surface containing fingerlike projections called the villi. The apical surface of each villus has many microscopic projections called microvilli. These structures, illustrated in Figure 34.12, are lined with epithelial cells on the luminal side and allow for the nutrients to be absorbed from the digested food and absorbed into the blood stream on the other side. The villi and microvilli, with their many folds, increase the surface area of the intestine and increase absorption efficiency of the nutrients. Absorbed nutrients in the blood are carried into the hepatic portal vein, which leads to the liver. There, the liver regulates the distribution of nutrients to the rest of the body and removes toxic substances, including drugs, alcohol, and some pathogens.

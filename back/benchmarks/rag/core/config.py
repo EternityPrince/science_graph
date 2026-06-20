@@ -65,3 +65,75 @@ def get_safe_model_name(model_name: str) -> str:
     name = Path(model_name).name
     name = name.replace("/", "_").replace(":", "_").replace(" ", "_")
     return name
+
+
+DEFAULT_LIMIT = 50
+
+def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42) -> list:
+    """Loads a dataset YAML file, formats it if it's SciQ format,
+    and applies random sampling to limit count if specified or if default matches.
+    """
+    import yaml
+    import random
+    
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
+        
+    with open(dataset_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+        
+    if not data:
+        return []
+        
+    # Check if this is the SciQ YAML format (a list of dicts with a "question" key)
+    is_sciq = False
+    if isinstance(data, list) and len(data) > 0:
+        if isinstance(data[0], dict) and "question" in data[0]:
+            is_sciq = True
+            
+    if is_sciq:
+        # Convert SciQ format to standard benchmark cases
+        converted = []
+        for idx, item in enumerate(data):
+            q_data = item["question"]
+            q_id = q_data.get("id", idx + 1)
+            converted.append({
+                "id": f"sciq_{q_id}",
+                "category": "sciq",
+                "query": q_data["q"],
+                "golden_answer": q_data["a"],
+                "c": q_data["c"]  # temporary context string storage
+            })
+            
+        # Resolve context IDs stably
+        unique_contexts = []
+        context_to_id = {}
+        for c in [case["c"] for case in converted]:
+            if c not in context_to_id:
+                unique_contexts.append(c)
+                context_to_id[c] = len(unique_contexts)
+                
+        for case in converted:
+            c_id = context_to_id[case["c"]]
+            case["expected_papers"] = [f"sciq_paper_{c_id}"]
+            del case["c"]
+            
+        data = converted
+        
+        # Default limit is 50 for SciQ when not specified
+        # If limit is explicitly -1, it means "no limit/run all"
+        if limit is None:
+            limit = DEFAULT_LIMIT
+        elif limit == -1:
+            limit = None
+            
+    # Apply limit if requested and dataset is larger
+    if limit is not None and limit != -1 and len(data) > limit:
+        rng = random.Random(seed)
+        data = rng.sample(data, limit)
+        try:
+            data.sort(key=lambda x: x.get("id", ""))
+        except Exception:
+            pass
+            
+    return data

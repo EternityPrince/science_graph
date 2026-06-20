@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 580"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Fruit The seed forms in an ovary, which enlarges as the seeds grow. As the seed develops, the walls of the ovary also thicken and form the fruit. In botany, a fruit is a fertilized and fully grown, ripened ovary. Many foods commonly called vegetables are actually fruit. Eggplants, zucchini, string beans, and bell peppers are all technically fruit because they contain seeds and are derived from the thick ovary tissue. Acorns and winged maple keys, whose scientific name is a samara, are also fruit. Mature fruit can be described as fleshy or dry. Fleshy fruit include the familiar berries, peaches, apples, grapes, and tomatoes. Rice, wheat, and nuts are examples of dry fruit. Another distinction is that not all fruits are derived from the ovary. Some fruits are derived from separate ovaries in a single flower, such as the raspberry. Other fruits, such as the pineapple, form from clusters of flowers. Additionally, some fruits, like watermelon and orange, have rinds. Regardless of how they are formed, fruits are an agent of dispersal. The variety of shapes and characteristics reflect the mode of dispersal. The light, dry fruits of trees and dandelions are carried by the wind. Floating coconuts are transported by water. Some fruits are colored, perfumed, sweet, and nutritious to attract herbivores, which eat the fruit and disperse the tough undigested seeds in their feces. Other fruits have burs and hooks that cling to fur and hitch rides on animals.

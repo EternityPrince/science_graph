@@ -1,0 +1,3171 @@
+- id: sciq_205
+  query: Through which process is the human gene for insulin placed into bacteria?
+  category: sciq
+  golden_answer: transformation
+  expected_papers:
+  - sciq_paper_205
+  baselines:
+    B4:
+      status: success
+      latency_sec: 0.407
+      retrieved_papers:
+      - sciq_paper_7136
+      - sciq_paper_3904
+      - sciq_paper_205
+      retrieved_chunks:
+      - id: sciq_paper_205#0
+        paper_id: sciq_paper_205
+        page_number: 1
+        text_content: Through the process of transformation, the human gene for insulin
+          is placed into bacteria. The bacteria then use that gene to make a protein.
+          The protein can be separated from the bacteria and then used to treat patients.
+        score: 0.0328
+      - id: sciq_paper_3904#2
+        paper_id: sciq_paper_3904
+        page_number: 1
+        text_content: The problem was solved by gene cloning. The human insulin gene
+          was cloned and used to transform bacterial cells, which could then produce
+          large quantities of human insulin.
+        score: 0.0323
+      - id: sciq_paper_3904#0
+        paper_id: sciq_paper_3904
+        page_number: 1
+        text_content: Insulin was the first human protein to be produced in this way.
+          Insulin helps cells take up glucose from the blood. People with type 1 diabetes
+          have a mutation in the gene that normally codes for insulin. Without insulin,
+          their blood glucose rises to harmfully high levels.
+        score: 0.0313
+      - id: sciq_paper_205#1
+        paper_id: sciq_paper_205
+        page_number: 1
+        text_content: The mass production of insulin by bacteria made this medicine
+          much more affordable.
+        score: 0.0296
+      - id: sciq_paper_7136#5
+        paper_id: sciq_paper_7136
+        page_number: 1
+        text_content: coli as early as 1978. Previously, it was only possible to treat
+          diabetes with pig insulin, which caused allergic reactions in many humans
+          because of differences in the insulin molecule. In addition, human growth
+          hormone (HGH) is used to treat growth disorders.
+        score: 0.029
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 0.033) | Paper:
+        SciQ Paper 205 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Through the process of transformation, the human gene for insulin is placed
+        into bacteria. The bacteria then use that gene to make a protein. The protein
+        can be separated from the bacteria and then used to treat patients. The mass
+        production of insulin by bacteria made this medicine much more affordable.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 0.032) | Paper: SciQ Paper
+        3904 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: 0.031) | Paper: SciQ Paper
+        3904 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: 0.030) | Paper: SciQ Paper
+        205 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Through the process of transformation, the human gene for insulin is placed
+        into bacteria. The bacteria then use that gene to make a protein. The protein
+        can be separated from the bacteria and then used to treat patients. The mass
+        production of insulin by bacteria made this medicine much more affordable.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: 0.029) | Paper: SciQ Paper
+        7136 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Production of Vaccines, Antibiotics, and Hormones Traditional vaccination
+        strategies use weakened or inactive forms of microorganisms or viruses to
+        stimulate the immune system. Modern techniques use specific genes of microorganisms
+        cloned into vectors and mass-produced in bacteria to make large quantities
+        of specific substances to stimulate the immune system. The substance is then
+        used as a vaccine. In some cases, such as the H1N1 flu vaccine, genes cloned
+        from the virus have been used to combat the constantly changing strains of
+        this virus. Antibiotics kill bacteria and are naturally produced by microorganisms
+        such as fungi; penicillin is perhaps the most wellknown example. Antibiotics
+        are produced on a large scale by cultivating and manipulating fungal cells.
+        The fungal cells have typically been genetically modified to improve the yields
+        of the antibiotic compound. Recombinant DNA technology was used to produce
+        large-scale quantities of the human hormone insulin in E. coli as early as
+        1978. Previously, it was only possible to treat diabetes with pig insulin,
+        which caused allergic reactions in many humans because of differences in the
+        insulin molecule. In addition, human growth hormone (HGH) is used to treat
+        growth disorders.
+
+        """<|source_end|>'
+      trimmed_graph: Graph enrichment disabled.
+      enrichment_block: ''
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0812
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.3248
+          graph_neighbors:
+            calls: 0
+            time_sec: 0.0
+          db_lookups:
+            calls: 1
+            time_sec: 0.0014
+          reranking:
+            calls: 0
+            time_sec: 0.0
+          graph_expansion:
+            calls: 0
+            time_sec: 0.0
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 4
+        prompt_tokens: 0
+    B6:
+      status: success
+      latency_sec: 0.525
+      retrieved_papers:
+      - sciq_paper_3904
+      - sciq_paper_205
+      - sciq_paper_4660
+      retrieved_chunks:
+      - id: sciq_paper_205#0
+        paper_id: sciq_paper_205
+        page_number: 1
+        text_content: Through the process of transformation, the human gene for insulin
+          is placed into bacteria. The bacteria then use that gene to make a protein.
+          The protein can be separated from the bacteria and then used to treat patients.
+        score: 10.602
+      - id: sciq_paper_3904#2
+        paper_id: sciq_paper_3904
+        page_number: 1
+        text_content: The problem was solved by gene cloning. The human insulin gene
+          was cloned and used to transform bacterial cells, which could then produce
+          large quantities of human insulin.
+        score: 2.9832
+      - id: sciq_paper_205#1
+        paper_id: sciq_paper_205
+        page_number: 1
+        text_content: The mass production of insulin by bacteria made this medicine
+          much more affordable.
+        score: -3.2933
+      - id: sciq_paper_3904#0
+        paper_id: sciq_paper_3904
+        page_number: 1
+        text_content: Insulin was the first human protein to be produced in this way.
+          Insulin helps cells take up glucose from the blood. People with type 1 diabetes
+          have a mutation in the gene that normally codes for insulin. Without insulin,
+          their blood glucose rises to harmfully high levels.
+        score: -5.2434
+      - id: sciq_paper_4660#0
+        paper_id: sciq_paper_4660
+        page_number: 1
+        text_content: Genetically Engineering Bacteria to Produce a Human Protein.
+          Bacteria can be genetically engineered to produce a human protein, such
+          as a cytokine. A cytokine is a small protein that helps fight infections.
+        score: -5.8838
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 10.602) | Paper:
+        SciQ Paper 205 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Through the process of transformation, the human gene for insulin is placed
+        into bacteria. The bacteria then use that gene to make a protein. The protein
+        can be separated from the bacteria and then used to treat patients. The mass
+        production of insulin by bacteria made this medicine much more affordable.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 2.983) | Paper: SciQ Paper
+        3904 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -3.293) | Paper: SciQ Paper
+        205 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Through the process of transformation, the human gene for insulin is placed
+        into bacteria. The bacteria then use that gene to make a protein. The protein
+        can be separated from the bacteria and then used to treat patients. The mass
+        production of insulin by bacteria made this medicine much more affordable.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -5.243) | Paper: SciQ Paper
+        3904 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -5.884) | Paper: SciQ Paper
+        4660 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Genetically Engineering Bacteria to Produce a Human Protein. Bacteria can
+        be genetically engineered to produce a human protein, such as a cytokine.
+        A cytokine is a small protein that helps fight infections.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_3904:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_205:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4660:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 3904: Title: SciQ Paper 3904. Abstract:
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 205: Title: SciQ Paper 205. Abstract: Through the process
+        of transformation, the human gene for insulin is placed into bacteria. The
+        bacteria then use that gene to make a protein. The protein can be separated
+        from the bacteria and then used to treat patients. The mass production of
+        insulin by bacteria made this medicine much more affordable. (Связь: Initial
+        search result)
+
+        [UserNote] SciQ Paper 4660: Title: SciQ Paper 4660. Abstract: Genetically
+        Engineering Bacteria to Produce a Human Protein. Bacteria can be genetically
+        engineered to produce a human protein, such as a cytokine. A cytokine is a
+        small protein that helps fight infections. (Связь: Initial search result)
+
+        [Chunk] SciQ Paper 205 (Page 1): Through the process of transformation, the
+        human gene for insulin is placed into bacteria. The bacteria then use that
+        gene to make a protein. The protein can be separated from the bacteria and
+        then used to treat patients.
+
+        [Chunk] SciQ Paper 3904 (Page 1): The problem was solved by gene cloning.
+        The human insulin gene was cloned and used to transform bacterial cells, which
+        could then produce large quantities of human insulin.
+
+        [Chunk] SciQ Paper 205 (Page 1): The mass production of insulin by bacteria
+        made this medicine much more affordable.
+
+        [Chunk] SciQ Paper 3904 (Page 1): Insulin was the first human protein to be
+        produced in this way. Insulin helps cells take up glucose from the blood.
+        People with type 1 diabetes have a mutation in the gene that normally codes
+        for insulin. Without insulin, their blood glucose rises to harmfully high
+        levels.
+
+        [Chunk] SciQ Paper 4660 (Page 1): Genetically Engineering Bacteria to Produce
+        a Human Protein. Bacteria can be genetically engineered to produce a human
+        protein, such as a cytokine. A cytokine is a small protein that helps fight
+        infections.
+
+        [Chunk] SciQ Paper 3904 (Page 1): At present, the only treatment for type
+        1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning.'
+      metrics:
+        components:
+          embedding:
+            calls: 3
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 3
+            time_sec: 0.0176
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0089
+          graph_neighbors:
+            calls: 3
+            time_sec: 0.003
+          db_lookups:
+            calls: 6
+            time_sec: 0.0026
+          reranking:
+            calls: 12
+            time_sec: 0.2929
+          graph_expansion:
+            calls: 1
+            time_sec: 0.2004
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 19
+        prompt_tokens: 0
+    CUSTOM:
+      status: success
+      latency_sec: 2.398
+      retrieved_papers:
+      - sciq_paper_3904
+      - sciq_paper_205
+      - sciq_paper_4660
+      retrieved_chunks:
+      - id: sciq_paper_205#0
+        paper_id: sciq_paper_205
+        page_number: 1
+        text_content: Through the process of transformation, the human gene for insulin
+          is placed into bacteria. The bacteria then use that gene to make a protein.
+          The protein can be separated from the bacteria and then used to treat patients.
+        score: 10.602
+      - id: sciq_paper_3904#2
+        paper_id: sciq_paper_3904
+        page_number: 1
+        text_content: The problem was solved by gene cloning. The human insulin gene
+          was cloned and used to transform bacterial cells, which could then produce
+          large quantities of human insulin.
+        score: 2.9832
+      - id: sciq_paper_205#1
+        paper_id: sciq_paper_205
+        page_number: 1
+        text_content: The mass production of insulin by bacteria made this medicine
+          much more affordable.
+        score: -3.2933
+      - id: sciq_paper_3904#0
+        paper_id: sciq_paper_3904
+        page_number: 1
+        text_content: Insulin was the first human protein to be produced in this way.
+          Insulin helps cells take up glucose from the blood. People with type 1 diabetes
+          have a mutation in the gene that normally codes for insulin. Without insulin,
+          their blood glucose rises to harmfully high levels.
+        score: -5.2434
+      - id: sciq_paper_4660#0
+        paper_id: sciq_paper_4660
+        page_number: 1
+        text_content: Genetically Engineering Bacteria to Produce a Human Protein.
+          Bacteria can be genetically engineered to produce a human protein, such
+          as a cytokine. A cytokine is a small protein that helps fight infections.
+        score: -5.8838
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 10.602) | Paper:
+        SciQ Paper 205 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Through the process of transformation, the human gene for insulin is placed
+        into bacteria. The bacteria then use that gene to make a protein. The protein
+        can be separated from the bacteria and then used to treat patients. The mass
+        production of insulin by bacteria made this medicine much more affordable.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 2.983) | Paper: SciQ Paper
+        3904 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -3.293) | Paper: SciQ Paper
+        205 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Through the process of transformation, the human gene for insulin is placed
+        into bacteria. The bacteria then use that gene to make a protein. The protein
+        can be separated from the bacteria and then used to treat patients. The mass
+        production of insulin by bacteria made this medicine much more affordable.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -5.243) | Paper: SciQ Paper
+        3904 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -5.884) | Paper: SciQ Paper
+        4660 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Genetically Engineering Bacteria to Produce a Human Protein. Bacteria can
+        be genetically engineered to produce a human protein, such as a cytokine.
+        A cytokine is a small protein that helps fight infections.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_3904:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_205:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4660:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 3904: Title: SciQ Paper 3904. Abstract:
+        Insulin was the first human protein to be produced in this way. Insulin helps
+        cells take up glucose from the blood. People with type 1 diabetes have a mutation
+        in the gene that normally codes for insulin. Without insulin, their blood
+        glucose rises to harmfully high levels. At present, the only treatment for
+        type 1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning. The human insulin gene was cloned and used to
+        transform bacterial cells, which could then produce large quantities of human
+        insulin. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 205: Title: SciQ Paper 205. Abstract: Through the process
+        of transformation, the human gene for insulin is placed into bacteria. The
+        bacteria then use that gene to make a protein. The protein can be separated
+        from the bacteria and then used to treat patients. The mass production of
+        insulin by bacteria made this medicine much more affordable. (Связь: Initial
+        search result)
+
+        [UserNote] SciQ Paper 4660: Title: SciQ Paper 4660. Abstract: Genetically
+        Engineering Bacteria to Produce a Human Protein. Bacteria can be genetically
+        engineered to produce a human protein, such as a cytokine. A cytokine is a
+        small protein that helps fight infections. (Связь: Initial search result)
+
+        [Chunk] SciQ Paper 205 (Page 1): Through the process of transformation, the
+        human gene for insulin is placed into bacteria. The bacteria then use that
+        gene to make a protein. The protein can be separated from the bacteria and
+        then used to treat patients.
+
+        [Chunk] SciQ Paper 3904 (Page 1): The problem was solved by gene cloning.
+        The human insulin gene was cloned and used to transform bacterial cells, which
+        could then produce large quantities of human insulin.
+
+        [Chunk] SciQ Paper 205 (Page 1): The mass production of insulin by bacteria
+        made this medicine much more affordable.
+
+        [Chunk] SciQ Paper 3904 (Page 1): Insulin was the first human protein to be
+        produced in this way. Insulin helps cells take up glucose from the blood.
+        People with type 1 diabetes have a mutation in the gene that normally codes
+        for insulin. Without insulin, their blood glucose rises to harmfully high
+        levels.
+
+        [Chunk] SciQ Paper 4660 (Page 1): Genetically Engineering Bacteria to Produce
+        a Human Protein. Bacteria can be genetically engineered to produce a human
+        protein, such as a cytokine. A cytokine is a small protein that helps fight
+        infections.
+
+        [Chunk] SciQ Paper 3904 (Page 1): At present, the only treatment for type
+        1 diabetes is the injection of insulin from outside sources. Until recently,
+        there was no known way to make insulin outside the human body. The problem
+        was solved by gene cloning.'
+      metrics:
+        components:
+          embedding:
+            calls: 4
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 4
+            time_sec: 0.0302
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.175
+          graph_neighbors:
+            calls: 3
+            time_sec: 0.0007
+          db_lookups:
+            calls: 6
+            time_sec: 0.0011
+          reranking:
+            calls: 12
+            time_sec: 0.1613
+          graph_expansion:
+            calls: 1
+            time_sec: 0.0661
+          llm_generation:
+            calls: 1
+            time_sec: 1.9639
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 22
+        prompt_tokens: 177
+- id: sciq_2254
+  query: How are electrons shared in covalent bonds?
+  category: sciq
+  golden_answer: equally
+  expected_papers:
+  - sciq_paper_2254
+  baselines:
+    B4:
+      status: success
+      latency_sec: 0.134
+      retrieved_papers:
+      - sciq_paper_2254
+      - sciq_paper_7338
+      - sciq_paper_7163
+      - sciq_paper_4548
+      - sciq_paper_2105
+      retrieved_chunks:
+      - id: sciq_paper_7163#0
+        paper_id: sciq_paper_7163
+        page_number: 1
+        text_content: Covalent bonds are formed between atoms sharing electrons.
+        score: 0.032
+      - id: sciq_paper_2254#0
+        paper_id: sciq_paper_2254
+        page_number: 1
+        text_content: In other covalent bonds, electrons are shared equally. These
+          bonds are called nonpolar covalent bonds. Neither atom attracts the shared
+          electrons more strongly. As a result, the atoms remain neutral in charge.
+          The oxygen (O 2 ) molecule in the Figure below has two nonpolar bonds.
+        score: 0.0318
+      - id: sciq_paper_2105#0
+        paper_id: sciq_paper_2105
+        page_number: 1
+        text_content: In polar covalent bonds, electrons are not shared equally between
+          the two atoms, so one atom is slightly negative in charge and one is slightly
+          positive in charge. In nonpolar covalent bonds, electrons are shared equally
+          so the atoms remain neutral in charge.
+        score: 0.0318
+      - id: sciq_paper_7338#0
+        paper_id: sciq_paper_7338
+        page_number: 1
+        text_content: A covalent bond is the force of attraction that holds together
+          two atoms that share a pair of valence electrons. Covalent bonds form only
+          between atoms of nonmetals.
+        score: 0.0288
+      - id: sciq_paper_4548#6
+        paper_id: sciq_paper_4548
+        page_number: 1
+        text_content: On the other hand, equal sharing of electrons forms nonpolar
+          covalent bonds, and the interactions between different molecules is less
+          because the molecules are nonpolar.
+        score: 0.0161
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 0.032) | Paper:
+        SciQ Paper 7163 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Covalent bonds are formed between atoms sharing electrons.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 0.032) | Paper: SciQ Paper
+        2254 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        In other covalent bonds, electrons are shared equally. These bonds are called
+        nonpolar covalent bonds. Neither atom attracts the shared electrons more strongly.
+        As a result, the atoms remain neutral in charge. The oxygen (O 2 ) molecule
+        in the Figure below has two nonpolar bonds. The two oxygen nuclei have an
+        equal force of attraction for their four shared electrons.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: 0.032) | Paper: SciQ Paper
+        2105 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        In polar covalent bonds, electrons are not shared equally between the two
+        atoms, so one atom is slightly negative in charge and one is slightly positive
+        in charge. In nonpolar covalent bonds, electrons are shared equally so the
+        atoms remain neutral in charge.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: 0.029) | Paper: SciQ Paper
+        7338 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        A covalent bond is the force of attraction that holds together two atoms that
+        share a pair of valence electrons. Covalent bonds form only between atoms
+        of nonmetals.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: 0.016) | Paper: SciQ Paper
+        4548 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        8.5 End-of-Chapter Material Chapter Summary To ensure that you understand
+        the material in this chapter, you should review the meanings of the following
+        bold terms in the following summary and ask yourself how they relate to the
+        topics in the chapter. A phase is a certain form of matter that has the same
+        physical properties throughout. Three phases are common: the solid, the liquid,
+        and the gas phase. What determines the phase of a substance? Generally, the
+        strength of the intermolecular interactions determines whether a substance
+        is a solid, liquid, or gas under any particular conditions. Covalent network
+        bonding is a very strong form of intermolecular interaction. Diamond is one
+        example of a substance that has this intermolecular interaction. Ionic interactions,
+        the forces of attraction due to oppositely charged ions, are also relatively
+        strong. Covalent bonds are another type of interaction within molecules, but
+        if the bonds are polar covalent bonds, then the unequal sharing of electrons
+        can cause charge imbalances within molecules that cause interactions between
+        molecules. These molecules are described as polar, and these interactions
+        are called dipole-dipole interactions. A certain rather strong type of dipole-dipole
+        interaction, involving a hydrogen atom, is called hydrogen bonding. On the
+        other hand, equal sharing of electrons forms nonpolar covalent bonds, and
+        the interactions between different molecules is less because the molecules
+        are nonpolar. All substances have very weak dispersion forces (also called
+        London forces) caused by the movement of electrons within the bonds themselves.
+        In the solid phase, intermolecular interactions are so strong that they hold
+        the individual atoms or molecules in place. In many solids, the regular three-dimensional
+        arrangement of particles makes a crystal. In other solids, the irregular arrangement
+        of particles makes an amorphous solid. In liquids, the intermolecular interactions
+        are Saylor URL: http://www. saylor. org/books.
+
+        """<|source_end|>'
+      trimmed_graph: Graph enrichment disabled.
+      enrichment_block: ''
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0255
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.1074
+          graph_neighbors:
+            calls: 0
+            time_sec: 0.0
+          db_lookups:
+            calls: 1
+            time_sec: 0.0008
+          reranking:
+            calls: 0
+            time_sec: 0.0
+          graph_expansion:
+            calls: 0
+            time_sec: 0.0
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 4
+        prompt_tokens: 0
+    B6:
+      status: success
+      latency_sec: 0.424
+      retrieved_papers:
+      - sciq_paper_2254
+      - sciq_paper_4022
+      - sciq_paper_7338
+      - sciq_paper_7163
+      - sciq_paper_2105
+      retrieved_chunks:
+      - id: sciq_paper_2105#0
+        paper_id: sciq_paper_2105
+        page_number: 1
+        text_content: In polar covalent bonds, electrons are not shared equally between
+          the two atoms, so one atom is slightly negative in charge and one is slightly
+          positive in charge. In nonpolar covalent bonds, electrons are shared equally
+          so the atoms remain neutral in charge.
+        score: 9.0412
+      - id: sciq_paper_2254#0
+        paper_id: sciq_paper_2254
+        page_number: 1
+        text_content: In other covalent bonds, electrons are shared equally. These
+          bonds are called nonpolar covalent bonds. Neither atom attracts the shared
+          electrons more strongly. As a result, the atoms remain neutral in charge.
+          The oxygen (O 2 ) molecule in the Figure below has two nonpolar bonds.
+        score: 7.7832
+      - id: sciq_paper_7338#0
+        paper_id: sciq_paper_7338
+        page_number: 1
+        text_content: A covalent bond is the force of attraction that holds together
+          two atoms that share a pair of valence electrons. Covalent bonds form only
+          between atoms of nonmetals.
+        score: 5.9601
+      - id: sciq_paper_7163#0
+        paper_id: sciq_paper_7163
+        page_number: 1
+        text_content: Covalent bonds are formed between atoms sharing electrons.
+        score: 5.2705
+      - id: sciq_paper_4022#1
+        paper_id: sciq_paper_4022
+        page_number: 1
+        text_content: Covalent bonds form between atoms that have little if any difference
+          in electronegativity, and result when atoms share electrons. Electronegativity
+          is the power of an atom to attract electrons toward itself.
+        score: 5.3123
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 9.041) | Paper:
+        SciQ Paper 2105 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        In polar covalent bonds, electrons are not shared equally between the two
+        atoms, so one atom is slightly negative in charge and one is slightly positive
+        in charge. In nonpolar covalent bonds, electrons are shared equally so the
+        atoms remain neutral in charge.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 7.783) | Paper: SciQ Paper
+        2254 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        In other covalent bonds, electrons are shared equally. These bonds are called
+        nonpolar covalent bonds. Neither atom attracts the shared electrons more strongly.
+        As a result, the atoms remain neutral in charge. The oxygen (O 2 ) molecule
+        in the Figure below has two nonpolar bonds. The two oxygen nuclei have an
+        equal force of attraction for their four shared electrons.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: 5.960) | Paper: SciQ Paper
+        7338 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        A covalent bond is the force of attraction that holds together two atoms that
+        share a pair of valence electrons. Covalent bonds form only between atoms
+        of nonmetals.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: 5.271) | Paper: SciQ Paper
+        7163 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Covalent bonds are formed between atoms sharing electrons.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: 5.312) | Paper: SciQ Paper
+        4022 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The atoms of a compound are held together by chemical bonds. Chemical bonds
+        form when atoms share electrons. There are different types of chemical bonds,
+        and they vary in how strongly they hold together the atoms of a compound.
+        Two of the strongest types of bonds are covalent and ionic bonds. Covalent
+        bonds form between atoms that have little if any difference in electronegativity,
+        and result when atoms share electrons. Electronegativity is the power of an
+        atom to attract electrons toward itself. Ionic bonds , in contrast, form between
+        atoms that are significantly different in electronegativity. An ion is an
+        atom that has gained or lost at least one electron. Ionic bonds form between
+        ions of opposite charges.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_2254:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4022:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_7338:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_7163:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_2105:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 2254: Title: SciQ Paper 2254. Abstract:
+        In other covalent bonds, electrons are shared equally. These bonds are called
+        nonpolar covalent bonds. Neither atom attracts the shared electrons more strongly.
+        As a result, the atoms remain neutral in charge. The oxygen (O 2 ) molecule
+        in the Figure below has two nonpolar bonds. The two oxygen nuclei have an
+        equal force of attraction for their four shared electrons. (Связь: Initial
+        search result)
+
+        [UserNote] SciQ Paper 4022: Title: SciQ Paper 4022. Abstract: The atoms of
+        a compound are held together by chemical bonds. Chemical bonds form when atoms
+        share electrons. There are different types of chemical bonds, and they vary
+        in how strongly they hold together the atoms of a compound. Two of the strongest
+        types of bonds are covalent and ionic bonds. Covalent bonds form between atoms
+        that have little if any difference in electronegativity, and result when atoms
+        share electrons. Electronegativity is the power of an atom to attract electrons
+        toward itself. Ionic bonds , in contrast, form between atoms that are significantly
+        different in electronegativity. An ion is an atom that has gained or lost
+        at least one electron. Ionic bonds form between ions of opposite charges.
+        (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 7338: Title: SciQ Paper 7338. Abstract: A covalent bond
+        is the force of attraction that holds together two atoms that share a pair
+        of valence electrons. Covalent bonds form only between atoms of nonmetals.
+        (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 7163: Title: SciQ Paper 7163. Abstract: Covalent bonds
+        are formed between atoms sharing electrons. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 2105: Title: SciQ Paper 2105. Abstract: In polar covalent
+        bonds, electrons are not shared equally between the two atoms, so one atom
+        is slightly negative in charge and one is slightly positive in charge. In
+        nonpolar covalent bonds, electrons are shared equally so the atoms remain
+        neutral in charge. (Связь: Initial search result)
+
+        [Chunk] SciQ Paper 2105 (Page 1): In polar covalent bonds, electrons are not
+        shared equally between the two atoms, so one atom is slightly negative in
+        charge and one is slightly positive in charge. In nonpolar covalent bonds,
+        electrons are shared equally so the atoms remain neutral in charge.
+
+        [Chunk] SciQ Paper 2254 (Page 1): In other covalent bonds, electrons are shared
+        equally. These bonds are called nonpolar covalent bonds. Neither atom attracts
+        the shared electrons more strongly. As a result, the atoms remain neutral
+        in charge. The oxygen (O 2 ) molecule in the Figure below has two nonpolar
+        bonds.
+
+        [Chunk] SciQ Paper 7338 (Page 1): A covalent bond is the force of attraction
+        that holds together two atoms that share a pair of valence electrons. Covalent
+        bonds form only between atoms of nonmetals.
+
+        [Chunk] SciQ Paper 7163 (Page 1): Covalent bonds are formed between atoms
+        sharing electrons.
+
+        [Chunk] SciQ Paper 4022 (Page 1): Covalent bonds form between atoms that have
+        little if any difference in electronegativity, and result when atoms share
+        electrons. Electronegativity is the power of an atom to attract electrons
+        toward itself.
+
+        [Chunk] SciQ Paper 2254 (Page 1): The two oxygen nuclei have an equal force
+        of attraction for their four shared electrons.
+
+        [Chunk] SciQ Paper 4022 (Page 1): The atoms of a compound are held together
+        by chemical bonds. Chemical bonds form when atoms share electrons. There are
+        different types of chemical bonds, and they vary in how strongly they hold
+        together the atoms of a compound. Two of the strongest types of bonds are
+        covalent and ionic bonds.
+
+        [Chunk] SciQ Paper 4022 (Page 1): Ionic bonds , in contrast, form between
+        atoms that are significantly different in electronegativity. An ion is an
+        atom that has gained or lost at least one electron. Ionic bonds form between
+        ions of opposite charges.'
+      metrics:
+        components:
+          embedding:
+            calls: 2
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 2
+            time_sec: 0.0072
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0045
+          graph_neighbors:
+            calls: 5
+            time_sec: 0.0019
+          db_lookups:
+            calls: 9
+            time_sec: 0.0016
+          reranking:
+            calls: 12
+            time_sec: 0.251
+          graph_expansion:
+            calls: 1
+            time_sec: 0.1576
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 22
+        prompt_tokens: 0
+    CUSTOM:
+      status: success
+      latency_sec: 0.342
+      retrieved_papers:
+      - sciq_paper_2254
+      - sciq_paper_4022
+      - sciq_paper_7338
+      - sciq_paper_7163
+      - sciq_paper_2105
+      retrieved_chunks:
+      - id: sciq_paper_2105#0
+        paper_id: sciq_paper_2105
+        page_number: 1
+        text_content: In polar covalent bonds, electrons are not shared equally between
+          the two atoms, so one atom is slightly negative in charge and one is slightly
+          positive in charge. In nonpolar covalent bonds, electrons are shared equally
+          so the atoms remain neutral in charge.
+        score: 9.0412
+      - id: sciq_paper_2254#0
+        paper_id: sciq_paper_2254
+        page_number: 1
+        text_content: In other covalent bonds, electrons are shared equally. These
+          bonds are called nonpolar covalent bonds. Neither atom attracts the shared
+          electrons more strongly. As a result, the atoms remain neutral in charge.
+          The oxygen (O 2 ) molecule in the Figure below has two nonpolar bonds.
+        score: 7.7832
+      - id: sciq_paper_7338#0
+        paper_id: sciq_paper_7338
+        page_number: 1
+        text_content: A covalent bond is the force of attraction that holds together
+          two atoms that share a pair of valence electrons. Covalent bonds form only
+          between atoms of nonmetals.
+        score: 5.9601
+      - id: sciq_paper_7163#0
+        paper_id: sciq_paper_7163
+        page_number: 1
+        text_content: Covalent bonds are formed between atoms sharing electrons.
+        score: 5.2705
+      - id: sciq_paper_4022#1
+        paper_id: sciq_paper_4022
+        page_number: 1
+        text_content: Covalent bonds form between atoms that have little if any difference
+          in electronegativity, and result when atoms share electrons. Electronegativity
+          is the power of an atom to attract electrons toward itself.
+        score: 5.3123
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 9.041) | Paper:
+        SciQ Paper 2105 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        In polar covalent bonds, electrons are not shared equally between the two
+        atoms, so one atom is slightly negative in charge and one is slightly positive
+        in charge. In nonpolar covalent bonds, electrons are shared equally so the
+        atoms remain neutral in charge.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 7.783) | Paper: SciQ Paper
+        2254 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        In other covalent bonds, electrons are shared equally. These bonds are called
+        nonpolar covalent bonds. Neither atom attracts the shared electrons more strongly.
+        As a result, the atoms remain neutral in charge. The oxygen (O 2 ) molecule
+        in the Figure below has two nonpolar bonds. The two oxygen nuclei have an
+        equal force of attraction for their four shared electrons.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: 5.960) | Paper: SciQ Paper
+        7338 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        A covalent bond is the force of attraction that holds together two atoms that
+        share a pair of valence electrons. Covalent bonds form only between atoms
+        of nonmetals.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: 5.271) | Paper: SciQ Paper
+        7163 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Covalent bonds are formed between atoms sharing electrons.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: 5.312) | Paper: SciQ Paper
+        4022 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The atoms of a compound are held together by chemical bonds. Chemical bonds
+        form when atoms share electrons. There are different types of chemical bonds,
+        and they vary in how strongly they hold together the atoms of a compound.
+        Two of the strongest types of bonds are covalent and ionic bonds. Covalent
+        bonds form between atoms that have little if any difference in electronegativity,
+        and result when atoms share electrons. Electronegativity is the power of an
+        atom to attract electrons toward itself. Ionic bonds , in contrast, form between
+        atoms that are significantly different in electronegativity. An ion is an
+        atom that has gained or lost at least one electron. Ionic bonds form between
+        ions of opposite charges.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_2254:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4022:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_7338:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_7163:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_2105:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 2254: Title: SciQ Paper 2254. Abstract:
+        In other covalent bonds, electrons are shared equally. These bonds are called
+        nonpolar covalent bonds. Neither atom attracts the shared electrons more strongly.
+        As a result, the atoms remain neutral in charge. The oxygen (O 2 ) molecule
+        in the Figure below has two nonpolar bonds. The two oxygen nuclei have an
+        equal force of attraction for their four shared electrons. (Связь: Initial
+        search result)
+
+        [UserNote] SciQ Paper 4022: Title: SciQ Paper 4022. Abstract: The atoms of
+        a compound are held together by chemical bonds. Chemical bonds form when atoms
+        share electrons. There are different types of chemical bonds, and they vary
+        in how strongly they hold together the atoms of a compound. Two of the strongest
+        types of bonds are covalent and ionic bonds. Covalent bonds form between atoms
+        that have little if any difference in electronegativity, and result when atoms
+        share electrons. Electronegativity is the power of an atom to attract electrons
+        toward itself. Ionic bonds , in contrast, form between atoms that are significantly
+        different in electronegativity. An ion is an atom that has gained or lost
+        at least one electron. Ionic bonds form between ions of opposite charges.
+        (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 7338: Title: SciQ Paper 7338. Abstract: A covalent bond
+        is the force of attraction that holds together two atoms that share a pair
+        of valence electrons. Covalent bonds form only between atoms of nonmetals.
+        (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 7163: Title: SciQ Paper 7163. Abstract: Covalent bonds
+        are formed between atoms sharing electrons. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 2105: Title: SciQ Paper 2105. Abstract: In polar covalent
+        bonds, electrons are not shared equally between the two atoms, so one atom
+        is slightly negative in charge and one is slightly positive in charge. In
+        nonpolar covalent bonds, electrons are shared equally so the atoms remain
+        neutral in charge. (Связь: Initial search result)
+
+        [Chunk] SciQ Paper 2105 (Page 1): In polar covalent bonds, electrons are not
+        shared equally between the two atoms, so one atom is slightly negative in
+        charge and one is slightly positive in charge. In nonpolar covalent bonds,
+        electrons are shared equally so the atoms remain neutral in charge.
+
+        [Chunk] SciQ Paper 2254 (Page 1): In other covalent bonds, electrons are shared
+        equally. These bonds are called nonpolar covalent bonds. Neither atom attracts
+        the shared electrons more strongly. As a result, the atoms remain neutral
+        in charge. The oxygen (O 2 ) molecule in the Figure below has two nonpolar
+        bonds.
+
+        [Chunk] SciQ Paper 7338 (Page 1): A covalent bond is the force of attraction
+        that holds together two atoms that share a pair of valence electrons. Covalent
+        bonds form only between atoms of nonmetals.
+
+        [Chunk] SciQ Paper 7163 (Page 1): Covalent bonds are formed between atoms
+        sharing electrons.
+
+        [Chunk] SciQ Paper 4022 (Page 1): Covalent bonds form between atoms that have
+        little if any difference in electronegativity, and result when atoms share
+        electrons. Electronegativity is the power of an atom to attract electrons
+        toward itself.
+
+        [Chunk] SciQ Paper 2254 (Page 1): The two oxygen nuclei have an equal force
+        of attraction for their four shared electrons.
+
+        [Chunk] SciQ Paper 4022 (Page 1): The atoms of a compound are held together
+        by chemical bonds. Chemical bonds form when atoms share electrons. There are
+        different types of chemical bonds, and they vary in how strongly they hold
+        together the atoms of a compound. Two of the strongest types of bonds are
+        covalent and ionic bonds.
+
+        [Chunk] SciQ Paper 4022 (Page 1): Ionic bonds , in contrast, form between
+        atoms that are significantly different in electronegativity. An ion is an
+        atom that has gained or lost at least one electron. Ionic bonds form between
+        ions of opposite charges.'
+      metrics:
+        components:
+          embedding:
+            calls: 3
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 3
+            time_sec: 0.0151
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0035
+          graph_neighbors:
+            calls: 5
+            time_sec: 0.0022
+          db_lookups:
+            calls: 9
+            time_sec: 0.0031
+          reranking:
+            calls: 12
+            time_sec: 0.206
+          graph_expansion:
+            calls: 1
+            time_sec: 0.1117
+          llm_generation:
+            calls: 1
+            time_sec: 0.0003
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 25
+        prompt_tokens: 174
+- id: sciq_5239
+  query: Instead of wood, what do some fireplaces use?
+  category: sciq
+  golden_answer: propane
+  expected_papers:
+  - sciq_paper_5234
+  baselines:
+    B4:
+      status: success
+      latency_sec: 0.163
+      retrieved_papers:
+      - sciq_paper_4753
+      - sciq_paper_6141
+      - sciq_paper_1389
+      - sciq_paper_5638
+      - sciq_paper_5234
+      retrieved_chunks:
+      - id: sciq_paper_5234#0
+        paper_id: sciq_paper_5234
+        page_number: 1
+        text_content: Some fireplaces use propane gas rather than wood as fuel.
+        score: 0.0328
+      - id: sciq_paper_1389#0
+        paper_id: sciq_paper_1389
+        page_number: 1
+        text_content: Chemical energy is stored in wood and released when the wood
+          burns.
+        score: 0.032
+      - id: sciq_paper_5638#3
+        paper_id: sciq_paper_5638
+        page_number: 1
+        text_content: Many coniferous trees are harvested for paper pulp and timber.
+          The wood of conifers is more primitive than the wood of angiosperms; it
+          contains tracheids, but no vessel elements, and is referred to as “soft
+          wood.
+        score: 0.0301
+      - id: sciq_paper_4753#1
+        paper_id: sciq_paper_4753
+        page_number: 1
+        text_content: The electrons you add to the tip of the rod remain where you
+          put them instead of moving around on the rod. Rubber is an insulator. Insulators
+          are substances that do not allow electrons to move through them. Glass,
+          dry wood, most plastics, cloth, and dry air are common insulators.
+        score: 0.0161
+      - id: sciq_paper_6141#1
+        paper_id: sciq_paper_6141
+        page_number: 1
+        text_content: So do fossil fuels such as natural gas. Natural gas is a fuel
+          that is commonly used in home furnaces and gas stoves. The main component
+          of natural gas is the hydrocarbon called methane (CH 4 ). You can see a
+          methane flame in the Figure below .
+        score: 0.0159
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 0.033) | Paper:
+        SciQ Paper 5234 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Some fireplaces use propane gas rather than wood as fuel.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 0.032) | Paper: SciQ Paper
+        1389 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Chemical energy is stored in wood and released when the wood burns.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: 0.030) | Paper: SciQ Paper
+        5638 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Conifers Conifers are the dominant phylum of gymnosperms, with the most variety
+        of species. Most are tall trees that usually bear scale-like or needle-like
+        leaves. The thin shape of the needles and their waxy cuticle limits water
+        loss through transpiration. Snow slides easily off needle-shaped leaves, keeping
+        the load light and decreasing breaking of branches. These adaptations to cold
+        and dry weather explain the predominance of conifers at high altitudes and
+        in cold climates. Conifers include familiar evergreen trees, such as pines,
+        spruces, firs, cedars, sequoias, and yews (Figure 14.20). A few species are
+        deciduous and lose their leaves all at once in fall. The European larch and
+        the tamarack are examples of deciduous conifers. Many coniferous trees are
+        harvested for paper pulp and timber. The wood of conifers is more primitive
+        than the wood of angiosperms; it contains tracheids, but no vessel elements,
+        and is referred to as “soft wood.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: 0.016) | Paper: SciQ Paper
+        4753 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        A common method of producing charge in the lab is to rub cat or rabbit fur
+        against stiff rubber, producing a negative charge on the rubber rod. If you
+        hold a rubber rod on one end and rub only the tip of the other end with a
+        fur, you will find that only the tip becomes charged. The electrons you add
+        to the tip of the rod remain where you put them instead of moving around on
+        the rod. Rubber is an insulator. Insulators are substances that do not allow
+        electrons to move through them. Glass, dry wood, most plastics, cloth, and
+        dry air are common insulators. Materials that allow electrons to flow freely
+        are called conductors. Metals have at least one electron that can move around
+        freely, and all metals are conductors.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: 0.016) | Paper: SciQ Paper
+        6141 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The fuel that burns in a combustion reaction contains compounds called hydrocarbons.
+        Hydrocarbons are compounds that contain only carbon (C) and hydrogen (H).
+        The charcoal pictured in the Figure above consists of hydrocarbons. So do
+        fossil fuels such as natural gas. Natural gas is a fuel that is commonly used
+        in home furnaces and gas stoves. The main component of natural gas is the
+        hydrocarbon called methane (CH 4 ). You can see a methane flame in the Figure
+        below . The combustion of methane is represented by the equation:.
+
+        """<|source_end|>'
+      trimmed_graph: Graph enrichment disabled.
+      enrichment_block: ''
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0184
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.1427
+          graph_neighbors:
+            calls: 0
+            time_sec: 0.0
+          db_lookups:
+            calls: 1
+            time_sec: 0.002
+          reranking:
+            calls: 0
+            time_sec: 0.0
+          graph_expansion:
+            calls: 0
+            time_sec: 0.0
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 4
+        prompt_tokens: 0
+    B6:
+      status: success
+      latency_sec: 0.58
+      retrieved_papers:
+      - sciq_paper_4519
+      - sciq_paper_4620
+      - sciq_paper_1389
+      - sciq_paper_5638
+      - sciq_paper_5234
+      retrieved_chunks:
+      - id: sciq_paper_5234#0
+        paper_id: sciq_paper_5234
+        page_number: 1
+        text_content: Some fireplaces use propane gas rather than wood as fuel.
+        score: 8.7545
+      - id: sciq_paper_1389#0
+        paper_id: sciq_paper_1389
+        page_number: 1
+        text_content: Chemical energy is stored in wood and released when the wood
+          burns.
+        score: -5.1053
+      - id: sciq_paper_4620#0
+        paper_id: sciq_paper_4620
+        page_number: 1
+        text_content: Flammability is the ability of matter to burn. Wood is flammable;
+          iron is not. When wood burns, it changes to ashes, carbon dioxide, water
+          vapor, and other gases. After burning, it is no longer wood.
+        score: -4.9665
+      - id: sciq_paper_5638#3
+        paper_id: sciq_paper_5638
+        page_number: 1
+        text_content: Many coniferous trees are harvested for paper pulp and timber.
+          The wood of conifers is more primitive than the wood of angiosperms; it
+          contains tracheids, but no vessel elements, and is referred to as “soft
+          wood.
+        score: -6.87
+      - id: sciq_paper_4519#1
+        paper_id: sciq_paper_4519
+        page_number: 1
+        text_content: Although oxides of both group 1 and group 2 elements were obtained
+          from wood ashes, the alkali metals had lower melting points.
+        score: -6.5925
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 8.754) | Paper:
+        SciQ Paper 5234 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Some fireplaces use propane gas rather than wood as fuel.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: -5.105) | Paper: SciQ Paper
+        1389 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Chemical energy is stored in wood and released when the wood burns.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -4.967) | Paper: SciQ Paper
+        4620 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Flammability is the ability of matter to burn. Wood is flammable; iron is
+        not. When wood burns, it changes to ashes, carbon dioxide, water vapor, and
+        other gases. After burning, it is no longer wood.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -6.870) | Paper: SciQ Paper
+        5638 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Conifers Conifers are the dominant phylum of gymnosperms, with the most variety
+        of species. Most are tall trees that usually bear scale-like or needle-like
+        leaves. The thin shape of the needles and their waxy cuticle limits water
+        loss through transpiration. Snow slides easily off needle-shaped leaves, keeping
+        the load light and decreasing breaking of branches. These adaptations to cold
+        and dry weather explain the predominance of conifers at high altitudes and
+        in cold climates. Conifers include familiar evergreen trees, such as pines,
+        spruces, firs, cedars, sequoias, and yews (Figure 14.20). A few species are
+        deciduous and lose their leaves all at once in fall. The European larch and
+        the tamarack are examples of deciduous conifers. Many coniferous trees are
+        harvested for paper pulp and timber. The wood of conifers is more primitive
+        than the wood of angiosperms; it contains tracheids, but no vessel elements,
+        and is referred to as “soft wood.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -6.592) | Paper: SciQ Paper
+        4519 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The elements of group 1 are called the alkali metals. Alkali (from the Arabic
+        al-qili, meaning “ashes of the saltwort plant from salt marshes”) was a general
+        term for substances derived from wood ashes, all of which possessed a bitter
+        taste and were able to neutralize acids. Although oxides of both group 1 and
+        group 2 elements were obtained from wood ashes, the alkali metals had lower
+        melting points. Potassium and sodium were first isolated in 1807 by the British
+        chemist Sir Humphry Davy (1778–1829) by passing an electrical current through
+        molten samples of potash (K2CO3) and soda ash (Na2CO3). The potassium burst
+        into flames as soon as it was produced because it reacts readily with oxygen
+        at the higher temperature. However, the group 1 elements, like the group 2
+        elements, become less reactive with air or water as their atomic number decreases.
+        The heaviest element (francium) was not discovered until 1939. It is so radioactive
+        that studying its chemistry is very difficult. The alkali metals have ns1
+        valence electron configurations and the lowest electronegativity of any group;
+        hence they are often referred to as being electropositiveelements. As a result,
+        they have a strong tendency to lose their single valence electron to form
+        compounds in the +1 oxidation state, producing the EX monohalides and the
+        E 2O oxides. Because they are so reactive, pure group 1 elements are powerful
+        reducing agents that are used in lithium batteries and cardiac pacemakers.
+        Sodium salts such as common table salt (NaCl), baking soda (NaHCO3), soda
+        ash (Na2CO3),.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4519:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4620:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_1389:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_5638:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_5234:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 4519: Title: SciQ Paper 4519. Abstract:
+        The elements of group 1 are called the alkali metals. Alkali (from the Arabic
+        al-qili, meaning “ashes of the saltwort plant from salt marshes”) was a general
+        term for substances derived from wood ashes, all of which possessed a bitter
+        taste and were able to neutralize acids. Although oxides of both group 1 and
+        group 2 elements were obtained from wood ashes, the alkali metals had lower
+        melting points. Potassium and sodium were first isolated in 1807 by the British
+        chemist Sir Humphry Davy (1778–1829) by passing an electrical current through
+        molten samples of potash (K2CO3) and soda ash (Na2CO3). The potassium burst
+        into flames as soon as it was produced because it reacts readily with oxygen
+        at the higher temperature. However, the group 1 elements, like the group 2
+        elements, become less reac (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 4620: Title: SciQ Paper 4620. Abstract: Flammability
+        is the ability of matter to burn. Wood is flammable; iron is not. When wood
+        burns, it changes to ashes, carbon dioxide, water vapor, and other gases.
+        After burning, it is no longer wood. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 1389: Title: SciQ Paper 1389. Abstract: Chemical energy
+        is stored in wood and released when the wood burns. (Связь: Initial search
+        result)
+
+        [UserNote] SciQ Paper 5638: Title: SciQ Paper 5638. Abstract: Conifers Conifers
+        are the dominant phylum of gymnosperms, with the most variety of species.
+        Most are tall trees that usually bear scale-like or needle-like leaves. The
+        thin shape of the needles and their waxy cuticle limits water loss through
+        transpiration. Snow slides easily off needle-shaped leaves, keeping the load
+        light and decreasing breaking of branches. These adaptations to cold and dry
+        weather explain the predominance of conifers at high altitudes and in cold
+        climates. Conifers include familiar evergreen trees, such as pines, spruces,
+        firs, cedars, sequoias, and yews (Figure 14.20). A few species are deciduous
+        and lose their leaves all at once in fall. The European larch and the tamarack
+        are examples of deciduous conifers. Many coniferous trees are harvested for
+        paper pulp and timb (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 5234: Title: SciQ Paper 5234. Abstract: Some fireplaces
+        use propane gas rather than wood as fuel. (Связь: Initial search result)
+
+        [Chunk] SciQ Paper 5234 (Page 1): Some fireplaces use propane gas rather than
+        wood as fuel.
+
+        [Chunk] SciQ Paper 1389 (Page 1): Chemical energy is stored in wood and released
+        when the wood burns.
+
+        [Chunk] SciQ Paper 4620 (Page 1): Flammability is the ability of matter to
+        burn. Wood is flammable; iron is not. When wood burns, it changes to ashes,
+        carbon dioxide, water vapor, and other gases. After burning, it is no longer
+        wood.
+
+        [Chunk] SciQ Paper 5638 (Page 1): Many coniferous trees are harvested for
+        paper pulp and timber. The wood of conifers is more primitive than the wood
+        of angiosperms; it contains tracheids, but no vessel elements, and is referred
+        to as “soft wood.
+
+        [Chunk] SciQ Paper 4519 (Page 1): Although oxides of both group 1 and group
+        2 elements were obtained from wood ashes, the alkali metals had lower melting
+        points.
+
+        [Chunk] SciQ Paper 4519 (Page 1): The elements of group 1 are called the alkali
+        metals. Alkali (from the Arabic al-qili, meaning “ashes of the saltwort plant
+        from salt marshes”) was a general term for substances derived from wood ashes,
+        all of which possessed a bitter taste and were able to neutralize acids.
+
+        [Chunk] SciQ Paper 4519 (Page 1): Potassium and sodium were first isolated
+        in 1807 by the British chemist Sir Humphry Davy (1778–1829) by passing an
+        electrical current through molten samples of potash (K2CO3) and soda ash (Na2CO3).
+
+        [Chunk] SciQ Paper 5638 (Page 1): Conifers Conifers are the dominant phylum
+        of gymnosperms, with the most variety of species. Most are tall trees that
+        usually bear scale-like or needle-like leaves. The thin shape of the needles
+        and their waxy cuticle limits water loss through transpiration.
+
+        [Chunk] SciQ Paper 5638 (Page 1): Snow slides easily off needle-shaped leaves,
+        keeping the load light and decreasing breaking of branches. These adaptations
+        to cold and dry weather explain the predominance of conifers at high altitudes
+        and in cold climates.'
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0037
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0064
+          graph_neighbors:
+            calls: 5
+            time_sec: 0.0021
+          db_lookups:
+            calls: 9
+            time_sec: 0.0014
+          reranking:
+            calls: 12
+            time_sec: 0.33
+          graph_expansion:
+            calls: 1
+            time_sec: 0.2367
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 20
+        prompt_tokens: 0
+    CUSTOM:
+      status: success
+      latency_sec: 0.479
+      retrieved_papers:
+      - sciq_paper_4519
+      - sciq_paper_4620
+      - sciq_paper_1389
+      - sciq_paper_5638
+      - sciq_paper_5234
+      retrieved_chunks:
+      - id: sciq_paper_5234#0
+        paper_id: sciq_paper_5234
+        page_number: 1
+        text_content: Some fireplaces use propane gas rather than wood as fuel.
+        score: 8.7545
+      - id: sciq_paper_1389#0
+        paper_id: sciq_paper_1389
+        page_number: 1
+        text_content: Chemical energy is stored in wood and released when the wood
+          burns.
+        score: -5.1053
+      - id: sciq_paper_4620#0
+        paper_id: sciq_paper_4620
+        page_number: 1
+        text_content: Flammability is the ability of matter to burn. Wood is flammable;
+          iron is not. When wood burns, it changes to ashes, carbon dioxide, water
+          vapor, and other gases. After burning, it is no longer wood.
+        score: -4.9665
+      - id: sciq_paper_5638#3
+        paper_id: sciq_paper_5638
+        page_number: 1
+        text_content: Many coniferous trees are harvested for paper pulp and timber.
+          The wood of conifers is more primitive than the wood of angiosperms; it
+          contains tracheids, but no vessel elements, and is referred to as “soft
+          wood.
+        score: -6.87
+      - id: sciq_paper_4519#1
+        paper_id: sciq_paper_4519
+        page_number: 1
+        text_content: Although oxides of both group 1 and group 2 elements were obtained
+          from wood ashes, the alkali metals had lower melting points.
+        score: -6.5925
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 8.754) | Paper:
+        SciQ Paper 5234 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Some fireplaces use propane gas rather than wood as fuel.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: -5.105) | Paper: SciQ Paper
+        1389 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Chemical energy is stored in wood and released when the wood burns.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -4.967) | Paper: SciQ Paper
+        4620 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Flammability is the ability of matter to burn. Wood is flammable; iron is
+        not. When wood burns, it changes to ashes, carbon dioxide, water vapor, and
+        other gases. After burning, it is no longer wood.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -6.870) | Paper: SciQ Paper
+        5638 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Conifers Conifers are the dominant phylum of gymnosperms, with the most variety
+        of species. Most are tall trees that usually bear scale-like or needle-like
+        leaves. The thin shape of the needles and their waxy cuticle limits water
+        loss through transpiration. Snow slides easily off needle-shaped leaves, keeping
+        the load light and decreasing breaking of branches. These adaptations to cold
+        and dry weather explain the predominance of conifers at high altitudes and
+        in cold climates. Conifers include familiar evergreen trees, such as pines,
+        spruces, firs, cedars, sequoias, and yews (Figure 14.20). A few species are
+        deciduous and lose their leaves all at once in fall. The European larch and
+        the tamarack are examples of deciduous conifers. Many coniferous trees are
+        harvested for paper pulp and timber. The wood of conifers is more primitive
+        than the wood of angiosperms; it contains tracheids, but no vessel elements,
+        and is referred to as “soft wood.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -6.592) | Paper: SciQ Paper
+        4519 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The elements of group 1 are called the alkali metals. Alkali (from the Arabic
+        al-qili, meaning “ashes of the saltwort plant from salt marshes”) was a general
+        term for substances derived from wood ashes, all of which possessed a bitter
+        taste and were able to neutralize acids. Although oxides of both group 1 and
+        group 2 elements were obtained from wood ashes, the alkali metals had lower
+        melting points. Potassium and sodium were first isolated in 1807 by the British
+        chemist Sir Humphry Davy (1778–1829) by passing an electrical current through
+        molten samples of potash (K2CO3) and soda ash (Na2CO3). The potassium burst
+        into flames as soon as it was produced because it reacts readily with oxygen
+        at the higher temperature. However, the group 1 elements, like the group 2
+        elements, become less reactive with air or water as their atomic number decreases.
+        The heaviest element (francium) was not discovered until 1939. It is so radioactive
+        that studying its chemistry is very difficult. The alkali metals have ns1
+        valence electron configurations and the lowest electronegativity of any group;
+        hence they are often referred to as being electropositiveelements. As a result,
+        they have a strong tendency to lose their single valence electron to form
+        compounds in the +1 oxidation state, producing the EX monohalides and the
+        E 2O oxides. Because they are so reactive, pure group 1 elements are powerful
+        reducing agents that are used in lithium batteries and cardiac pacemakers.
+        Sodium salts such as common table salt (NaCl), baking soda (NaHCO3), soda
+        ash (Na2CO3),.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4519:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4620:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_1389:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_5638:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_5234:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 4519: Title: SciQ Paper 4519. Abstract:
+        The elements of group 1 are called the alkali metals. Alkali (from the Arabic
+        al-qili, meaning “ashes of the saltwort plant from salt marshes”) was a general
+        term for substances derived from wood ashes, all of which possessed a bitter
+        taste and were able to neutralize acids. Although oxides of both group 1 and
+        group 2 elements were obtained from wood ashes, the alkali metals had lower
+        melting points. Potassium and sodium were first isolated in 1807 by the British
+        chemist Sir Humphry Davy (1778–1829) by passing an electrical current through
+        molten samples of potash (K2CO3) and soda ash (Na2CO3). The potassium burst
+        into flames as soon as it was produced because it reacts readily with oxygen
+        at the higher temperature. However, the group 1 elements, like the group 2
+        elements, become less reac (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 4620: Title: SciQ Paper 4620. Abstract: Flammability
+        is the ability of matter to burn. Wood is flammable; iron is not. When wood
+        burns, it changes to ashes, carbon dioxide, water vapor, and other gases.
+        After burning, it is no longer wood. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 1389: Title: SciQ Paper 1389. Abstract: Chemical energy
+        is stored in wood and released when the wood burns. (Связь: Initial search
+        result)
+
+        [UserNote] SciQ Paper 5638: Title: SciQ Paper 5638. Abstract: Conifers Conifers
+        are the dominant phylum of gymnosperms, with the most variety of species.
+        Most are tall trees that usually bear scale-like or needle-like leaves. The
+        thin shape of the needles and their waxy cuticle limits water loss through
+        transpiration. Snow slides easily off needle-shaped leaves, keeping the load
+        light and decreasing breaking of branches. These adaptations to cold and dry
+        weather explain the predominance of conifers at high altitudes and in cold
+        climates. Conifers include familiar evergreen trees, such as pines, spruces,
+        firs, cedars, sequoias, and yews (Figure 14.20). A few species are deciduous
+        and lose their leaves all at once in fall. The European larch and the tamarack
+        are examples of deciduous conifers. Many coniferous trees are harvested for
+        paper pulp and timb (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 5234: Title: SciQ Paper 5234. Abstract: Some fireplaces
+        use propane gas rather than wood as fuel. (Связь: Initial search result)
+
+        [Chunk] SciQ Paper 5234 (Page 1): Some fireplaces use propane gas rather than
+        wood as fuel.
+
+        [Chunk] SciQ Paper 1389 (Page 1): Chemical energy is stored in wood and released
+        when the wood burns.
+
+        [Chunk] SciQ Paper 4620 (Page 1): Flammability is the ability of matter to
+        burn. Wood is flammable; iron is not. When wood burns, it changes to ashes,
+        carbon dioxide, water vapor, and other gases. After burning, it is no longer
+        wood.
+
+        [Chunk] SciQ Paper 5638 (Page 1): Many coniferous trees are harvested for
+        paper pulp and timber. The wood of conifers is more primitive than the wood
+        of angiosperms; it contains tracheids, but no vessel elements, and is referred
+        to as “soft wood.
+
+        [Chunk] SciQ Paper 4519 (Page 1): Although oxides of both group 1 and group
+        2 elements were obtained from wood ashes, the alkali metals had lower melting
+        points.
+
+        [Chunk] SciQ Paper 4519 (Page 1): The elements of group 1 are called the alkali
+        metals. Alkali (from the Arabic al-qili, meaning “ashes of the saltwort plant
+        from salt marshes”) was a general term for substances derived from wood ashes,
+        all of which possessed a bitter taste and were able to neutralize acids.
+
+        [Chunk] SciQ Paper 4519 (Page 1): Potassium and sodium were first isolated
+        in 1807 by the British chemist Sir Humphry Davy (1778–1829) by passing an
+        electrical current through molten samples of potash (K2CO3) and soda ash (Na2CO3).
+
+        [Chunk] SciQ Paper 5638 (Page 1): Conifers Conifers are the dominant phylum
+        of gymnosperms, with the most variety of species. Most are tall trees that
+        usually bear scale-like or needle-like leaves. The thin shape of the needles
+        and their waxy cuticle limits water loss through transpiration.
+
+        [Chunk] SciQ Paper 5638 (Page 1): Snow slides easily off needle-shaped leaves,
+        keeping the load light and decreasing breaking of branches. These adaptations
+        to cold and dry weather explain the predominance of conifers at high altitudes
+        and in cold climates.'
+      metrics:
+        components:
+          embedding:
+            calls: 2
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 2
+            time_sec: 0.0124
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0052
+          graph_neighbors:
+            calls: 5
+            time_sec: 0.0009
+          db_lookups:
+            calls: 9
+            time_sec: 0.0015
+          reranking:
+            calls: 12
+            time_sec: 0.2767
+          graph_expansion:
+            calls: 1
+            time_sec: 0.1824
+          llm_generation:
+            calls: 1
+            time_sec: 0.0003
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 23
+        prompt_tokens: 175
+- id: sciq_6075
+  query: What is defined as male gametes that form in the testes and mature in the
+    epididymis?
+  category: sciq
+  golden_answer: sperm
+  expected_papers:
+  - sciq_paper_6069
+  baselines:
+    B4:
+      status: success
+      latency_sec: 0.136
+      retrieved_papers:
+      - sciq_paper_5195
+      - sciq_paper_2192
+      - sciq_paper_4290
+      - sciq_paper_448
+      - sciq_paper_6069
+      retrieved_chunks:
+      - id: sciq_paper_6069#0
+        paper_id: sciq_paper_6069
+        page_number: 1
+        text_content: Sperm are male gametes that form in the testes and mature in
+          the epididymis.
+        score: 0.0328
+      - id: sciq_paper_448#0
+        paper_id: sciq_paper_448
+        page_number: 1
+        text_content: Male reproductive structures include the penis, testes, and
+          epididymis.
+        score: 0.032
+      - id: sciq_paper_2192#0
+        paper_id: sciq_paper_2192
+        page_number: 1
+        text_content: Gametogenesis may differ between males and females. Male gametes
+          are called sperm . Female gametes are called eggs . In human males, for
+          example, the process that produces mature sperm cells is called spermatogenesis
+          .
+        score: 0.0299
+      - id: sciq_paper_4290#4
+        paper_id: sciq_paper_4290
+        page_number: 1
+        text_content: When the sperm have developed flagella and are nearly mature,
+          they leave the testicles and enter the epididymis, shown in Figure 43.8.
+          This structure resembles a comma and lies along the top and posterior portion
+          of the testes; it is the site of sperm maturation.
+        score: 0.0294
+      - id: sciq_paper_5195#1
+        paper_id: sciq_paper_5195
+        page_number: 1
+        text_content: The male gametes are called sperm. Spermatogenesis, the production
+          of sperm, occurs within the seminiferous tubules that make up most of the
+          testis. The scrotum is the muscular sac that holds the testes outside of
+          the body cavity.
+        score: 0.0161
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 0.033) | Paper:
+        SciQ Paper 6069 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Sperm are male gametes that form in the testes and mature in the epididymis.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 0.032) | Paper: SciQ Paper
+        448 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Male reproductive structures include the penis, testes, and epididymis.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: 0.030) | Paper: SciQ Paper
+        2192 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Gametogenesis may differ between males and females. Male gametes are called
+        sperm . Female gametes are called eggs . In human males, for example, the
+        process that produces mature sperm cells is called spermatogenesis . During
+        this process, sperm cells grow a tail and gain the ability to “swim,” like
+        the human sperm cell shown in Figure below . In human females, the process
+        that produces mature eggs is called oogenesis . Just one egg is produced from
+        the four haploid cells that result from meiosis. The single egg is a very
+        large cell, as you can see from the human egg in Figure below .
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: 0.029) | Paper: SciQ Paper
+        4290 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Which of the following statements about the male reproductive system is false?
+        a. The vas deferens carries sperm from the testes to the penis. Sperm mature
+        in seminiferous tubules in the testes. Both the prostate and the bulbourethral
+        glands produce components of the semen. The prostate gland is located in the
+        testes. Sperm mature in seminiferous tubules that are coiled inside the testes,
+        as illustrated in Figure 43.8. The walls of the seminiferous tubules are made
+        up of the developing sperm cells, with the least developed sperm at the periphery
+        of the tubule and the fully developed sperm in the lumen. The sperm cells
+        are mixed with “nursemaid” cells called Sertoli cells which protect the germ
+        cells and promote their development. Other cells mixed in the wall of the
+        tubules are the interstitial cells of Leydig. These cells produce high levels
+        of testosterone once the male reaches adolescence. When the sperm have developed
+        flagella and are nearly mature, they leave the testicles and enter the epididymis,
+        shown in Figure 43.8. This structure resembles a comma and lies along the
+        top and posterior portion of the testes; it is the site of sperm maturation.
+        The sperm leave the epididymis and enter the vas deferens (or ductus deferens),
+        which carries the sperm, behind the bladder, and forms the ejaculatory duct
+        with the duct from the seminal vesicles. During a vasectomy, a section of
+        the vas deferens is removed, preventing sperm from being passed out of the
+        body during ejaculation and preventing fertilization. Semen is a mixture of
+        sperm and spermatic duct secretions (about 10 percent of the total) and fluids
+        from accessory glands that contribute most of the semen’s volume. Sperm are
+        haploid cells, consisting of a flagellum as a tail, a neck that contains the
+        cell’s energy-producing mitochondria, and a head that contains the genetic
+        material. Figure 43.9 shows a micrograph.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: 0.016) | Paper: SciQ Paper
+        5195 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        CHAPTER REVIEW 27.1 Anatomy and Physiology of the Male Reproductive System
+        Gametes are the reproductive cells that combine to form offspring. Organs
+        called gonads produce the gametes, along with the hormones that regulate human
+        reproduction. The male gametes are called sperm. Spermatogenesis, the production
+        of sperm, occurs within the seminiferous tubules that make up most of the
+        testis. The scrotum is the muscular sac that holds the testes outside of the
+        body cavity. Spermatogenesis begins with mitotic division of spermatogonia
+        (stem cells) to produce primary spermatocytes that undergo the two divisions
+        of meiosis to become secondary spermatocytes, then the haploid spermatids.
+        During spermiogenesis, spermatids are transformed into spermatozoa (formed
+        sperm). Upon release from the seminiferous tubules, sperm are moved to the
+        epididymis where they continue to mature. During ejaculation, sperm exit the
+        epididymis through the ductus deferens, a duct in the spermatic cord that
+        leaves the scrotum. The ampulla of the ductus deferens meets the seminal vesicle,
+        a gland that contributes fructose and proteins, at the ejaculatory duct. The
+        fluid continues through the prostatic urethra, where secretions from the prostate
+        are added to form semen. These secretions help the sperm to travel through
+        the urethra and into the female reproductive tract. Secretions from the bulbourethral
+        glands protect sperm and cleanse and lubricate the penile (spongy) urethra.
+        The penis is the male organ of copulation. Columns of erectile tissue called
+        the corpora cavernosa and corpus spongiosum fill with blood when sexual arousal
+        activates vasodilatation in the blood vessels of the penis. Testosterone regulates
+        and maintains the sex organs and sex drive, and induces the physical changes
+        of puberty. Interplay between the testes and the endocrine system precisely
+        control the production of testosterone with a negative feedback loop.
+
+        """<|source_end|>'
+      trimmed_graph: Graph enrichment disabled.
+      enrichment_block: ''
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0108
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.1243
+          graph_neighbors:
+            calls: 0
+            time_sec: 0.0
+          db_lookups:
+            calls: 1
+            time_sec: 0.0014
+          reranking:
+            calls: 0
+            time_sec: 0.0
+          graph_expansion:
+            calls: 0
+            time_sec: 0.0
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 4
+        prompt_tokens: 0
+    B6:
+      status: success
+      latency_sec: 0.573
+      retrieved_papers:
+      - sciq_paper_5195
+      - sciq_paper_1722
+      - sciq_paper_2192
+      - sciq_paper_448
+      - sciq_paper_6069
+      retrieved_chunks:
+      - id: sciq_paper_6069#0
+        paper_id: sciq_paper_6069
+        page_number: 1
+        text_content: Sperm are male gametes that form in the testes and mature in
+          the epididymis.
+        score: 10.1917
+      - id: sciq_paper_5195#1
+        paper_id: sciq_paper_5195
+        page_number: 1
+        text_content: The male gametes are called sperm. Spermatogenesis, the production
+          of sperm, occurs within the seminiferous tubules that make up most of the
+          testis. The scrotum is the muscular sac that holds the testes outside of
+          the body cavity.
+        score: 1.0209
+      - id: sciq_paper_448#0
+        paper_id: sciq_paper_448
+        page_number: 1
+        text_content: Male reproductive structures include the penis, testes, and
+          epididymis.
+        score: -1.8142
+      - id: sciq_paper_2192#0
+        paper_id: sciq_paper_2192
+        page_number: 1
+        text_content: Gametogenesis may differ between males and females. Male gametes
+          are called sperm . Female gametes are called eggs . In human males, for
+          example, the process that produces mature sperm cells is called spermatogenesis
+          .
+        score: -1.0821
+      - id: sciq_paper_1722#0
+        paper_id: sciq_paper_1722
+        page_number: 1
+        text_content: 'The process of producing mature sperm is called spermatogenesis
+          . Sperm are produced in the seminiferous tubules of the testes and become
+          mature in the epididymis . The entire process takes about 9 to 10 weeks.
+          You can watch an animation of spermatogenesis at this link: http://wps.
+          aw.'
+        score: -1.8223
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 10.192) | Paper:
+        SciQ Paper 6069 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Sperm are male gametes that form in the testes and mature in the epididymis.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 1.021) | Paper: SciQ Paper
+        5195 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        CHAPTER REVIEW 27.1 Anatomy and Physiology of the Male Reproductive System
+        Gametes are the reproductive cells that combine to form offspring. Organs
+        called gonads produce the gametes, along with the hormones that regulate human
+        reproduction. The male gametes are called sperm. Spermatogenesis, the production
+        of sperm, occurs within the seminiferous tubules that make up most of the
+        testis. The scrotum is the muscular sac that holds the testes outside of the
+        body cavity. Spermatogenesis begins with mitotic division of spermatogonia
+        (stem cells) to produce primary spermatocytes that undergo the two divisions
+        of meiosis to become secondary spermatocytes, then the haploid spermatids.
+        During spermiogenesis, spermatids are transformed into spermatozoa (formed
+        sperm). Upon release from the seminiferous tubules, sperm are moved to the
+        epididymis where they continue to mature. During ejaculation, sperm exit the
+        epididymis through the ductus deferens, a duct in the spermatic cord that
+        leaves the scrotum. The ampulla of the ductus deferens meets the seminal vesicle,
+        a gland that contributes fructose and proteins, at the ejaculatory duct. The
+        fluid continues through the prostatic urethra, where secretions from the prostate
+        are added to form semen. These secretions help the sperm to travel through
+        the urethra and into the female reproductive tract. Secretions from the bulbourethral
+        glands protect sperm and cleanse and lubricate the penile (spongy) urethra.
+        The penis is the male organ of copulation. Columns of erectile tissue called
+        the corpora cavernosa and corpus spongiosum fill with blood when sexual arousal
+        activates vasodilatation in the blood vessels of the penis. Testosterone regulates
+        and maintains the sex organs and sex drive, and induces the physical changes
+        of puberty. Interplay between the testes and the endocrine system precisely
+        control the production of testosterone with a negative feedback loop.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -1.814) | Paper: SciQ Paper
+        448 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Male reproductive structures include the penis, testes, and epididymis.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -1.082) | Paper: SciQ Paper
+        2192 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Gametogenesis may differ between males and females. Male gametes are called
+        sperm . Female gametes are called eggs . In human males, for example, the
+        process that produces mature sperm cells is called spermatogenesis . During
+        this process, sperm cells grow a tail and gain the ability to “swim,” like
+        the human sperm cell shown in Figure below . In human females, the process
+        that produces mature eggs is called oogenesis . Just one egg is produced from
+        the four haploid cells that result from meiosis. The single egg is a very
+        large cell, as you can see from the human egg in Figure below .
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -1.822) | Paper: SciQ Paper
+        1722 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The process of producing mature sperm is called spermatogenesis . Sperm are
+        produced in the seminiferous tubules of the testes and become mature in the
+        epididymis . The entire process takes about 9 to 10 weeks. You can watch an
+        animation of spermatogenesis at this link: http://wps. aw. com/bc_martini_eap_4/40/10469/2680298.
+        cw/content/index. html .
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_5195:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_1722:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_2192:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_448:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_6069:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 5195: Title: SciQ Paper 5195. Abstract:
+        CHAPTER REVIEW 27.1 Anatomy and Physiology of the Male Reproductive System
+        Gametes are the reproductive cells that combine to form offspring. Organs
+        called gonads produce the gametes, along with the hormones that regulate human
+        reproduction. The male gametes are called sperm. Spermatogenesis, the production
+        of sperm, occurs within the seminiferous tubules that make up most of the
+        testis. The scrotum is the muscular sac that holds the testes outside of the
+        body cavity. Spermatogenesis begins with mitotic division of spermatogonia
+        (stem cells) to produce primary spermatocytes that undergo the two divisions
+        of meiosis to become secondary spermatocytes, then the haploid spermatids.
+        During spermiogenesis, spermatids are transformed into spermatozoa (formed
+        sperm). Upon release from the seminife (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 1722: Title: SciQ Paper 1722. Abstract: The process
+        of producing mature sperm is called spermatogenesis . Sperm are produced in
+        the seminiferous tubules of the testes and become mature in the epididymis
+        . The entire process takes about 9 to 10 weeks. You can watch an animation
+        of spermatogenesis at this link: http://wps. aw. com/bc_martini_eap_4/40/10469/2680298.
+        cw/content/index. html . (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 2192: Title: SciQ Paper 2192. Abstract: Gametogenesis
+        may differ between males and females. Male gametes are called sperm . Female
+        gametes are called eggs . In human males, for example, the process that produces
+        mature sperm cells is called spermatogenesis . During this process, sperm
+        cells grow a tail and gain the ability to “swim,” like the human sperm cell
+        shown in Figure below . In human females, the process that produces mature
+        eggs is called oogenesis . Just one egg is produced from the four haploid
+        cells that result from meiosis. The single egg is a very large cell, as you
+        can see from the human egg in Figure below . (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 448: Title: SciQ Paper 448. Abstract: Male reproductive
+        structures include the penis, testes, and epididymis. (Связь: Initial search
+        result)
+
+        [UserNote] SciQ Paper 6069: Title: SciQ Paper 6069. Abstract: Sperm are male
+        gametes that form in the testes and mature in the epididymis. (Связь: Initial
+        search result)
+
+        [Chunk] SciQ Paper 6069 (Page 1): Sperm are male gametes that form in the
+        testes and mature in the epididymis.
+
+        [Chunk] SciQ Paper 5195 (Page 1): The male gametes are called sperm. Spermatogenesis,
+        the production of sperm, occurs within the seminiferous tubules that make
+        up most of the testis. The scrotum is the muscular sac that holds the testes
+        outside of the body cavity.
+
+        [Chunk] SciQ Paper 448 (Page 1): Male reproductive structures include the
+        penis, testes, and epididymis.
+
+        [Chunk] SciQ Paper 2192 (Page 1): Gametogenesis may differ between males and
+        females. Male gametes are called sperm . Female gametes are called eggs .
+        In human males, for example, the process that produces mature sperm cells
+        is called spermatogenesis .
+
+        [Chunk] SciQ Paper 1722 (Page 1): The process of producing mature sperm is
+        called spermatogenesis . Sperm are produced in the seminiferous tubules of
+        the testes and become mature in the epididymis . The entire process takes
+        about 9 to 10 weeks. You can watch an animation of spermatogenesis at this
+        link: http://wps. aw.
+
+        [Chunk] SciQ Paper 5195 (Page 1): CHAPTER REVIEW 27.1 Anatomy and Physiology
+        of the Male Reproductive System Gametes are the reproductive cells that combine
+        to form offspring. Organs called gonads produce the gametes, along with the
+        hormones that regulate human reproduction. The male gametes are called sperm.
+
+        [Chunk] SciQ Paper 5195 (Page 1): Spermatogenesis begins with mitotic division
+        of spermatogonia (stem cells) to produce primary spermatocytes that undergo
+        the two divisions of meiosis to become secondary spermatocytes, then the haploid
+        spermatids. During spermiogenesis, spermatids are transformed into spermatozoa
+        (formed sperm).
+
+        [Chunk] SciQ Paper 1722 (Page 1): aw. com/bc_martini_eap_4/40/10469/2680298.
+        cw/content/index. html .
+
+        [Chunk] SciQ Paper 2192 (Page 1): During this process, sperm cells grow a
+        tail and gain the ability to “swim,” like the human sperm cell shown in Figure
+        below . In human females, the process that produces mature eggs is called
+        oogenesis . Just one egg is produced from the four haploid cells that result
+        from meiosis.
+
+        [Chunk] SciQ Paper 2192 (Page 1): The single egg is a very large cell, as
+        you can see from the human egg in Figure below .'
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0018
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0067
+          graph_neighbors:
+            calls: 5
+            time_sec: 0.0025
+          db_lookups:
+            calls: 10
+            time_sec: 0.0028
+          reranking:
+            calls: 12
+            time_sec: 0.3254
+          graph_expansion:
+            calls: 1
+            time_sec: 0.2338
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 21
+        prompt_tokens: 0
+    CUSTOM:
+      status: success
+      latency_sec: 0.474
+      retrieved_papers:
+      - sciq_paper_5195
+      - sciq_paper_1722
+      - sciq_paper_2192
+      - sciq_paper_448
+      - sciq_paper_6069
+      retrieved_chunks:
+      - id: sciq_paper_6069#0
+        paper_id: sciq_paper_6069
+        page_number: 1
+        text_content: Sperm are male gametes that form in the testes and mature in
+          the epididymis.
+        score: 10.1917
+      - id: sciq_paper_5195#1
+        paper_id: sciq_paper_5195
+        page_number: 1
+        text_content: The male gametes are called sperm. Spermatogenesis, the production
+          of sperm, occurs within the seminiferous tubules that make up most of the
+          testis. The scrotum is the muscular sac that holds the testes outside of
+          the body cavity.
+        score: 1.0209
+      - id: sciq_paper_448#0
+        paper_id: sciq_paper_448
+        page_number: 1
+        text_content: Male reproductive structures include the penis, testes, and
+          epididymis.
+        score: -1.8142
+      - id: sciq_paper_2192#0
+        paper_id: sciq_paper_2192
+        page_number: 1
+        text_content: Gametogenesis may differ between males and females. Male gametes
+          are called sperm . Female gametes are called eggs . In human males, for
+          example, the process that produces mature sperm cells is called spermatogenesis
+          .
+        score: -1.0821
+      - id: sciq_paper_1722#0
+        paper_id: sciq_paper_1722
+        page_number: 1
+        text_content: 'The process of producing mature sperm is called spermatogenesis
+          . Sperm are produced in the seminiferous tubules of the testes and become
+          mature in the epididymis . The entire process takes about 9 to 10 weeks.
+          You can watch an animation of spermatogenesis at this link: http://wps.
+          aw.'
+        score: -1.8223
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 10.192) | Paper:
+        SciQ Paper 6069 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Sperm are male gametes that form in the testes and mature in the epididymis.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 1.021) | Paper: SciQ Paper
+        5195 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        CHAPTER REVIEW 27.1 Anatomy and Physiology of the Male Reproductive System
+        Gametes are the reproductive cells that combine to form offspring. Organs
+        called gonads produce the gametes, along with the hormones that regulate human
+        reproduction. The male gametes are called sperm. Spermatogenesis, the production
+        of sperm, occurs within the seminiferous tubules that make up most of the
+        testis. The scrotum is the muscular sac that holds the testes outside of the
+        body cavity. Spermatogenesis begins with mitotic division of spermatogonia
+        (stem cells) to produce primary spermatocytes that undergo the two divisions
+        of meiosis to become secondary spermatocytes, then the haploid spermatids.
+        During spermiogenesis, spermatids are transformed into spermatozoa (formed
+        sperm). Upon release from the seminiferous tubules, sperm are moved to the
+        epididymis where they continue to mature. During ejaculation, sperm exit the
+        epididymis through the ductus deferens, a duct in the spermatic cord that
+        leaves the scrotum. The ampulla of the ductus deferens meets the seminal vesicle,
+        a gland that contributes fructose and proteins, at the ejaculatory duct. The
+        fluid continues through the prostatic urethra, where secretions from the prostate
+        are added to form semen. These secretions help the sperm to travel through
+        the urethra and into the female reproductive tract. Secretions from the bulbourethral
+        glands protect sperm and cleanse and lubricate the penile (spongy) urethra.
+        The penis is the male organ of copulation. Columns of erectile tissue called
+        the corpora cavernosa and corpus spongiosum fill with blood when sexual arousal
+        activates vasodilatation in the blood vessels of the penis. Testosterone regulates
+        and maintains the sex organs and sex drive, and induces the physical changes
+        of puberty. Interplay between the testes and the endocrine system precisely
+        control the production of testosterone with a negative feedback loop.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -1.814) | Paper: SciQ Paper
+        448 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Male reproductive structures include the penis, testes, and epididymis.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -1.082) | Paper: SciQ Paper
+        2192 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Gametogenesis may differ between males and females. Male gametes are called
+        sperm . Female gametes are called eggs . In human males, for example, the
+        process that produces mature sperm cells is called spermatogenesis . During
+        this process, sperm cells grow a tail and gain the ability to “swim,” like
+        the human sperm cell shown in Figure below . In human females, the process
+        that produces mature eggs is called oogenesis . Just one egg is produced from
+        the four haploid cells that result from meiosis. The single egg is a very
+        large cell, as you can see from the human egg in Figure below .
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -1.822) | Paper: SciQ Paper
+        1722 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The process of producing mature sperm is called spermatogenesis . Sperm are
+        produced in the seminiferous tubules of the testes and become mature in the
+        epididymis . The entire process takes about 9 to 10 weeks. You can watch an
+        animation of spermatogenesis at this link: http://wps. aw. com/bc_martini_eap_4/40/10469/2680298.
+        cw/content/index. html .
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_5195:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_1722:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_2192:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_448:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_6069:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 5195: Title: SciQ Paper 5195. Abstract:
+        CHAPTER REVIEW 27.1 Anatomy and Physiology of the Male Reproductive System
+        Gametes are the reproductive cells that combine to form offspring. Organs
+        called gonads produce the gametes, along with the hormones that regulate human
+        reproduction. The male gametes are called sperm. Spermatogenesis, the production
+        of sperm, occurs within the seminiferous tubules that make up most of the
+        testis. The scrotum is the muscular sac that holds the testes outside of the
+        body cavity. Spermatogenesis begins with mitotic division of spermatogonia
+        (stem cells) to produce primary spermatocytes that undergo the two divisions
+        of meiosis to become secondary spermatocytes, then the haploid spermatids.
+        During spermiogenesis, spermatids are transformed into spermatozoa (formed
+        sperm). Upon release from the seminife (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 1722: Title: SciQ Paper 1722. Abstract: The process
+        of producing mature sperm is called spermatogenesis . Sperm are produced in
+        the seminiferous tubules of the testes and become mature in the epididymis
+        . The entire process takes about 9 to 10 weeks. You can watch an animation
+        of spermatogenesis at this link: http://wps. aw. com/bc_martini_eap_4/40/10469/2680298.
+        cw/content/index. html . (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 2192: Title: SciQ Paper 2192. Abstract: Gametogenesis
+        may differ between males and females. Male gametes are called sperm . Female
+        gametes are called eggs . In human males, for example, the process that produces
+        mature sperm cells is called spermatogenesis . During this process, sperm
+        cells grow a tail and gain the ability to “swim,” like the human sperm cell
+        shown in Figure below . In human females, the process that produces mature
+        eggs is called oogenesis . Just one egg is produced from the four haploid
+        cells that result from meiosis. The single egg is a very large cell, as you
+        can see from the human egg in Figure below . (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 448: Title: SciQ Paper 448. Abstract: Male reproductive
+        structures include the penis, testes, and epididymis. (Связь: Initial search
+        result)
+
+        [UserNote] SciQ Paper 6069: Title: SciQ Paper 6069. Abstract: Sperm are male
+        gametes that form in the testes and mature in the epididymis. (Связь: Initial
+        search result)
+
+        [Chunk] SciQ Paper 6069 (Page 1): Sperm are male gametes that form in the
+        testes and mature in the epididymis.
+
+        [Chunk] SciQ Paper 5195 (Page 1): The male gametes are called sperm. Spermatogenesis,
+        the production of sperm, occurs within the seminiferous tubules that make
+        up most of the testis. The scrotum is the muscular sac that holds the testes
+        outside of the body cavity.
+
+        [Chunk] SciQ Paper 448 (Page 1): Male reproductive structures include the
+        penis, testes, and epididymis.
+
+        [Chunk] SciQ Paper 2192 (Page 1): Gametogenesis may differ between males and
+        females. Male gametes are called sperm . Female gametes are called eggs .
+        In human males, for example, the process that produces mature sperm cells
+        is called spermatogenesis .
+
+        [Chunk] SciQ Paper 1722 (Page 1): The process of producing mature sperm is
+        called spermatogenesis . Sperm are produced in the seminiferous tubules of
+        the testes and become mature in the epididymis . The entire process takes
+        about 9 to 10 weeks. You can watch an animation of spermatogenesis at this
+        link: http://wps. aw.
+
+        [Chunk] SciQ Paper 5195 (Page 1): CHAPTER REVIEW 27.1 Anatomy and Physiology
+        of the Male Reproductive System Gametes are the reproductive cells that combine
+        to form offspring. Organs called gonads produce the gametes, along with the
+        hormones that regulate human reproduction. The male gametes are called sperm.
+
+        [Chunk] SciQ Paper 5195 (Page 1): Spermatogenesis begins with mitotic division
+        of spermatogonia (stem cells) to produce primary spermatocytes that undergo
+        the two divisions of meiosis to become secondary spermatocytes, then the haploid
+        spermatids. During spermiogenesis, spermatids are transformed into spermatozoa
+        (formed sperm).
+
+        [Chunk] SciQ Paper 1722 (Page 1): aw. com/bc_martini_eap_4/40/10469/2680298.
+        cw/content/index. html .
+
+        [Chunk] SciQ Paper 2192 (Page 1): During this process, sperm cells grow a
+        tail and gain the ability to “swim,” like the human sperm cell shown in Figure
+        below . In human females, the process that produces mature eggs is called
+        oogenesis . Just one egg is produced from the four haploid cells that result
+        from meiosis.
+
+        [Chunk] SciQ Paper 2192 (Page 1): The single egg is a very large cell, as
+        you can see from the human egg in Figure below .'
+      metrics:
+        components:
+          embedding:
+            calls: 2
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 2
+            time_sec: 0.0062
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0063
+          graph_neighbors:
+            calls: 5
+            time_sec: 0.001
+          db_lookups:
+            calls: 10
+            time_sec: 0.0015
+          reranking:
+            calls: 12
+            time_sec: 0.2765
+          graph_expansion:
+            calls: 1
+            time_sec: 0.1821
+          llm_generation:
+            calls: 1
+            time_sec: 0.0003
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 24
+        prompt_tokens: 186
+- id: sciq_913
+  query: What are ionic solutes?
+  category: sciq
+  golden_answer: electrolytes
+  expected_papers:
+  - sciq_paper_913
+  baselines:
+    B4:
+      status: success
+      latency_sec: 0.016
+      retrieved_papers:
+      - sciq_paper_6265
+      - sciq_paper_913
+      - sciq_paper_5792
+      - sciq_paper_689
+      - sciq_paper_3839
+      retrieved_chunks:
+      - id: sciq_paper_913#0
+        paper_id: sciq_paper_913
+        page_number: 1
+        text_content: Each substance can be classified as an ionic solute or a nonionic
+          solute. Ionic solutes are electrolytes, and nonionic solutes are nonelectrolytes.
+          Potassium chloride is an ionic compound; therefore, when it dissolves, its
+          ions separate, making it an electrolyte.
+        score: 0.0328
+      - id: sciq_paper_5792#3
+        paper_id: sciq_paper_5792
+        page_number: 1
+        text_content: Solubilities of Common Ionic Compounds in Water Soluble compounds
+          contain • group 1 metal cations (Li+, Na+, K+, Rb+, and Cs+).
+        score: 0.0161
+      - id: sciq_paper_6265#1
+        paper_id: sciq_paper_6265
+        page_number: 1
+        text_content: Table 9.2 "Solubilities of Various Solutes in Water at 25°C
+          (Except as Noted)" lists the solubilities of various solutes in water.
+        score: 0.0161
+      - id: sciq_paper_689#0
+        paper_id: sciq_paper_689
+        page_number: 1
+        text_content: An ionic crystal lattice breaks apart when it is dissolved in
+          water. Dissociation is the separation of ions that occurs when a solid ionic
+          compound dissolves. It is important to be able to write dissociation equations.
+        score: 0.0159
+      - id: sciq_paper_3839#6
+        paper_id: sciq_paper_3839
+        page_number: 1
+        text_content: At the cellular level, hyponatremia results in increased entry
+          of water into cells by osmosis, because the concentration of solutes within
+          the cell exceeds the concentration of solutes in the now-diluted ECF.
+        score: 0.0159
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 0.033) | Paper:
+        SciQ Paper 913 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Each substance can be classified as an ionic solute or a nonionic solute.
+        Ionic solutes are electrolytes, and nonionic solutes are nonelectrolytes.
+        Potassium chloride is an ionic compound; therefore, when it dissolves, its
+        ions separate, making it an electrolyte. Fructose is a sugar similar to glucose.
+        (In fact, it has the same molecular formula as glucose. ) Because it is a
+        molecular compound, we expect it to be a nonelectrolyte. Isopropyl alcohol
+        is an organic molecule containing the alcohol functional group. The bonding
+        in the compound is all covalent, so when isopropyl alcohol dissolves, it separates
+        into individual molecules but not ions. Thus, it is a nonelectrolyte. Magnesium
+        hydroxide is an ionic compound, so when it dissolves it dissociates. Thus,
+        magnesium hydroxide is an electrolyte.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: 0.016) | Paper: SciQ Paper
+        5792 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The extent to which a substance may be dissolved in water, or any solvent,
+        is quantitatively expressed as its solubility, defined as the maximum concentration
+        of a substance that can be achieved under specified conditions. Substances
+        with relatively large solubilities are said to be soluble. A substance will
+        precipitate when solution conditions are such that its concentration exceeds
+        its solubility. Substances with relatively low solubilities are said to be
+        insoluble, and these are the substances that readily precipitate from solution.
+        More information on these important concepts is provided in the text chapter
+        on solutions. For purposes of predicting the identities of solids formed by
+        precipitation reactions, one may simply refer to patterns of solubility that
+        have been observed for many ionic compounds (Table 4.1). Solubilities of Common
+        Ionic Compounds in Water Soluble compounds contain • group 1 metal cations
+        (Li+, Na+, K+, Rb+, and Cs+).
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: 0.016) | Paper: SciQ Paper
+        6265 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Solubility There is usually a limit to how much solute will dissolve in a
+        given amount of solvent. This limit is called the solubility of the solute.
+        Some solutes have a very small solubility, while other solutes are soluble
+        in all proportions. Table 9.2 "Solubilities of Various Solutes in Water at
+        25°C (Except as Noted)" lists the solubilities of various solutes in water.
+        Solubilities vary with temperature, so Table 9.2 "Solubilities of Various
+        Solutes in Water at 25°C (Except as Noted)" includes the temperature at which
+        the solubility was determined. Table 9.2 Solubilities of Various Solutes in
+        Water at 25°C (Except as Noted).
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: 0.016) | Paper: SciQ Paper
+        689 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        An ionic crystal lattice breaks apart when it is dissolved in water. Dissociation
+        is the separation of ions that occurs when a solid ionic compound dissolves.
+        It is important to be able to write dissociation equations. Simply undo the
+        crisscross method that you learned when writing chemical formulas of ionic
+        compounds. The subscripts for the ions in the chemical formulas become the
+        coefficients of the respective ions on the product side of the equation. Shown
+        below are dissociation equations for NaCl, Ca(NO 3 ) 2 , and (NH 4 ) 3 PO
+        4 .
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: 0.016) | Paper: SciQ Paper
+        3839 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Sodium Sodium is the major cation of the extracellular fluid. It is responsible
+        for one-half of the osmotic pressure gradient that exists between the interior
+        of cells and their surrounding environment. People eating a typical Western
+        diet, which is very high in NaCl, routinely take in 130 to 160 mmol/day of
+        sodium, but humans require only 1 to 2 mmol/day. This excess sodium appears
+        to be a major factor in hypertension (high blood pressure) in some people.
+        Excretion of sodium is accomplished primarily by the kidneys. Sodium is freely
+        filtered through the glomerular capillaries of the kidneys, and although much
+        of the filtered sodium is reabsorbed in the proximal convoluted tubule, some
+        remains in the filtrate and urine, and is normally excreted. Hyponatremia
+        is a lower-than-normal concentration of sodium, usually associated with excess
+        water accumulation in the body, which dilutes the sodium. An absolute loss
+        of sodium may be due to a decreased intake of the ion coupled with its continual
+        excretion in the urine. An abnormal loss of sodium from the body can result
+        from several conditions, including excessive sweating, vomiting, or diarrhea;
+        the use of diuretics; excessive production of urine, which can occur in diabetes;
+        and acidosis, either metabolic acidosis or diabetic ketoacidosis. A relative
+        decrease in blood sodium can occur because of an imbalance of sodium in one
+        of the body’s other fluid compartments, like IF, or from a dilution of sodium
+        due to water retention related to edema or congestive heart failure. At the
+        cellular level, hyponatremia results in increased entry of water into cells
+        by osmosis, because the concentration of solutes within the cell exceeds the
+        concentration of solutes in the now-diluted ECF. The excess water causes swelling
+        of the cells; the swelling of red blood cells—decreasing their oxygen-carrying
+        efficiency and making them potentially too large to fit through capillaries—along
+        with the swelling of neurons in the brain can result in brain damage or even
+        death. Hypernatremia is an abnormal increase of blood sodium. It can result
+        from water loss from the blood, resulting in the hemoconcentration of all
+        blood constituents. Hormonal imbalances involving ADH and aldosterone may
+        also result in higher-than-normal sodium values.
+
+        """<|source_end|>'
+      trimmed_graph: Graph enrichment disabled.
+      enrichment_block: ''
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0069
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0082
+          graph_neighbors:
+            calls: 0
+            time_sec: 0.0
+          db_lookups:
+            calls: 1
+            time_sec: 0.0013
+          reranking:
+            calls: 0
+            time_sec: 0.0
+          graph_expansion:
+            calls: 0
+            time_sec: 0.0
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 4
+        prompt_tokens: 0
+    B6:
+      status: success
+      latency_sec: 0.546
+      retrieved_papers:
+      - sciq_paper_913
+      - sciq_paper_5792
+      - sciq_paper_4718
+      - sciq_paper_3685
+      retrieved_chunks:
+      - id: sciq_paper_913#0
+        paper_id: sciq_paper_913
+        page_number: 1
+        text_content: Each substance can be classified as an ionic solute or a nonionic
+          solute. Ionic solutes are electrolytes, and nonionic solutes are nonelectrolytes.
+          Potassium chloride is an ionic compound; therefore, when it dissolves, its
+          ions separate, making it an electrolyte.
+        score: 4.3332
+      - id: sciq_paper_4718#0
+        paper_id: sciq_paper_4718
+        page_number: 1
+        text_content: Solid ionic compounds are poor conductors of electricity. The
+          strong bonds between ions lock them into place in the crystal. However,
+          in the liquid state, ionic compounds are good conductors of electricity.
+          Most ionic compounds dissolve easily in water.
+        score: -2.481
+      - id: sciq_paper_5792#3
+        paper_id: sciq_paper_5792
+        page_number: 1
+        text_content: Solubilities of Common Ionic Compounds in Water Soluble compounds
+          contain • group 1 metal cations (Li+, Na+, K+, Rb+, and Cs+).
+        score: -0.2047
+      - id: sciq_paper_4718#1
+        paper_id: sciq_paper_4718
+        page_number: 1
+        text_content: Most ionic compounds dissolve easily in water. When they dissolve,
+          they separate into individual ions. The ions can move freely, so they are
+          good conductors of electricity. Dissolved ionic compounds are called electrolytes.
+        score: -0.2045
+      - id: sciq_paper_3685#0
+        paper_id: sciq_paper_3685
+        page_number: 1
+        text_content: Solutions of ionic compounds and melted ionic compounds conduct
+          electricity, but solid materials do not.
+        score: -1.3097
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 4.333) | Paper:
+        SciQ Paper 913 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Each substance can be classified as an ionic solute or a nonionic solute.
+        Ionic solutes are electrolytes, and nonionic solutes are nonelectrolytes.
+        Potassium chloride is an ionic compound; therefore, when it dissolves, its
+        ions separate, making it an electrolyte. Fructose is a sugar similar to glucose.
+        (In fact, it has the same molecular formula as glucose. ) Because it is a
+        molecular compound, we expect it to be a nonelectrolyte. Isopropyl alcohol
+        is an organic molecule containing the alcohol functional group. The bonding
+        in the compound is all covalent, so when isopropyl alcohol dissolves, it separates
+        into individual molecules but not ions. Thus, it is a nonelectrolyte. Magnesium
+        hydroxide is an ionic compound, so when it dissolves it dissociates. Thus,
+        magnesium hydroxide is an electrolyte.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: -2.481) | Paper: SciQ Paper
+        4718 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Solid ionic compounds are poor conductors of electricity. The strong bonds
+        between ions lock them into place in the crystal. However, in the liquid state,
+        ionic compounds are good conductors of electricity. Most ionic compounds dissolve
+        easily in water. When they dissolve, they separate into individual ions. The
+        ions can move freely, so they are good conductors of electricity. Dissolved
+        ionic compounds are called electrolytes.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -0.205) | Paper: SciQ Paper
+        5792 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The extent to which a substance may be dissolved in water, or any solvent,
+        is quantitatively expressed as its solubility, defined as the maximum concentration
+        of a substance that can be achieved under specified conditions. Substances
+        with relatively large solubilities are said to be soluble. A substance will
+        precipitate when solution conditions are such that its concentration exceeds
+        its solubility. Substances with relatively low solubilities are said to be
+        insoluble, and these are the substances that readily precipitate from solution.
+        More information on these important concepts is provided in the text chapter
+        on solutions. For purposes of predicting the identities of solids formed by
+        precipitation reactions, one may simply refer to patterns of solubility that
+        have been observed for many ionic compounds (Table 4.1). Solubilities of Common
+        Ionic Compounds in Water Soluble compounds contain • group 1 metal cations
+        (Li+, Na+, K+, Rb+, and Cs+).
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -0.204) | Paper: SciQ Paper
+        4718 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Solid ionic compounds are poor conductors of electricity. The strong bonds
+        between ions lock them into place in the crystal. However, in the liquid state,
+        ionic compounds are good conductors of electricity. Most ionic compounds dissolve
+        easily in water. When they dissolve, they separate into individual ions. The
+        ions can move freely, so they are good conductors of electricity. Dissolved
+        ionic compounds are called electrolytes.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -1.310) | Paper: SciQ Paper
+        3685 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Solutions of ionic compounds and melted ionic compounds conduct electricity,
+        but solid materials do not.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_913:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_5792:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4718:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_3685:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 913: Title: SciQ Paper 913. Abstract:
+        Each substance can be classified as an ionic solute or a nonionic solute.
+        Ionic solutes are electrolytes, and nonionic solutes are nonelectrolytes.
+        Potassium chloride is an ionic compound; therefore, when it dissolves, its
+        ions separate, making it an electrolyte. Fructose is a sugar similar to glucose.
+        (In fact, it has the same molecular formula as glucose. ) Because it is a
+        molecular compound, we expect it to be a nonelectrolyte. Isopropyl alcohol
+        is an organic molecule containing the alcohol functional group. The bonding
+        in the compound is all covalent, so when isopropyl alcohol dissolves, it separates
+        into individual molecules but not ions. Thus, it is a nonelectrolyte. Magnesium
+        hydroxide is an ionic compound, so when it dissolves it dissociates. Thus,
+        magnesium hydroxide is an electro (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 5792: Title: SciQ Paper 5792. Abstract: The extent to
+        which a substance may be dissolved in water, or any solvent, is quantitatively
+        expressed as its solubility, defined as the maximum concentration of a substance
+        that can be achieved under specified conditions. Substances with relatively
+        large solubilities are said to be soluble. A substance will precipitate when
+        solution conditions are such that its concentration exceeds its solubility.
+        Substances with relatively low solubilities are said to be insoluble, and
+        these are the substances that readily precipitate from solution. More information
+        on these important concepts is provided in the text chapter on solutions.
+        For purposes of predicting the identities of solids formed by precipitation
+        reactions, one may simply refer to patterns of solubility that have been observed
+        for many  (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 4718: Title: SciQ Paper 4718. Abstract: Solid ionic
+        compounds are poor conductors of electricity. The strong bonds between ions
+        lock them into place in the crystal. However, in the liquid state, ionic compounds
+        are good conductors of electricity. Most ionic compounds dissolve easily in
+        water. When they dissolve, they separate into individual ions. The ions can
+        move freely, so they are good conductors of electricity. Dissolved ionic compounds
+        are called electrolytes. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 3685: Title: SciQ Paper 3685. Abstract: Solutions of
+        ionic compounds and melted ionic compounds conduct electricity, but solid
+        materials do not. (Связь: Initial search result)
+
+        [Chunk] SciQ Paper 913 (Page 1): Each substance can be classified as an ionic
+        solute or a nonionic solute. Ionic solutes are electrolytes, and nonionic
+        solutes are nonelectrolytes. Potassium chloride is an ionic compound; therefore,
+        when it dissolves, its ions separate, making it an electrolyte.
+
+        [Chunk] SciQ Paper 4718 (Page 1): Solid ionic compounds are poor conductors
+        of electricity. The strong bonds between ions lock them into place in the
+        crystal. However, in the liquid state, ionic compounds are good conductors
+        of electricity. Most ionic compounds dissolve easily in water.
+
+        [Chunk] SciQ Paper 5792 (Page 1): Solubilities of Common Ionic Compounds in
+        Water Soluble compounds contain • group 1 metal cations (Li+, Na+, K+, Rb+,
+        and Cs+).
+
+        [Chunk] SciQ Paper 4718 (Page 1): Most ionic compounds dissolve easily in
+        water. When they dissolve, they separate into individual ions. The ions can
+        move freely, so they are good conductors of electricity. Dissolved ionic compounds
+        are called electrolytes.
+
+        [Chunk] SciQ Paper 3685 (Page 1): Solutions of ionic compounds and melted
+        ionic compounds conduct electricity, but solid materials do not.
+
+        [Chunk] SciQ Paper 913 (Page 1): Fructose is a sugar similar to glucose. (In
+        fact, it has the same molecular formula as glucose. ) Because it is a molecular
+        compound, we expect it to be a nonelectrolyte. Isopropyl alcohol is an organic
+        molecule containing the alcohol functional group.
+
+        [Chunk] SciQ Paper 913 (Page 1): The bonding in the compound is all covalent,
+        so when isopropyl alcohol dissolves, it separates into individual molecules
+        but not ions. Thus, it is a nonelectrolyte. Magnesium hydroxide is an ionic
+        compound, so when it dissolves it dissociates. Thus, magnesium hydroxide is
+        an electrolyte.
+
+        [Chunk] SciQ Paper 5792 (Page 1): The extent to which a substance may be dissolved
+        in water, or any solvent, is quantitatively expressed as its solubility, defined
+        as the maximum concentration of a substance that can be achieved under specified
+        conditions. Substances with relatively large solubilities are said to be soluble.
+
+        [Chunk] SciQ Paper 5792 (Page 1): A substance will precipitate when solution
+        conditions are such that its concentration exceeds its solubility. Substances
+        with relatively low solubilities are said to be insoluble, and these are the
+        substances that readily precipitate from solution.'
+      metrics:
+        components:
+          embedding:
+            calls: 1
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 1
+            time_sec: 0.0019
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0017
+          graph_neighbors:
+            calls: 4
+            time_sec: 0.0022
+          db_lookups:
+            calls: 8
+            time_sec: 0.0024
+          reranking:
+            calls: 12
+            time_sec: 0.313
+          graph_expansion:
+            calls: 1
+            time_sec: 0.2244
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 18
+        prompt_tokens: 0
+    CUSTOM:
+      status: success
+      latency_sec: 0.442
+      retrieved_papers:
+      - sciq_paper_1598
+      - sciq_paper_913
+      - sciq_paper_4718
+      - sciq_paper_4217
+      retrieved_chunks:
+      - id: sciq_paper_913#0
+        paper_id: sciq_paper_913
+        page_number: 1
+        text_content: Each substance can be classified as an ionic solute or a nonionic
+          solute. Ionic solutes are electrolytes, and nonionic solutes are nonelectrolytes.
+          Potassium chloride is an ionic compound; therefore, when it dissolves, its
+          ions separate, making it an electrolyte.
+        score: 4.3332
+      - id: sciq_paper_4718#0
+        paper_id: sciq_paper_4718
+        page_number: 1
+        text_content: Solid ionic compounds are poor conductors of electricity. The
+          strong bonds between ions lock them into place in the crystal. However,
+          in the liquid state, ionic compounds are good conductors of electricity.
+          Most ionic compounds dissolve easily in water.
+        score: -2.481
+      - id: sciq_paper_4718#1
+        paper_id: sciq_paper_4718
+        page_number: 1
+        text_content: Most ionic compounds dissolve easily in water. When they dissolve,
+          they separate into individual ions. The ions can move freely, so they are
+          good conductors of electricity. Dissolved ionic compounds are called electrolytes.
+        score: -0.2045
+      - id: sciq_paper_4217#0
+        paper_id: sciq_paper_4217
+        page_number: 1
+        text_content: Bases are ionic compounds that produce hydroxide ions when dissolved
+          in water.
+        score: -2.581
+      - id: sciq_paper_1598#0
+        paper_id: sciq_paper_1598
+        page_number: 1
+        text_content: The simplest way to define a base is an ionic compound that
+          produces hydroxide ions when dissolved in water. One of the most commonly
+          used bases is sodium hydroxide, illustrated below.
+        score: -2.6645
+      trimmed_text: '<|source_start|><|source_id|>1 Block 1 (Score: 4.333) | Paper:
+        SciQ Paper 913 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Each substance can be classified as an ionic solute or a nonionic solute.
+        Ionic solutes are electrolytes, and nonionic solutes are nonelectrolytes.
+        Potassium chloride is an ionic compound; therefore, when it dissolves, its
+        ions separate, making it an electrolyte. Fructose is a sugar similar to glucose.
+        (In fact, it has the same molecular formula as glucose. ) Because it is a
+        molecular compound, we expect it to be a nonelectrolyte. Isopropyl alcohol
+        is an organic molecule containing the alcohol functional group. The bonding
+        in the compound is all covalent, so when isopropyl alcohol dissolves, it separates
+        into individual molecules but not ions. Thus, it is a nonelectrolyte. Magnesium
+        hydroxide is an ionic compound, so when it dissolves it dissociates. Thus,
+        magnesium hydroxide is an electrolyte.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>2 Block 2 (Score: -2.481) | Paper: SciQ Paper
+        4718 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Solid ionic compounds are poor conductors of electricity. The strong bonds
+        between ions lock them into place in the crystal. However, in the liquid state,
+        ionic compounds are good conductors of electricity. Most ionic compounds dissolve
+        easily in water. When they dissolve, they separate into individual ions. The
+        ions can move freely, so they are good conductors of electricity. Dissolved
+        ionic compounds are called electrolytes.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>3 Block 3 (Score: -0.204) | Paper: SciQ Paper
+        4718 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Solid ionic compounds are poor conductors of electricity. The strong bonds
+        between ions lock them into place in the crystal. However, in the liquid state,
+        ionic compounds are good conductors of electricity. Most ionic compounds dissolve
+        easily in water. When they dissolve, they separate into individual ions. The
+        ions can move freely, so they are good conductors of electricity. Dissolved
+        ionic compounds are called electrolytes.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>4 Block 4 (Score: -2.581) | Paper: SciQ Paper
+        4217 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        Bases are ionic compounds that produce hydroxide ions when dissolved in water.
+
+        """<|source_end|>
+
+
+        <|source_start|><|source_id|>5 Block 5 (Score: -2.664) | Paper: SciQ Paper
+        1598 by SciQ Author, 2026 (Page 1):
+
+        """
+
+        The simplest way to define a base is an ionic compound that produces hydroxide
+        ions when dissolved in water. One of the most commonly used bases is sodium
+        hydroxide, illustrated below.
+
+        """<|source_end|>'
+      trimmed_graph: '- (SciQ Author:Author)-[AUTHORED]->(sciq_paper_1598:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_913:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4718:UserNote)
+
+        - (SciQ Author:Author)-[AUTHORED]->(sciq_paper_4217:UserNote)'
+      enrichment_block: '[UserNote] SciQ Paper 1598: Title: SciQ Paper 1598. Abstract:
+        The simplest way to define a base is an ionic compound that produces hydroxide
+        ions when dissolved in water. One of the most commonly used bases is sodium
+        hydroxide, illustrated below. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 913: Title: SciQ Paper 913. Abstract: Each substance
+        can be classified as an ionic solute or a nonionic solute. Ionic solutes are
+        electrolytes, and nonionic solutes are nonelectrolytes. Potassium chloride
+        is an ionic compound; therefore, when it dissolves, its ions separate, making
+        it an electrolyte. Fructose is a sugar similar to glucose. (In fact, it has
+        the same molecular formula as glucose. ) Because it is a molecular compound,
+        we expect it to be a nonelectrolyte. Isopropyl alcohol is an organic molecule
+        containing the alcohol functional group. The bonding in the compound is all
+        covalent, so when isopropyl alcohol dissolves, it separates into individual
+        molecules but not ions. Thus, it is a nonelectrolyte. Magnesium hydroxide
+        is an ionic compound, so when it dissolves it dissociates. Thus, magnesium
+        hydroxide is an electro (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 4718: Title: SciQ Paper 4718. Abstract: Solid ionic
+        compounds are poor conductors of electricity. The strong bonds between ions
+        lock them into place in the crystal. However, in the liquid state, ionic compounds
+        are good conductors of electricity. Most ionic compounds dissolve easily in
+        water. When they dissolve, they separate into individual ions. The ions can
+        move freely, so they are good conductors of electricity. Dissolved ionic compounds
+        are called electrolytes. (Связь: Initial search result)
+
+        [UserNote] SciQ Paper 4217: Title: SciQ Paper 4217. Abstract: Bases are ionic
+        compounds that produce hydroxide ions when dissolved in water. (Связь: Initial
+        search result)
+
+        [Chunk] SciQ Paper 913 (Page 1): Each substance can be classified as an ionic
+        solute or a nonionic solute. Ionic solutes are electrolytes, and nonionic
+        solutes are nonelectrolytes. Potassium chloride is an ionic compound; therefore,
+        when it dissolves, its ions separate, making it an electrolyte.
+
+        [Chunk] SciQ Paper 4718 (Page 1): Solid ionic compounds are poor conductors
+        of electricity. The strong bonds between ions lock them into place in the
+        crystal. However, in the liquid state, ionic compounds are good conductors
+        of electricity. Most ionic compounds dissolve easily in water.
+
+        [Chunk] SciQ Paper 4718 (Page 1): Most ionic compounds dissolve easily in
+        water. When they dissolve, they separate into individual ions. The ions can
+        move freely, so they are good conductors of electricity. Dissolved ionic compounds
+        are called electrolytes.
+
+        [Chunk] SciQ Paper 4217 (Page 1): Bases are ionic compounds that produce hydroxide
+        ions when dissolved in water.
+
+        [Chunk] SciQ Paper 1598 (Page 1): The simplest way to define a base is an
+        ionic compound that produces hydroxide ions when dissolved in water. One of
+        the most commonly used bases is sodium hydroxide, illustrated below.
+
+        [Chunk] SciQ Paper 913 (Page 1): Fructose is a sugar similar to glucose. (In
+        fact, it has the same molecular formula as glucose. ) Because it is a molecular
+        compound, we expect it to be a nonelectrolyte. Isopropyl alcohol is an organic
+        molecule containing the alcohol functional group.
+
+        [Chunk] SciQ Paper 913 (Page 1): The bonding in the compound is all covalent,
+        so when isopropyl alcohol dissolves, it separates into individual molecules
+        but not ions. Thus, it is a nonelectrolyte. Magnesium hydroxide is an ionic
+        compound, so when it dissolves it dissociates. Thus, magnesium hydroxide is
+        an electrolyte.'
+      metrics:
+        components:
+          embedding:
+            calls: 2
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 2
+            time_sec: 0.0051
+          lexical_retrieval:
+            calls: 1
+            time_sec: 0.0015
+          graph_neighbors:
+            calls: 4
+            time_sec: 0.0014
+          db_lookups:
+            calls: 7
+            time_sec: 0.0024
+          reranking:
+            calls: 12
+            time_sec: 0.2626
+          graph_expansion:
+            calls: 1
+            time_sec: 0.1687
+          llm_generation:
+            calls: 1
+            time_sec: 0.0003
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 20
+        prompt_tokens: 171

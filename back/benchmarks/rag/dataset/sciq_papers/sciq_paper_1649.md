@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 1649"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+will inevitably make it more difficult and costly to grow food. The world’s growing human population faces significant challenges in the increasing costs and other difficulties associated with producing food. Wild Food Sources In addition to growing crops and raising food animals, humans obtain food resources from wild populations, primarily wild fish populations. For about one billion people, aquatic resources provide the main source of animal protein. But since 1990, production from global fisheries has declined. Despite considerable effort, few fisheries on Earth are managed sustainability. Fishery extinctions rarely lead to complete extinction of the harvested species, but rather to a radical restructuring of the marine ecosystem in which a dominant species is so over-harvested that it becomes a minor player, ecologically. In addition to humans losing the food source, these alterations affect many other species in ways that are difficult or impossible to predict. The collapse of fisheries has dramatic and long-lasting effects on local human populations that work in the fishery. In addition, the loss of an inexpensive protein source to populations that cannot afford to replace it will increase the cost of living and limit societies in other ways. In general, the fish taken from fisheries have shifted to smaller species and the larger species are overfished. The ultimate outcome could clearly be the loss of aquatic systems as food sources.

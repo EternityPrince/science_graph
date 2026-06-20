@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 6771"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Chapter 39 1 Figure 39.7 B 3 Figure 39.20 The blood pH will drop and hemoglobin affinity for oxygen will decrease. 4 A 6 B 8 D 10 B 12 D 14 C 16 The main bronchus is the conduit in the lung that funnels air to the airways where gas exchange occurs. The main bronchus attaches the lungs to the very end of the trachea where it bifurcates. The trachea is the cartilaginous structure that extends from the pharynx to the primary bronchi. It serves to funnel air to the lungs. The alveoli are the sites of gas exchange; they are located at the terminal regions of the lung and are attached to the respiratory bronchioles. The acinus is the structure in the lung where gas exchange occurs. 18 FEV1/FVC measures the forced expiratory volume in one second in relation to the total forced vital capacity (the total amount of air that is exhaled from the lung from a maximal inhalation). This ratio changes with alterations in lung function that arise from diseases such as fibrosis, asthma, and COPD. 20 Oxygen moves from the lung to the bloodstream to the tissues according to the pressure gradient. This is measured as the partial pressure of oxygen. If the amount of oxygen drops in the inspired air, there would be reduced partial pressure. This would decrease the driving force that moves the oxygen into the blood and into the tissues. P O is also reduced at high elevations: P O at high elevations is lower than 2.

@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 7119"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+3. Metamorphic rocks form when an existing rock is changed by heat or pressure. The minerals in the rock change but do not melt ( Figure below ). The rock experiences these changes within the Earth.

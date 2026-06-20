@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 3700"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+H2 + O2 → H2O This is an example of a chemical equation, which is a concise way of representing a chemical reaction. The initial substances are called reactants, and the final substances are called products. Unfortunately, it is also an incomplete chemical equation. The law of conservation of matter says that matter cannot be created or destroyed. In chemical equations, the number of atoms of each element in the reactants must be the same as the number of atoms of each element in the products. If we count the number of hydrogen atoms in the reactants and products, we find two hydrogen atoms. But if we count the number of oxygen atoms in the reactants and products, we find that there are two oxygen atoms in the reactants but only one oxygen atom in the products. What can we do? Can we change the subscripts in the formula for water so that it has two oxygen atoms in it? No; you cannot change the formulas of individual substances because the chemical formula for a given substance is characteristic of that substance. What you can do, however, is to change the number of molecules that react or are produced. We do this one element at a time, going from one side of the reaction to the other, changing the number of molecules of a substance until all elements have the same number of atoms on each side. To accommodate the two oxygen atoms as reactants, let us assume that we have two water molecules as products:.

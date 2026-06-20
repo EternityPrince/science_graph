@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 6202"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Imagine you are stranded in a rowboat in the middle of the ocean. Suddenly, your boat springs a small leak, and you need to bail out water. You grab a bucket and begin to bail. After a few minutes, your efforts against the leak keep the water to only about half an inch, but any further bailing doesn’t change the water level; the leak brings in as much water as you bail out. You are at equilibrium. Two opposing processes have reached the same speed, and there is no more overall change in the process. Chemical reactions are like that as well. Most of them come to an equilibrium. The actual position of the equilibrium—whether it favors the reactants or the products—is characteristic of a chemical reaction; it is difficult to see just by looking at the balanced chemical equation. But chemistry has tools to help you understand the equilibrium of chemical reactions—the focus of our study in this chapter. So far in this text, when we present a chemical reaction, we have implicitly assumed that the reaction goes to completion. Indeed, our stoichiometric calculations were based on this; when we asked how much of a product is produced when so much of a reactant reacts, we are assuming that all of a reactant reacts. However, this is usually not the case; many reactions do not go to completion, and many chemists have to deal with that. In this chapter, we will study this phenomenon and see ways in which we can affect the extent of chemical reactions.

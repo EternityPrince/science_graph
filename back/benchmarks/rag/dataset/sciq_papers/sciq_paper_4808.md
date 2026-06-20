@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 4808"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Explain why the fission of heavy nuclei releases energy. Similarly, why is it that energy input is required to fission light nuclei? 19. Explain, in terms of conservation of momentum and energy, why collisions of neutrons with protons will thermalize neutrons better than collisions with oxygen. The ruins of the Chernobyl reactor are enclosed in a huge concrete structure built around it after the accident. Some rain penetrates the building in winter, and radioactivity from the building increases. What does this imply is happening inside? 21. Since the uranium or plutonium nucleus fissions into several fission fragments whose mass distribution covers a wide range of pieces, would you expect more residual radioactivity from fission than fusion? Explain. The core of a nuclear reactor generates a large amount of thermal energy from the decay of fission products, even when the power-producing fission chain reaction is turned off. Would this residual heat be greatest after the reactor has run for a long time or short time? What if the reactor has been shut down for months? 23. How can a nuclear reactor contain many critical masses and not go supercritical? What methods are used to control the fission in the reactor? 24. Why can heavy nuclei with odd numbers of neutrons be induced to fission with thermal neutrons, whereas those with even numbers of neutrons require more energy input to induce fission? 25. Why is a conventional fission nuclear reactor not able to explode as a bomb?.

@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 243"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Skeletal muscle tissue forms skeletal muscles, which attach to bones and sometimes the skin and control locomotion and any other movement that can be consciously controlled. Because it can be controlled intentionally, skeletal muscle is also called voluntary muscle. When viewed under a microscope, skeletal muscle tissue has a striped or striated appearance. This appearance results from the arrangement of the proteins inside the cell that are responsible for contraction. The cells of skeletal muscle are long and tapered and have multiple nuclei on the periphery of each cell. Smooth muscle tissue occurs in the walls of hollow organs such as the intestines, stomach, and urinary bladder, and around passages such as in the respiratory tract and blood vessels. Smooth muscle has no striations, is not under voluntary control, and is called involuntary muscle. Smooth muscle cells have a single nucleus. Cardiac muscle tissue is only found in the heart. The contractions of cardiac muscle tissue pump blood throughout the body and maintain blood pressure. Like skeletal muscle, cardiac muscle is striated, but unlike skeletal muscle, cardiac muscle cannot be consciously controlled and is called involuntary muscle. The cells of cardiac muscle tissue are connected to each other through intercalated disks and usually have just one nucleus per cell.

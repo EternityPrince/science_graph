@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5926"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Muscle Tone Skeletal muscles are rarely completely relaxed, or flaccid. Even if a muscle is not producing movement, it is contracted a small amount to maintain its contractile proteins and produce muscle tone. The tension produced by muscle tone allows muscles to continually stabilize joints and maintain posture. Muscle tone is accomplished by a complex interaction between the nervous system and skeletal muscles that results in the activation of a few motor units at a time, most likely in a cyclical manner. In this manner, muscles never fatigue completely, as some motor units can recover while others are active. The absence of the low-level contractions that lead to muscle tone is referred to as hypotonia or atrophy, and can result from damage to parts of the central nervous system (CNS), such as the cerebellum, or from loss of innervations to a skeletal muscle, as in poliomyelitis. Hypotonic muscles have a flaccid appearance and display functional impairments, such as weak reflexes. Conversely, excessive muscle tone is referred to as hypertonia, accompanied by hyperreflexia (excessive reflex responses), often the result of damage to upper motor neurons in the CNS. Hypertonia can present with muscle rigidity (as seen in Parkinson’s disease) or spasticity, a phasic change in muscle tone, where a limb will “snap” back from passive stretching (as seen in some strokes).

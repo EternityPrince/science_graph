@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 3712"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Xerography Most copy machines use an electrostatic process called xerography—a word coined from the Greek words xeros for dry and graphos for writing. The heart of the process is shown in simplified form in Figure 18.39. A selenium-coated aluminum drum is sprayed with positive charge from points on a device called a corotron. Selenium is a substance with an interesting property—it is a photoconductor. That is, selenium is an insulator when in the dark and a conductor when exposed to light. In the first stage of the xerography process, the conducting aluminum drum is grounded so that a negative charge is induced under the thin layer of uniformly positively charged selenium. In the second stage, the surface of the drum is exposed to the image of whatever is to be copied. Where the image is light, the selenium becomes conducting, and the positive charge is neutralized. In dark areas, the positive charge remains, and so the image has been transferred to the drum. The third stage takes a dry black powder, called toner, and sprays it with a negative charge so that it will be attracted to the positive regions of the drum. Next, a blank piece of paper is given a greater positive charge than on the drum so that it will pull the toner from the drum. Finally, the paper and electrostatically held toner are passed through heated pressure rollers, which melt and permanently adhere the toner within the fibers of the paper.

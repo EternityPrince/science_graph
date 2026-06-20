@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5626"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+35.3 | The Central Nervous System By the end of this section, you will be able to: • Identify the spinal cord, cerebral lobes, and other brain areas on a diagram of the brain • Describe the basic functions of the spinal cord, cerebral lobes, and other brain areas The central nervous system (CNS) is made up of the brain, a part of which is shown in Figure 35.19 and spinal cord and is covered with three layers of protective coverings called meninges (from the Greek word for membrane). The outermost layer is the dura mater (Latin for “hard mother”). As the Latin suggests, the primary function for this thick layer is to protect the brain and spinal cord. The dura mater also contains vein-like structures that carry blood from the brain back to the heart. The middle layer is the web-like arachnoid mater. The last layer is the pia mater (Latin for “soft mother”), which directly contacts and covers the brain and spinal cord like plastic wrap. The space between the arachnoid and pia maters is filled with cerebrospinal fluid (CSF). CSF is produced by a tissue called choroid plexus in fluid-filled compartments in the CNS called ventricles. The brain floats in CSF, which acts as a cushion and shock absorber and makes the brain neutrally buoyant. CSF also functions to circulate chemical substances throughout the brain and into the spinal cord.

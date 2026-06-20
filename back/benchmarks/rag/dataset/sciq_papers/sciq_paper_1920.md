@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 1920"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+The replacing of the electron enables chlorophyll to respond to another photon. The oxygen molecules produced as byproducts find their way to the surrounding environment. The hydrogen ions play critical roles in the remainder of the light-dependent reactions. Keep in mind that the purpose of the light-dependent reactions is to convert solar energy into chemical carriers that will be used in the Calvin cycle. In eukaryotes and some prokaryotes, two photosystems exist. The first is called photosystem II, which was named for the order of its discovery rather than for the order of the function. After the photon hits, photosystem II transfers the free electron to the first in a series of proteins inside the thylakoid membrane called the electron transport chain. As the electron passes along these proteins, energy from the electron fuels membrane pumps that actively move hydrogen ions against their concentration gradient from the stroma into the thylakoid space. This is quite analogous to the process that occurs in the mitochondrion in which an electron transport chain pumps hydrogen ions from the mitochondrial stroma across the inner membrane and into the intermembrane space, creating an electrochemical gradient. After the energy is used, the electron is accepted by a pigment molecule in the next photosystem, which is called photosystem I (Figure 5.13).

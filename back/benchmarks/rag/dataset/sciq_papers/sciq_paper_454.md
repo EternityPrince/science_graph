@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 454"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Chemistry is the study of matter and the changes that material substances undergo. Of all the scientific disciplines, it is perhaps the most extensively connected to other fields of study. Geologists who want to locate new mineral or oil deposits use chemical techniques to analyze and identify rock samples. Oceanographers use chemistry to track ocean currents, determine the flux of nutrients into the sea, and measure the rate of exchange of nutrients between ocean layers. Engineers consider the relationships between the structures and the properties of substances when they specify materials for various uses. Physicists take advantage of the properties of substances to detect new subatomic particles. Astronomers use chemical signatures to determine the age and distance of stars and thus answer questions about how stars form and how old the universe is. The entire subject of environmental science depends on chemistry to explain the origin and impacts of phenomena such as air pollution, ozone layer depletion, and global warming. The disciplines that focus on living organisms and their interactions with the physical world rely heavily on biochemistry, the application of chemistry to the study of biological processes. A living cell contains a large collection of complex molecules that carry out thousands of chemical reactions, including those that are necessary for.

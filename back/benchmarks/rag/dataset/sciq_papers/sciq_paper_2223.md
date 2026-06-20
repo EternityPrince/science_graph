@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 2223"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+All gases exert pressure; it is one of the fundamental measurable quantities of this phase of matter. Even our atmosphere exerts pressure—in this case, the gas is being “held in” by the earth’s gravity, rather than the gas being in a container. The pressure of the atmosphere is about 14.7 pounds of force for every square inch of surface area: 14.7 lb/in2. Pressure has a variety of units. The formal, SI-approved unit of pressure is the pascal (Pa), which is defined as 1 N/m2 (one newton of force over an area of one square meter). However, this is usually too small in magnitude to be useful. A common unit of pressure is the atmosphere (atm), which was originally defined as the average atmospheric pressure at sea level. However, “average atmospheric pressure at sea level” is difficult to pinpoint because of atmospheric pressure variations. A more reliable and common unit is millimeters of mercury (mmHg), which is the amount of pressure exerted by a column of mercury exactly 1 mm high. An equivalent unit is the torr, which equals 1 mmHg. (The torr is named after Evangelista Torricelli, a seventeenth-century Italian scientist who invented the mercury barometer. ) With these definitions of pressure, the atmosphere unit is redefined: 1 atm is defined as exactly 760 mmHg, or 760 torr. We thus have the following equivalences: 1 atm=760 mmHg=760 torr.

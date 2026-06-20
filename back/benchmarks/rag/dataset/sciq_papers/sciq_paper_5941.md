@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 5941"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Carpal Bones The wrist and base of the hand are formed by a series of eight small carpal bones (see Figure 8.7). The carpal bones are arranged in two rows, forming a proximal row of four carpal bones and a distal row of four carpal bones. The bones in the proximal row, running from the lateral (thumb) side to the medial side, are the scaphoid (“boat-shaped”), lunate (“moonshaped”), triquetrum (“three-cornered”), and pisiform (“pea-shaped”) bones. The small, rounded pisiform bone articulates with the anterior surface of the triquetrum bone. The pisiform thus projects anteriorly, where it forms the bony bump that can be felt at the medial base of your hand. The distal bones (lateral to medial) are the trapezium (“table”), trapezoid (“resembles a table”), capitate (“head-shaped”), and hamate (“hooked bone”) bones. The hamate bone is characterized by a prominent bony extension on its anterior side called the hook of the hamate bone. A helpful mnemonic for remembering the arrangement of the carpal bones is “So Long To Pinky, Here Comes The Thumb. ” This mnemonic starts on the lateral side and names the proximal bones from lateral to medial (scaphoid, lunate, triquetrum, pisiform), then makes a U-turn to name the distal bones from medial to lateral (hamate, capitate, trapezoid, trapezium). Thus, it starts and finishes on the lateral side.

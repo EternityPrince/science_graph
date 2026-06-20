@@ -40,6 +40,10 @@ def main():
         "--no-unique-dir", action="store_true",
         help="Save output directly to the specified path without timestamp subdirectory."
     )
+    parser.add_argument(
+        "--limit", "-l", type=int, default=None,
+        help="Limit the number of questions to evaluate (for testing/SciQ default)."
+    )
     args = parser.parse_args()
 
     run_staged_retrieval(args, config, prompts, container, con)

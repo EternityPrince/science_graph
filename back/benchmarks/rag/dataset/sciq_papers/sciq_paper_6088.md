@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 6088"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Immunity can be acquired in an active or passive way, and it can be natural or artificial. Watch this video (http://openstaxcollege. org/l/immunity) to see an animated discussion of passive and active immunity. What is an example of natural immunity acquired passively?.

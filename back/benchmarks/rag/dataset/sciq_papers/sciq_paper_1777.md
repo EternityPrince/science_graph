@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 1777"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Two identical diploid cells result from spermatogonia mitosis. One of these cells remains a spermatogonium, and the other becomes a primary spermatocyte, the next stage in the process of spermatogenesis. As in mitosis, DNA is replicated in a primary spermatocyte, and the cell undergoes cell division to produce two cells with identical chromosomes. Each of these is a secondary spermatocyte. Now a second round of cell division occurs in both of the secondary spermatocytes, separating the chromosome pairs. This second meiotic division results in a total of four cells with only half of the number of chromosomes. Each of these new cells is a spermatid. Although haploid, early spermatids look very similar to cells in the earlier stages of spermatogenesis, with a round shape, central nucleus, and large amount of cytoplasm. A process called spermiogenesis transforms these early spermatids, reducing the cytoplasm, and beginning the formation of the parts of a true sperm. The fifth stage of germ cell formation—spermatozoa, or formed sperm—is the end result of this process, which occurs in the portion of the tubule nearest the lumen. Eventually, the sperm are released into the lumen and are moved along a series of ducts in the testis toward a structure called the epididymis for the next step of sperm maturation.

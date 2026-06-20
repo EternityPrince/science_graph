@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 1116"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Figure above also shows how the size of waves is measured. The highest point of a wave is the crest. The lowest point is the trough. The vertical distance between a crest and a trough is the height of the wave. Wave height is also called amplitude. The horizontal distance between two crests is the wavelength. Both amplitude and wavelength are measures of wave size.

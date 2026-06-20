@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 2099"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+Suspensions and colloids are two common types of mixtures whose properties are in many ways intermediate between those of true solutions and heterogeneous mixtures. Asuspension is a heterogeneous mixture of particles with diameters of about 1 µm (1000 nm) that are distributed throughout a second phase. Common suspensions include paint, blood, and hot chocolate, which are solid particles in a liquid, and aerosol sprays, which are liquid particles in a gas. If the suspension is allowed to stand, the two phases will separate, which is why paints must be thoroughly stirred or shaken before use. A colloid is also a heterogeneous mixture, but the particles of a colloid are typically smaller than those of a suspension, generally in the range of 2 to about 500 nm in diameter. Colloids include fog and clouds (liquid particles in a gas), milk (solid particles in a liquid), and butter (solid particles in a solid). Other colloids are used industrially as catalysts. Unlike in a suspension, the particles in a colloid do not separate into two phases on standing. The only combination of substances that cannot produce a suspension or a colloid is a mixture of two gases because their particles are so small that they always form true solutions. The properties of suspensions, colloids, and solutions are summarized in Table 13.9 "Properties of Liquid Solutions, Colloids, and Suspensions".

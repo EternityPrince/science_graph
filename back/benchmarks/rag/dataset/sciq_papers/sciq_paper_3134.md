@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 3134"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+solution. In addition, sucrose does not undergo reactions that are typical of aldehydes and ketones. Therefore, sucrose is a nonreducing sugar. The hydrolysis of sucrose in dilute acid or through the action of the enzyme sucrase(also known as invertase) gives an equimolar mixture of glucose and fructose. This 1:1 mixture is referred to as invert sugar because it rotates plane-polarized light in the opposite direction than sucrose. The hydrolysis reaction has several practical applications. Sucrose readily recrystallizes from a solution, but invert sugar has a much greater tendency to remain in solution. In the manufacture of jelly and candy and in the canning of fruit, the recrystallization of sugar is undesirable. Therefore, conditions leading to the hydrolysis of sucrose are employed in these processes. Moreover, because fructose is sweeter than sucrose, the hydrolysis adds to the sweetening effect. Bees carry out this reaction when they make honey. The average American consumes more than 100 lb of sucrose every year. About twothirds of this amount is ingested in soft drinks, presweetened cereals, and other highly processed foods. The widespread use of sucrose is a contributing factor to obesity and tooth decay. Carbohydrates such as sucrose, are converted to fat when the caloric intake exceeds the body’s requirements, and sucrose causes tooth decay by promoting the formation of plaque that sticks to teeth.

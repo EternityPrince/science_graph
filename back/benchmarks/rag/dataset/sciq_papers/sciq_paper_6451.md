@@ -1,0 +1,7 @@
+---
+title: "SciQ Paper 6451"
+authors: ["SciQ Author"]
+year: 2026
+---
+
+23.29 Characteristics of an Animal • There is no one universally accepted definition of an animal. The following treatment follows your text, beginning on page 876. • Animals: • Are multicellular, heterotrophic eukaryotes . • Lack the distinctive cell walls of plants & fungi • Share unique characteristics . • Share certain reproductive characteristics . • Other commonly used definitions . Animals are multicellular heterotrophic eukaryotes • Unfortunately, none of these traits is exclusive to animals: • Plants, fungi, and some algae are multicellular. • Many bacteria, protists, and all fungi are heterotrophic. • Everything other than bacteria and archaea are eukaryotic. • Moreover, all three of these characteristics also apply to fungi. • However, there is a difference here between animals and fungi. Animals generally take in their food through ingestion, or eating and swallowing something. Fungi are absorptive heterotrophs; they secrete their digestive enzymes onto their food, and then absorb the resulting nutrients. Animals share unique characteristics • Only animals have muscle tissue and nervous tissue. • Only animals have collagen, a structural protein • Only animals have the following types of intercellular junctions: (See pages 135 - 139, Figure 7.15 in your text for more information on these junctions.
