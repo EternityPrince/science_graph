@@ -168,12 +168,36 @@ def main():
         con.error(f"Dataset file not found: {dataset_path}")
         sys.exit(1)
 
+    is_already_retrieved = False
+    if dataset_path.name in ["retrieved_contexts.yaml", "custom_retrieved_contexts.yaml"]:
+        is_already_retrieved = True
+    else:
+        # fallback check: read a small part
+        try:
+            with open(dataset_path, "r", encoding="utf-8") as f:
+                head_lines = [f.readline() for _ in range(50)]
+                head_text = "".join(head_lines)
+                if "baselines:" in head_text:
+                    is_already_retrieved = True
+        except Exception:
+            pass
+
     # 2. Determine target output directory
     output_dir = Path(args.output_dir)
     if not output_dir.is_absolute():
         output_dir = (script_dir / output_dir).resolve()
         
-    if args.no_unique_dir:
+    if is_already_retrieved:
+        run_dir = dataset_path.parent
+        con.info(f"Detected pre-retrieved context dataset. Skipping retrieval stage.")
+        con.info(f"Outputs will be saved directly to: {run_dir}")
+        try:
+            con.blank()
+            from run_custom_retrieve import evaluate_and_compare
+            evaluate_and_compare(dataset_path)
+        except Exception as e:
+            con.warning(f"Could not generate retrieval metrics table: {e}")
+    elif args.no_unique_dir:
         run_dir = output_dir
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -231,6 +255,15 @@ def main():
     if args.baselines.lower() == "all":
         from core.config import BASELINES_INFO
         baselines_to_run = list(BASELINES_INFO.keys())
+        if is_already_retrieved:
+            present_baselines = {"B0"}
+            try:
+                for case in test_cases:
+                    for b_name in case.get("baselines", {}).keys():
+                        present_baselines.add(b_name.upper())
+                baselines_to_run = [b for b in baselines_to_run if b in present_baselines]
+            except Exception:
+                pass
     else:
         baselines_to_run = [b.strip().upper() for b in args.baselines.split(",") if b.strip()]
         if args.custom and "CUSTOM" not in baselines_to_run:
@@ -254,35 +287,43 @@ def main():
     # Subprocesses python interpreter
     python_bin = sys.executable
 
-    # STEP 1a: Pre-Retrieval Stage
-    con.blank()
-    con.info("=== STEP 1a: Running Pre-Retrieval Stage ===")
-    retrieved_contexts_file = run_dir / "retrieved_contexts.yaml"
-    retrieve_cmd = [
-        python_bin, str(script_dir / "run_custom_retrieve.py"),
-        "--dataset", str(dataset_path),
-        "--output", str(retrieved_contexts_file),
-        "--baselines", args.baselines,
-        "--no-unique-dir"
-    ]
-    retrieve_cmd.extend(["--limit", str(num_cases)])
-    if args.cloud:
-        retrieve_cmd.append("--cloud")
-    if temp_config_file:
-        retrieve_cmd.extend(["--config-file", str(temp_config_file)])
+    retrieved_contexts_file = dataset_path if is_already_retrieved else run_dir / "retrieved_contexts.yaml"
 
-    con.dim(f"Running command: {' '.join(retrieve_cmd)}")
-    try:
-        elapsed_ret = run_command_with_progress(retrieve_cmd, "Pre-Retrieval Stage", total_retrieval_steps, "retrieval")
-        con.success(f"Pre-Retrieval completed in {elapsed_ret:.2f} seconds.")
-    except subprocess.CalledProcessError as e:
-        con.error(f"Pre-Retrieval failed with exit code {e.returncode}.")
-        if temp_config_file and temp_config_file.exists():
+    # STEP 1a: Pre-Retrieval Stage
+    if not is_already_retrieved:
+        con.blank()
+        con.info("=== STEP 1a: Running Pre-Retrieval Stage ===")
+        retrieve_cmd = [
+            python_bin, str(script_dir / "run_custom_retrieve.py"),
+            "--dataset", str(dataset_path),
+            "--output", str(retrieved_contexts_file),
+            "--baselines", args.baselines,
+            "--no-unique-dir"
+        ]
+        retrieve_cmd.extend(["--limit", str(num_cases)])
+        if args.cloud:
+            retrieve_cmd.append("--cloud")
+        if temp_config_file:
+            retrieve_cmd.extend(["--config-file", str(temp_config_file)])
+
+        con.dim(f"Running command: {' '.join(retrieve_cmd)}")
+        try:
+            elapsed_ret = run_command_with_progress(retrieve_cmd, "Pre-Retrieval Stage", total_retrieval_steps, "retrieval")
+            con.success(f"Pre-Retrieval completed in {elapsed_ret:.2f} seconds.")
             try:
-                temp_config_file.unlink()
-            except Exception:
-                pass
-        sys.exit(e.returncode)
+                con.blank()
+                from run_custom_retrieve import evaluate_and_compare
+                evaluate_and_compare(retrieved_contexts_file)
+            except Exception as e:
+                con.warning(f"Could not generate retrieval metrics table: {e}")
+        except subprocess.CalledProcessError as e:
+            con.error(f"Pre-Retrieval failed with exit code {e.returncode}.")
+            if temp_config_file and temp_config_file.exists():
+                try:
+                    temp_config_file.unlink()
+                except Exception:
+                    pass
+            sys.exit(e.returncode)
 
     # STEP 1b: RAG Generation Stage (consuming pre-retrieved contexts)
     con.blank()
@@ -291,7 +332,7 @@ def main():
         python_bin, str(script_dir / "run_benchmarks.py"),
         "--dataset", str(dataset_path),
         "--output", str(eval_results),
-        "--baselines", args.baselines,
+        "--baselines", ",".join(baselines_to_run),
         "--consume-contexts", str(retrieved_contexts_file),
         "--no-unique-dir"
     ]
@@ -322,7 +363,7 @@ def main():
             python_bin, str(script_dir / "run_evaluator.py"),
             "--input", str(eval_results),
             "--output", str(metrics_results),
-            "--baselines", args.baselines,
+            "--baselines", ",".join(baselines_to_run),
             "--concurrency", str(args.concurrency),
             "--rpm", str(args.rpm),
             "--retries", str(args.retries)

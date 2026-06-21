@@ -209,6 +209,48 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     con.info(f"Running evaluation on {len(test_cases)} cases for baselines: {', '.join(baselines_to_run)}")
     con.blank()
 
+    llm_provider = config.data["llm"]["provider"]
+    if args.cloud:
+        llm_model = config.data["llm"]["cloud"]["model_name"]
+        llm_provider_detail = f"cloud ({config.data['llm']['cloud'].get('provider', 'openai')})"
+    else:
+        llm_model = config.data["llm"]["local"]["model_path"]
+        llm_provider_detail = f"local ({llm_provider})"
+
+    original_output_path = Path(args.output)
+    if args.no_unique_dir:
+        output_path = original_output_path
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_model_name = get_safe_model_name(llm_model)
+        run_dir_name = f"run_{timestamp}_{safe_model_name}"
+        run_dir = original_output_path.parent / run_dir_name
+        output_path = run_dir / original_output_path.name
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load existing file for merging/resuming
+    existing_data = None
+    existing_cases_map = {}
+    if output_path.exists():
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                existing_data = yaml.safe_load(f)
+                if isinstance(existing_data, list):
+                    existing_data = {"metadata": {}, "results": existing_data}
+                elif existing_data is None:
+                    existing_data = {"metadata": {}, "results": []}
+                
+                if existing_data and "results" in existing_data:
+                    for item in existing_data["results"]:
+                        if "id" in item:
+                            existing_cases_map[item["id"]] = item
+        except Exception as e:
+            con.warning(f"Could not load existing evaluation results for resuming: {e}")
+
+    embedding_model = config.data["embedding"]["model_name"]
+    reranker_model = config.reranker_model_name if config.data["rag_components"].get("reranker", True) else "disabled"
+
     results = []
 
     for idx, case in enumerate(test_cases, start=1):
@@ -225,7 +267,15 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             "baselines": {}
         }
         
+        existing_case = existing_cases_map.get(case_id)
         for baseline in baselines_to_run:
+            if existing_case and not getattr(args, "clear_checkpoint", False):
+                existing_b_data = existing_case.get("baselines", {}).get(baseline)
+                if existing_b_data and existing_b_data.get("status") == "success" and "generated_answer" in existing_b_data:
+                    con.dim(f"  Reusing previously generated answer for {baseline} from checkpoint.")
+                    case_result["baselines"][baseline] = existing_b_data
+                    continue
+
             description = BASELINES_INFO.get(baseline, "")
             con.dim(f"  Running {baseline}: {description.split('—')[0]}")
             
@@ -391,40 +441,41 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         con.success(f"[{case_id}] Completed.")
         con.blank()
 
-    llm_provider = config.data["llm"]["provider"]
-    if args.cloud:
-        llm_model = config.data["llm"]["cloud"]["model_name"]
-        llm_provider_detail = f"cloud ({config.data['llm']['cloud'].get('provider', 'openai')})"
-    else:
-        llm_model = config.data["llm"]["local"]["model_path"]
-        llm_provider_detail = f"local ({llm_provider})"
-
-    original_output_path = Path(args.output)
-    if args.no_unique_dir:
-        output_path = original_output_path
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_model_name = get_safe_model_name(llm_model)
-        run_dir_name = f"run_{timestamp}_{safe_model_name}"
-        run_dir = original_output_path.parent / run_dir_name
-        output_path = run_dir / original_output_path.name
-    
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load existing file for merging
-    existing_data = None
-    if output_path.exists():
+        # Incremental Autosave
         try:
-            with open(output_path, "r", encoding="utf-8") as f:
-                existing_data = yaml.safe_load(f)
-                if isinstance(existing_data, list):
-                    existing_data = {"metadata": {}, "results": existing_data}
+            autosave_data = {
+                "metadata": {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "llm": {
+                        "provider": llm_provider_detail,
+                        "model_name": llm_model,
+                        "temperature": config.data["llm"].get("temp", 0.1),
+                        "max_tokens": config.data["llm"].get("max_tokens", 1000),
+                        "model_max_context": config.llm_model_max_context
+                    },
+                    "embeddings": {
+                        "model_name": embedding_model
+                    },
+                    "reranker": {
+                        "model_name": reranker_model
+                    },
+                    "baselines_evaluated": baselines_to_run,
+                    "autosave_in_progress": True,
+                    "completed_cases": len(results),
+                    "total_cases": len(test_cases)
+                },
+                "results": results
+            }
+            if existing_data:
+                autosave_data = merge_evaluation_data(existing_data, autosave_data)
+                
+            temp_output = output_path.with_suffix(".yaml.tmp")
+            with open(temp_output, "w", encoding="utf-8") as f:
+                yaml.dump(autosave_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            temp_output.replace(output_path)
         except Exception as e:
-            con.warning(f"Could not load existing evaluation results for merging: {e}")
+            con.warning(f"Autosave failed: {e}")
 
-    embedding_model = config.data["embedding"]["model_name"]
-    reranker_model = config.reranker_model_name if config.data["rag_components"].get("reranker", True) else "disabled"
-    
     output_data = {
         "metadata": {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
