@@ -209,6 +209,8 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
             rag_service.llm_engine.generate_response = mocked_generate_response
             rag_service._classify_intent_and_extract_filters = mocked_classify_intent
 
+            case_id = case.get("id", "Q")
+            con.info(f"[{case_id}] Query: '{query[:60]}...' ({baseline})")
             collector = BenchmarkStatsCollector(rag_service)
             collector.start()
 

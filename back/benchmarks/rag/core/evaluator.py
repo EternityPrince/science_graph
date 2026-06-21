@@ -53,13 +53,82 @@ class CloudEvaluator:
                         ],
                         temperature=0.0,
                     )
-                    return response.choices[0].message.content
+                    
+                    if not response or not getattr(response, "choices", None):
+                        raise ValueError(f"Invalid API response: choices list is missing or empty. Raw response: {response}")
+                    
+                    choice = response.choices[0]
+                    if not choice or not getattr(choice, "message", None) or choice.message.content is None:
+                        raise ValueError("Invalid API response: message content is None.")
+                    
+                    return choice.message.content
                 except Exception as e:
                     wait_time = (2 ** attempt) + random.uniform(0.1, 1.0)
-                    con.warning(
-                        f"Cloud API Call Error (Attempt {attempt+1}/{max_retries}): {e}. "
-                        f"Retrying in {wait_time:.2f}s..."
-                    )
+                    
+                    # Special handling for Rate Limit (429) or rate limit messages
+                    is_rate_limit = "429" in str(e) or "rate limit" in str(e).lower()
+                    if is_rate_limit:
+                        import openai
+                        headers = {}
+                        if isinstance(e, openai.RateLimitError):
+                            headers = getattr(getattr(e, "response", None), "headers", {})
+                        
+                        retry_after = headers.get("retry-after")
+                        reset_ms = headers.get("x-ratelimit-reset")
+                        
+                        sleep_seconds = None
+                        if retry_after:
+                            try:
+                                sleep_seconds = float(retry_after)
+                            except ValueError:
+                                pass
+                        elif reset_ms:
+                            try:
+                                reset_val = float(reset_ms)
+                                if reset_val > 100000000000:
+                                    reset_val /= 1000.0
+                                if reset_val > 1000000000:
+                                    sleep_seconds = max(reset_val - time.time(), 0.0)
+                                else:
+                                    sleep_seconds = reset_val
+                            except ValueError:
+                                pass
+                        
+                        # Fallback parsing from exception string
+                        if sleep_seconds is None:
+                            import re
+                            err_str = str(e)
+                            match = re.search(r"['\"]X-RateLimit-Reset['\"]\s*:\s*['\"](\d+)['\"]", err_str)
+                            if not match:
+                                match = re.search(r"X-RateLimit-Reset.*?(\d+)", err_str)
+                            if match:
+                                try:
+                                    reset_val = float(match.group(1))
+                                    if reset_val > 100000000000:
+                                        reset_val /= 1000.0
+                                    if reset_val > 1000000000:
+                                        sleep_seconds = max(reset_val - time.time(), 0.0)
+                                    else:
+                                        sleep_seconds = reset_val
+                                except ValueError:
+                                    pass
+                        
+                        # Apply fallback delay if parsing failed or was invalid
+                        if sleep_seconds is None or sleep_seconds <= 0 or sleep_seconds > 120:
+                            sleep_seconds = (10 * (attempt + 1)) + random.uniform(1.0, 5.0)
+                        
+                        # Add a small buffer of 1.0 second to ensure we clear the limit
+                        wait_time = sleep_seconds + 1.0
+                        con.warning(
+                            f"Cloud API Rate Limit Exceeded (429) (Attempt {attempt+1}/{max_retries}). "
+                            f"Sleeping for {wait_time:.2f}s before retry..."
+                        )
+                    else:
+                        con.warning(
+                            f"Cloud API Call Error (Attempt {attempt+1}/{max_retries}): {e}. "
+                            f"Retrying in {wait_time:.2f}s..."
+                        )
+                    
                     if attempt == max_retries - 1:
                         raise e
                     await asyncio.sleep(wait_time)
@@ -82,7 +151,7 @@ class CloudEvaluator:
             except Exception as e:
                 con.warning(
                     f"JSON Parse Error for '{metric_name}' (Attempt {parse_attempt+1}/{max_parse_retries}): {e}. "
-                    f"Raw response: {raw_response[:200]}..."
+                    f"Raw response: {raw_response[:200] if raw_response else 'None'}..."
                 )
                 if parse_attempt == max_parse_retries - 1:
                     return {"score": 0.0, "error": str(e), "raw_response": raw_response}

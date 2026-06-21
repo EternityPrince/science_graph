@@ -26,28 +26,46 @@ from config_creator import (
 )
 
 
+from rich.progress import ProgressColumn
+from rich.text import Text
+
+class IterationSpeedColumn(ProgressColumn):
+    def render(self, task):
+        speed = task.finished_speed or task.speed
+        if speed is None or speed == 0:
+            return Text("- sec/it", style="progress.data.speed")
+        sec_per_it = 1.0 / speed
+        return Text(f"{sec_per_it:.2f} sec/it", style="progress.data.speed")
+
+
 def run_command_with_progress(cmd: list, title: str, total_steps: int, step_pattern: str) -> float:
-    from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
+    from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn, MofNCompleteColumn
     import subprocess
     import time
-    
+    import os
+
     t0 = time.perf_counter()
     with Progress(
         TextColumn("[bold blue]{task.description}"),
         BarColumn(bar_width=40, finished_style="green"),
         TaskProgressColumn(),
+        MofNCompleteColumn(),
+        IterationSpeedColumn(),
         TimeElapsedColumn(),
         TimeRemainingColumn(),
         console=con.console
     ) as progress:
         task = progress.add_task(f"[cyan]{title}", total=total_steps)
         
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1
+            bufsize=1,
+            env=env
         )
         
         for line in iter(process.stdout.readline, ""):
@@ -58,7 +76,7 @@ def run_command_with_progress(cmd: list, title: str, total_steps: int, step_patt
                 if "Query: '" in line_str or "] Query:" in line_str:
                     progress.advance(task, 1)
             elif step_pattern == "generation":
-                if "  Running " in line_str and ":" in line_str:
+                if line_str.startswith("Running ") and ":" in line_str and not line_str.startswith("Running command:"):
                     progress.advance(task, 1)
             elif step_pattern == "evaluation":
                 if "Evaluated case " in line_str:
@@ -127,6 +145,10 @@ def main():
     parser.add_argument(
         "--no-unique-dir", action="store_true",
         help="Save results directly into output-dir without creating a unique timestamped subdirectory."
+    )
+    parser.add_argument(
+        "--skip-eval", action="store_true",
+        help="Skip the LLM-as-a-Judge evaluation stage and metrics parsing."
     )
     add_custom_config_arguments(parser)
     args = parser.parse_args()
@@ -292,47 +314,51 @@ def main():
                 pass
         sys.exit(e.returncode)
 
-    # STEP 2: LLM-as-a-Judge Evaluation
-    con.blank()
-    con.info("=== STEP 2: Running LLM-as-a-Judge Evaluation ===")
-    eval_cmd = [
-        python_bin, str(script_dir / "run_evaluator.py"),
-        "--input", str(eval_results),
-        "--output", str(metrics_results),
-        "--baselines", args.baselines,
-        "--concurrency", str(args.concurrency),
-        "--rpm", str(args.rpm),
-        "--retries", str(args.retries)
-    ]
-    eval_cmd.extend(["--limit", str(num_cases)])
-    if args.clear_checkpoint:
-        eval_cmd.append("--clear-checkpoint")
+    if not args.skip_eval:
+        # STEP 2: LLM-as-a-Judge Evaluation
+        con.blank()
+        con.info("=== STEP 2: Running LLM-as-a-Judge Evaluation ===")
+        eval_cmd = [
+            python_bin, str(script_dir / "run_evaluator.py"),
+            "--input", str(eval_results),
+            "--output", str(metrics_results),
+            "--baselines", args.baselines,
+            "--concurrency", str(args.concurrency),
+            "--rpm", str(args.rpm),
+            "--retries", str(args.retries)
+        ]
+        eval_cmd.extend(["--limit", str(num_cases)])
+        if args.clear_checkpoint:
+            eval_cmd.append("--clear-checkpoint")
 
-    con.dim(f"Running command: {' '.join(eval_cmd)}")
-    try:
-        elapsed_eval = run_command_with_progress(eval_cmd, "LLM-as-a-Judge Evaluation Stage", total_evaluation_steps, "evaluation")
-        con.success(f"LLM-as-a-Judge Evaluation completed in {elapsed_eval:.2f} seconds.")
-    except subprocess.CalledProcessError as e:
-        con.error(f"LLM-as-a-Judge Evaluation failed with exit code {e.returncode}.")
-        sys.exit(e.returncode)
+        con.dim(f"Running command: {' '.join(eval_cmd)}")
+        try:
+            elapsed_eval = run_command_with_progress(eval_cmd, "LLM-as-a-Judge Evaluation Stage", total_evaluation_steps, "evaluation")
+            con.success(f"LLM-as-a-Judge Evaluation completed in {elapsed_eval:.2f} seconds.")
+        except subprocess.CalledProcessError as e:
+            con.error(f"LLM-as-a-Judge Evaluation failed with exit code {e.returncode}.")
+            sys.exit(e.returncode)
 
-    # STEP 3: Quality Metrics Parsing & Exporting CSVs
-    con.blank()
-    con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
-    parse_cmd = [
-        python_bin, str(script_dir / "parse_metrics.py"),
-        "--file", str(metrics_results),
-        "--output-md", str(summary_md),
-        "--csv-summary", str(summary_csv),
-        "--csv-details", str(details_csv)
-    ]
-    con.dim(f"Running command: {' '.join(parse_cmd)}")
-    try:
-        subprocess.run(parse_cmd, check=True)
-        con.success("Metrics parsing and CSV exports completed successfully.")
-    except subprocess.CalledProcessError as e:
-        con.error(f"Metrics parsing/reporting failed with exit code {e.returncode}.")
-        sys.exit(e.returncode)
+        # STEP 3: Quality Metrics Parsing & Exporting CSVs
+        con.blank()
+        con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
+        parse_cmd = [
+            python_bin, str(script_dir / "parse_metrics.py"),
+            "--file", str(metrics_results),
+            "--output-md", str(summary_md),
+            "--csv-summary", str(summary_csv),
+            "--csv-details", str(details_csv)
+        ]
+        con.dim(f"Running command: {' '.join(parse_cmd)}")
+        try:
+            subprocess.run(parse_cmd, check=True)
+            con.success("Metrics parsing and CSV exports completed successfully.")
+        except subprocess.CalledProcessError as e:
+            con.error(f"Metrics parsing/reporting failed with exit code {e.returncode}.")
+            sys.exit(e.returncode)
+    else:
+        con.blank()
+        con.info("=== Skipping LLM-as-a-Judge Evaluation & Metrics Parsing (Pipeline Optimized) ===")
 
     # Clean up temporary configuration file if created
     if temp_config_file and temp_config_file.exists():
@@ -343,9 +369,12 @@ def main():
 
     con.blank()
     con.success("=== PIPELINE RUN COMPLETE ===")
-    con.info(f"Markdown Summary: {summary_md}")
-    con.info(f"Wide CSV Summary (Typst): {summary_csv}")
-    con.info(f"Detailed CSV (Pandas): {details_csv}")
+    if not args.skip_eval:
+        con.info(f"Markdown Summary: {summary_md}")
+        con.info(f"Wide CSV Summary (Typst): {summary_csv}")
+        con.info(f"Detailed CSV (Pandas): {details_csv}")
+    else:
+        con.info(f"Evaluation results yaml saved to: {eval_results}")
 
 
 if __name__ == "__main__":
