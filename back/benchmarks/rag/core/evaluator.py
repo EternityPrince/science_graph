@@ -309,6 +309,18 @@ async def evaluate_baseline_case(
         required.extend(["context_precision", "faithfulness", "citation_fidelity"])
     
     if checkpoint_key in checkpoint_data and all(r in cached for r in required):
+        if "token_output" not in cached:
+            from core.metrics import count_text_tokens
+            generated_answer = baseline_data.get("generated_answer", "")
+            judge_answer = get_clean_judge_answer(generated_answer)
+            token_output = count_text_tokens(generated_answer)
+            token_answer = count_text_tokens(judge_answer)
+            token_reasoning = max(0, token_output - token_answer)
+            cached["token_output"] = token_output
+            cached["token_answer"] = token_answer
+            cached["token_reasoning"] = token_reasoning
+            checkpoint_data[checkpoint_key] = cached
+            save_checkpoint(checkpoint_path, checkpoint_data)
         return cached
 
     eval_metrics = {
@@ -319,6 +331,9 @@ async def evaluate_baseline_case(
         "citation_fidelity": cached.get("citation_fidelity", 0.0),
         "semantic_accuracy": cached.get("semantic_accuracy", 0.0),
         "context_fillness": cached.get("context_fillness", 0.0),
+        "token_output": cached.get("token_output", 0),
+        "token_answer": cached.get("token_answer", 0),
+        "token_reasoning": cached.get("token_reasoning", 0),
     }
 
     if baseline_data.get("status") == "error":
@@ -363,6 +378,16 @@ async def evaluate_baseline_case(
         eval_metrics["context_fillness"] = context_fillness
     else:
         eval_metrics["context_fillness"] = cached["context_fillness"]
+
+    # Calculate output token metrics if they were not populated from cached/checkpoint
+    if "token_output" not in cached or cached["token_output"] is None:
+        from core.metrics import count_text_tokens
+        token_output = count_text_tokens(generated_answer)
+        token_answer = count_text_tokens(judge_answer)
+        token_reasoning = max(0, token_output - token_answer)
+        eval_metrics["token_output"] = token_output
+        eval_metrics["token_answer"] = token_answer
+        eval_metrics["token_reasoning"] = token_reasoning
 
     # If clean answer is missing, skip LLM calls
     if not judge_answer.strip():
@@ -624,7 +649,10 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                     "answer_relevance": [],
                     "citation_fidelity": [],
                     "semantic_accuracy": [],
-                    "context_fillness": []
+                    "context_fillness": [],
+                    "token_output": [],
+                    "token_answer": [],
+                    "token_reasoning": [],
                 }
 
             latency = baseline_data.get("latency_sec")

@@ -19,7 +19,7 @@ QUALITY_METRICS = [
     "context_fillness"
 ]
 
-ALL_METRICS = QUALITY_METRICS + ["latency_sec"]
+ALL_METRICS = QUALITY_METRICS + ["latency_sec", "token_output", "token_answer", "token_reasoning"]
 
 METRIC_LABELS = {
     "retrieval_recall": "Retrieval Recall",
@@ -29,7 +29,10 @@ METRIC_LABELS = {
     "citation_fidelity": "Citation Fidelity",
     "semantic_accuracy": "Semantic Accuracy",
     "context_fillness": "Context Fillness",
-    "latency_sec": "Latency (sec)"
+    "latency_sec": "Latency (sec)",
+    "token_output": "Token Output",
+    "token_answer": "Token Answer",
+    "token_reasoning": "Token Reasoning"
 }
 
 
@@ -148,6 +151,19 @@ def analyze_metrics(data: Any) -> dict:
                     fillness = min(max(fillness, 0.0), 1.0)
                 eval_metrics["context_fillness"] = fillness
 
+            # 4. token_output, token_answer, token_reasoning
+            if eval_metrics.get("token_output") is None:
+                generated_answer = b_data.get("generated_answer", "")
+                from core.evaluator import get_clean_judge_answer
+                judge_answer = get_clean_judge_answer(generated_answer)
+                from core.metrics import count_text_tokens
+                token_output = count_text_tokens(generated_answer)
+                token_answer = count_text_tokens(judge_answer)
+                token_reasoning = max(0, token_output - token_answer)
+                eval_metrics["token_output"] = token_output
+                eval_metrics["token_answer"] = token_answer
+                eval_metrics["token_reasoning"] = token_reasoning
+
     # If the input was originally a mutable dict or list, update it in-place to propagate changes
     if isinstance(data, dict):
         if "results" in data:
@@ -205,6 +221,13 @@ def analyze_metrics(data: Any) -> dict:
                     category_values[category][b][m].append(val)
                     q_quality_sum += val
                     q_quality_count += 1
+
+            # Token metrics
+            for m in ["token_output", "token_answer", "token_reasoning"]:
+                val = eval_metrics.get(m)
+                if val is not None:
+                    raw_values[b][m].append(val)
+                    category_values[category][b][m].append(val)
                     
         # Compute query average quality score to determine difficulty
         if q_quality_count > 0:

@@ -89,6 +89,20 @@ def calculate_semantic_accuracy(golden_answers: List[str], generated_answers: Li
     return similarities
 
 
+def count_text_tokens(text: str) -> int:
+    """Counts token count in text using tiktoken or simple character heuristic."""
+    if not text:
+        return 0
+    if tiktoken is not None:
+        try:
+            encoding = tiktoken.get_encoding("cl100k_base")
+            return len(encoding.encode(text))
+        except Exception:
+            pass
+    # Simple heuristic fallback (approx. 4 characters per token for English/Russian mixed)
+    return max(1, len(text) // 4)
+
+
 def estimate_prompt_tokens(query: str, retrieved_chunks: List[Dict[str, Any]], baseline: str) -> int:
     """Estimates prompt token count using tiktoken or simple character heuristic."""
     if baseline == "B0":
@@ -119,12 +133,4 @@ def estimate_prompt_tokens(query: str, retrieved_chunks: List[Dict[str, Any]], b
             f"<|im_end|>\n<|im_start|>user\nQuestion: {query}\nAnswer in Russian:\n<|im_end|>\n<|im_start|>assistant\n"
         )
     
-    if tiktoken is not None:
-        try:
-            encoding = tiktoken.get_encoding("cl100k_base")
-            return len(encoding.encode(prompt))
-        except Exception:
-            pass
-            
-    # Simple heuristic fallback (approx. 4 characters per token for English/Russian mixed)
-    return len(prompt) // 4
+    return count_text_tokens(prompt)

@@ -48,6 +48,8 @@ def print_rich_tables(stats: dict) -> None:
             val = stats["summary"][b][m]["mean"]
             if m == "latency_sec":
                 row.append(f"{val:.2f}s")
+            elif m in ("token_output", "token_answer", "token_reasoning"):
+                row.append(f"{val:.1f}")
             else:
                 row.append(f"{val:.3f}")
         table.add_row(*row)
@@ -82,6 +84,15 @@ def print_rich_tables(stats: dict) -> None:
                     f"{max_val:.2f}s",
                     f"{med_val:.2f}s",
                     f"{std_val:.2f}s"
+                )
+            elif m in ("token_output", "token_answer", "token_reasoning"):
+                table_det.add_row(
+                    METRIC_LABELS[m],
+                    f"{mean_val:.1f}",
+                    f"{min_val:.0f}",
+                    f"{max_val:.0f}",
+                    f"{med_val:.1f}",
+                    f"{std_val:.1f}"
                 )
             else:
                 table_det.add_row(
@@ -156,8 +167,12 @@ def print_plain_tables(stats: dict) -> None:
         row = [b, f"{sr:.1f}%"]
         for m in ALL_METRICS:
             val = stats["summary"][b][m]["mean"]
-            suffix = "s" if m == "latency_sec" else ""
-            row.append(f"{val:.3f}{suffix}")
+            if m == "latency_sec":
+                row.append(f"{val:.2f}s")
+            elif m in ("token_output", "token_answer", "token_reasoning"):
+                row.append(f"{val:.1f}")
+            else:
+                row.append(f"{val:.3f}")
         print("\t".join(row))
     print()
 
@@ -189,6 +204,8 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
     
     best_per_metric = {}
     for m in ALL_METRICS:
+        if m in ("token_output", "token_answer", "token_reasoning"):
+            continue
         if m == "latency_sec":
             best_val = min(stats["summary"][b][m]["mean"] for b in stats["baselines"])
             best_b = [b for b in stats["baselines"] if stats["summary"][b][m]["mean"] == best_val][0]
@@ -202,9 +219,14 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
         row = [f"**{b}**", f"{sr:.1f}%"]
         for m in ALL_METRICS:
             val = stats["summary"][b][m]["mean"]
-            cell_str = f"{val:.3f}" if m != "latency_sec" else f"{val:.2f}s"
+            if m == "latency_sec":
+                cell_str = f"{val:.2f}s"
+            elif m in ("token_output", "token_answer", "token_reasoning"):
+                cell_str = f"{val:.1f}"
+            else:
+                cell_str = f"{val:.3f}"
             
-            if best_per_metric[m] == b:
+            if m in best_per_metric and best_per_metric[m] == b:
                 cell_str = f"🏆 **{cell_str}**"
             row.append(cell_str)
         lines.append("| " + " | ".join(row) + " |")
@@ -227,15 +249,33 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
             med_val = m_stats["median"]
             std_val = m_stats["stdev"]
             
-            suffix = "s" if m == "latency_sec" else ""
-            lines.append(
-                f"| {METRIC_LABELS[m]} | "
-                f"{mean_val:.3f}{suffix} | "
-                f"{min_val:.3f}{suffix} | "
-                f"{max_val:.3f}{suffix} | "
-                f"{med_val:.3f}{suffix} | "
-                f"{std_val:.3f}{suffix} |"
-            )
+            if m == "latency_sec":
+                lines.append(
+                    f"| {METRIC_LABELS[m]} | "
+                    f"{mean_val:.3f}s | "
+                    f"{min_val:.3f}s | "
+                    f"{max_val:.3f}s | "
+                    f"{med_val:.3f}s | "
+                    f"{std_val:.3f}s |"
+                )
+            elif m in ("token_output", "token_answer", "token_reasoning"):
+                lines.append(
+                    f"| {METRIC_LABELS[m]} | "
+                    f"{mean_val:.1f} | "
+                    f"{min_val:.0f} | "
+                    f"{max_val:.0f} | "
+                    f"{med_val:.1f} | "
+                    f"{std_val:.1f} |"
+                )
+            else:
+                lines.append(
+                    f"| {METRIC_LABELS[m]} | "
+                    f"{mean_val:.3f} | "
+                    f"{min_val:.3f} | "
+                    f"{max_val:.3f} | "
+                    f"{med_val:.3f} | "
+                    f"{std_val:.3f} |"
+                )
         lines.append("")
         
     lines.append("## 📁 Разбивка по категориям запросов (Category Breakdown)")
@@ -320,7 +360,8 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
         writer = csv.writer(f)
         writer.writerow([
             "Baseline", "Success Rate", "Recall", "Precision", 
-            "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)"
+            "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)",
+            "Token Output", "Token Answer", "Token Reasoning"
         ])
         for b in stats["baselines"]:
             sr = f"{stats['summary'][b]['success_rate']:.1f}%"
@@ -333,6 +374,8 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
                 val = stats["summary"][b][metric_name]["mean"]
                 if metric_name == "latency_sec":
                     return f"{val:.2f}"
+                elif metric_name in ("token_output", "token_answer", "token_reasoning"):
+                    return f"{val:.1f}"
                 else:
                     return f"{val:.4f}"
             
@@ -345,7 +388,10 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
                 get_val("answer_relevance"),
                 get_val("citation_fidelity"),
                 get_val("semantic_accuracy"),
-                get_val("latency_sec")
+                get_val("latency_sec"),
+                get_val("token_output"),
+                get_val("token_answer"),
+                get_val("token_reasoning")
             ])
 
 
@@ -369,7 +415,8 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
         writer.writerow([
             "query_id", "category", "baseline", "status", "latency_sec",
             "retrieval_recall", "context_precision", "faithfulness",
-            "answer_relevance", "citation_fidelity", "semantic_accuracy"
+            "answer_relevance", "citation_fidelity", "semantic_accuracy",
+            "token_output", "token_answer", "token_reasoning"
         ])
         
         for r in results:
@@ -402,7 +449,10 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                     get_metric("faithfulness"),
                     get_metric("answer_relevance"),
                     get_metric("citation_fidelity"),
-                    get_metric("semantic_accuracy")
+                    get_metric("semantic_accuracy"),
+                    get_metric("token_output"),
+                    get_metric("token_answer"),
+                    get_metric("token_reasoning")
                 ])
 
 

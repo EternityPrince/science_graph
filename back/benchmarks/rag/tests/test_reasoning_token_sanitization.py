@@ -133,6 +133,10 @@ async def test_evaluator_sends_only_final_answer_to_llm_judge(tmp_path):
     assert res["semantic_accuracy"] == 0.9
     assert res["faithfulness"] == 0.9
     assert res["citation_fidelity"] == 0.9
+    assert res["token_output"] > 0
+    assert res["token_answer"] > 0
+    assert res["token_reasoning"] > 0
+    assert res["token_output"] == res["token_answer"] + res["token_reasoning"]
     
     assert checkpoint_path.exists()
 
@@ -328,3 +332,31 @@ def test_fallback_parser_handles_various_reasoning_formats():
     status, ans = _fallback_parse_reasoning_response(mixed_noisy)
     assert_no_reasoning_leak(ans)
     assert "clean answer with inst" in ans
+
+
+# =========================================================================
+# Test 5: token metrics output splitting and calculation
+# =========================================================================
+
+def test_token_output_splitting_and_calculation():
+    from core.metrics import count_text_tokens
+    
+    # 1. Test count_text_tokens
+    text = "Hello world! This is a test of token count calculation."
+    tokens = count_text_tokens(text)
+    assert tokens > 0
+    
+    # 2. Test dynamic token metrics calculation in evaluate_baseline_case
+    from core.evaluator import get_clean_judge_answer
+    
+    raw_answer = RAW_ANSWER_WITH_REASONING
+    clean_answer = get_clean_judge_answer(raw_answer)
+    
+    raw_tokens = count_text_tokens(raw_answer)
+    clean_tokens = count_text_tokens(clean_answer)
+    reasoning_tokens = max(0, raw_tokens - clean_tokens)
+    
+    assert raw_tokens > clean_tokens
+    assert reasoning_tokens > 0
+    assert raw_tokens == clean_tokens + reasoning_tokens
+
