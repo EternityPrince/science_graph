@@ -408,6 +408,7 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
 
 def save_judge_report(human_data: dict, judge_output_path: Path) -> None:
     """Creates and saves a simplified evaluation report for the LLM judge."""
+    from core.evaluator import get_clean_judge_answer
     judge_results = []
     for case in human_data.get("results", []):
         judge_case = {
@@ -417,8 +418,9 @@ def save_judge_report(human_data: dict, judge_output_path: Path) -> None:
             "baselines": {}
         }
         for baseline, data in case.get("baselines", {}).items():
+            raw_ans = data.get("generated_answer", "")
             judge_case["baselines"][baseline] = {
-                "generated_answer": data.get("generated_answer", "")
+                "generated_answer": get_clean_judge_answer(raw_ans)
             }
         judge_results.append(judge_case)
         
@@ -432,6 +434,7 @@ def save_judge_report(human_data: dict, judge_output_path: Path) -> None:
 
 def save_individual_judge_reports(human_data: dict, output_dir: Path, output_stem: str, output_suffix: str) -> None:
     """Creates and saves individual simplified evaluation reports for each baseline."""
+    from core.evaluator import get_clean_judge_answer
     baselines_dir = output_dir / "baselines"
     baselines_dir.mkdir(parents=True, exist_ok=True)
     
@@ -445,13 +448,14 @@ def save_individual_judge_reports(human_data: dict, output_dir: Path, output_ste
         for case in human_data.get("results", []):
             baseline_data = case.get("baselines", {}).get(baseline)
             if baseline_data:
+                raw_ans = baseline_data.get("generated_answer", "")
                 judge_case = {
                     "id": case.get("id"),
                     "query": case.get("query"),
                     "golden_answer": case.get("golden_answer"),
                     "baselines": {
                         baseline: {
-                            "generated_answer": baseline_data.get("generated_answer", "")
+                            "generated_answer": get_clean_judge_answer(raw_ans)
                         }
                     }
                 }

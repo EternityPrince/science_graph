@@ -40,8 +40,8 @@ def clean_reasoning_text(text: str) -> str:
 
     # 1. Try to find the last answer marker and take everything after it
     answer_markers = [
-        r"(?:###\s*)?Final\s+Answer\s*:\s*",
-        r"(?:###\s*)?5\.\s*_(?:answer|status|reasoning|analysis|source_analysis)\.\.\.[_a-zA-Z0-9:]*\s*",
+        r"(?:###\s*)?Final\s+Answer\s*:?\s*",
+        r"(?:###\s*)?5\.\s*_(?:answer|status|reasoning|analysis|source_analysis)(?:\.\.\.)?[_a-zA-Z0-9:]*\s*",
     ]
     combined_pattern = re.compile(
         r"|".join(f"(?:{p})" for p in answer_markers),
@@ -59,16 +59,16 @@ def clean_reasoning_text(text: str) -> str:
     else:
         # 2. Try to strip the entire block from "1. _analysis" to "5. _answer" or "Final Answer"
         text = re.sub(
-            r"(?:###\s*)?[1-4]\.\s*_(?:analysis|start|reasoning|status|source_analysis)\.\.\..*?(?=(?:###\s*)?(?:5\.\s*_(?:answer|status|reasoning|analysis)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:))",
+            r"(?:###\s*)?[1-4]\.\s*_(?:analysis|start|reasoning|status|source_analysis)(?:\.\.\.)?.*?(?=(?:###\s*)?(?:5\.\s*_(?:answer|status|reasoning|analysis)(?:\.\.\.)?[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:?))",
             "",
             text,
             flags=re.IGNORECASE | re.DOTALL
         )
 
     # 3. Clean up any remaining section headers/tags
-    header_pattern = r"(?:###\s*)?[1-5]\.\s*_(?:analysis|start|reasoning|status|answer|source_analysis)\.\.\.[_a-zA-Z0-9:]*"
+    header_pattern = r"(?:###\s*)?[1-5]\.\s*_(?:analysis|start|reasoning|status|answer|source_analysis)(?:\.\.\.)?[_a-zA-Z0-9:]*"
     text = re.sub(header_pattern, "", text, flags=re.IGNORECASE)
-    text = re.sub(r"(?:###\s*)?Final\s+Answer\s*:", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:###\s*)?Final\s+Answer\s*:?", "", text, flags=re.IGNORECASE)
     
     # Mask source ID tags to preserve them during strip_thinking_tokens
     text = re.sub(r"<\|source_id\|>", "__SOURCE_ID_TAG__", text, flags=re.IGNORECASE)
@@ -111,7 +111,7 @@ def parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
     # If status is still UNKNOWN, try to extract from 4. _status... section
     if status == "UNKNOWN":
         status_sec_match = re.search(
-            r"(?:###\s*)?4\.\s*_(?:status)\.\.\.[_a-zA-Z0-9:]*\s*(.*?)(?=(?:###\s*)?(?:5\.\s*_(?:answer)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:|$))",
+            r"(?:###\s*)?4\.\s*_(?:status)(?:\.\.\.)?[_a-zA-Z0-9:]*\s*(.*?)(?=(?:###\s*)?(?:5\.\s*_(?:answer)(?:\.\.\.)?[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:?|$))",
             raw_response,
             re.IGNORECASE | re.DOTALL
         )

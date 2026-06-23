@@ -158,6 +158,64 @@ class CloudEvaluator:
                 await asyncio.sleep(1.0)
         return {"score": 0.0, "error": "Evaluation parsing failed."}
 
+    async def evaluate_all_metrics(self, evaluator_config: Dict[str, Any], has_context: bool, **kwargs) -> Dict[str, Any]:
+        """Runs the unified LLM judge call and cleans/parses all scores from output JSON."""
+        from src import console as con
+        system_prompt = evaluator_config["system_prompt"]
+        user_prompt = evaluator_config["user_prompt_template"].format(**kwargs)
+
+        max_parse_retries = 3
+        for parse_attempt in range(max_parse_retries):
+            raw_response = await self.call_llm(system_prompt, user_prompt)
+            try:
+                parsed = self.clean_and_parse_json(raw_response)
+                
+                # Check for standard metrics
+                required_keys = ["answer_relevance", "semantic_accuracy"]
+                if has_context:
+                    required_keys.extend(["faithfulness", "citation_fidelity"])
+                
+                missing_keys = [k for k in required_keys if k not in parsed]
+                if missing_keys:
+                    raise ValueError(f"JSON response is missing the following metric keys: {missing_keys}")
+                
+                for k in required_keys:
+                    metric_data = parsed[k]
+                    # if the response format returned a plain number instead of dict:
+                    if isinstance(metric_data, (int, float)):
+                        parsed[k] = {"score": float(metric_data)}
+                    elif isinstance(metric_data, dict):
+                        if "score" not in metric_data:
+                            raise ValueError(f"Metric '{k}' is missing the 'score' key.")
+                    else:
+                        raise ValueError(f"Metric '{k}' has invalid data type: {type(metric_data)}")
+                
+                return parsed
+            except Exception as e:
+                con.warning(
+                    f"JSON Parse/Validation Error (Attempt {parse_attempt+1}/{max_parse_retries}): {e}. "
+                    f"Raw response: {raw_response[:200] if raw_response else 'None'}..."
+                )
+                if parse_attempt == max_parse_retries - 1:
+                    fallback = {
+                        "answer_relevance": {"score": 0.0, "error": str(e)},
+                        "semantic_accuracy": {"score": 0.0, "error": str(e)}
+                    }
+                    if has_context:
+                        fallback["faithfulness"] = {"score": 0.0, "error": str(e)}
+                        fallback["citation_fidelity"] = {"score": 0.0, "error": str(e)}
+                    return fallback
+                await asyncio.sleep(1.0)
+        
+        fallback = {
+            "answer_relevance": {"score": 0.0, "error": "Evaluation parsing failed."},
+            "semantic_accuracy": {"score": 0.0, "error": "Evaluation parsing failed."}
+        }
+        if has_context:
+            fallback["faithfulness"] = {"score": 0.0, "error": "Evaluation parsing failed."}
+            fallback["citation_fidelity"] = {"score": 0.0, "error": "Evaluation parsing failed."}
+        return fallback
+
     def clean_and_parse_json(self, text: str) -> Dict[str, Any]:
         """Cleans Markdown tags and parses JSON dictionary from LLM response text."""
         text = text.strip()
@@ -230,11 +288,22 @@ async def evaluate_baseline_case(
 ) -> Dict[str, Any]:
     """Evaluates a single test case for a baseline, checking checkpoint first."""
     from src import console as con
-    checkpoint_key = f"{case_id}_{baseline_name}"
+    retrieved_chunks = baseline_data.get("retrieved_chunks", [])
+    
+    import hashlib
+    # Compute payload hash to prevent reuse of cached metrics if answers/inputs change
+    hash_payload = {
+        "generated_answer": baseline_data.get("generated_answer", ""),
+        "retrieved_chunks": retrieved_chunks,
+        "golden_answer": golden_answer,
+        "query": query
+    }
+    payload_str = json.dumps(hash_payload, sort_keys=True, ensure_ascii=False)
+    payload_hash = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:12]
+    checkpoint_key = f"{case_id}_{baseline_name}_{payload_hash}"
     
     # Return from checkpoint if already evaluated with all required metrics
     cached = checkpoint_data.get(checkpoint_key, {})
-    retrieved_chunks = baseline_data.get("retrieved_chunks", [])
     required = ["retrieval_recall", "answer_relevance", "semantic_accuracy", "context_fillness"]
     if baseline_name != "B0" and retrieved_chunks:
         required.extend(["context_precision", "faithfulness", "citation_fidelity"])
@@ -260,17 +329,7 @@ async def evaluate_baseline_case(
     generated_answer = baseline_data.get("generated_answer", "")
     
     # For LLM-as-a-judge, extract only the clean answer without technical tags
-    judge_answer = generated_answer
-    if generated_answer:
-        try:
-            from src.services.rag_service import parse_reasoning_response
-            _, judge_answer = parse_reasoning_response(generated_answer)
-        except Exception:
-            try:
-                # Use fallback parser if heavy imports fail (e.g. tiktoken missing in evaluator env)
-                _, judge_answer = _fallback_parse_reasoning_response(generated_answer)
-            except Exception as fallback_err:
-                con.warning(f"Failed to parse reasoning response using fallback: {fallback_err}")
+    judge_answer = get_clean_judge_answer(generated_answer)
 
     retrieved_papers = baseline_data.get("retrieved_papers", [])
 
@@ -305,59 +364,19 @@ async def evaluate_baseline_case(
     else:
         eval_metrics["context_fillness"] = cached["context_fillness"]
 
-    # If answer is missing, skip LLM calls
-    if not generated_answer.strip():
+    # If clean answer is missing, skip LLM calls
+    if not judge_answer.strip():
         checkpoint_data[checkpoint_key] = eval_metrics
         save_checkpoint(checkpoint_path, checkpoint_data)
         return eval_metrics
 
     # Prepare LLM evaluator inputs
     context_str = build_context_string(retrieved_chunks)
-    
-    llm_tasks = {}
+    has_context = (baseline_name != "B0" and bool(retrieved_chunks))
 
-    # Always evaluate relevance and semantic accuracy
-    if "answer_relevance" not in cached or cached["answer_relevance"] is None:
-        llm_tasks["answer_relevance"] = evaluator.evaluate_metric(
-            prompts["answer_relevance_evaluator"],
-            metric_name="answer_relevance",
-            query=query,
-            answer=judge_answer
-        )
-    else:
-        eval_metrics["answer_relevance"] = cached["answer_relevance"]
-
-    if "semantic_accuracy" not in cached or cached["semantic_accuracy"] is None:
-        llm_tasks["semantic_accuracy"] = evaluator.evaluate_metric(
-            prompts["semantic_accuracy_evaluator"],
-            metric_name="semantic_accuracy",
-            golden_answer=golden_answer,
-            answer=judge_answer
-        )
-    else:
-        eval_metrics["semantic_accuracy"] = cached["semantic_accuracy"]
-
-    # Evaluate faithfulness and citation fidelity only if there is retrieval context
-    if baseline_name != "B0" and retrieved_chunks:
-        if "faithfulness" not in cached or cached["faithfulness"] is None:
-            llm_tasks["faithfulness"] = evaluator.evaluate_metric(
-                prompts["faithfulness_evaluator"],
-                metric_name="faithfulness",
-                context=context_str,
-                answer=judge_answer
-            )
-        else:
-            eval_metrics["faithfulness"] = cached["faithfulness"]
-
-        if "citation_fidelity" not in cached or cached["citation_fidelity"] is None:
-            llm_tasks["citation_fidelity"] = evaluator.evaluate_metric(
-                prompts["citation_fidelity_evaluator"],
-                metric_name="citation_fidelity",
-                sources=context_str,
-                answer=judge_answer
-            )
-        else:
-            eval_metrics["citation_fidelity"] = cached["citation_fidelity"]
+    llm_metrics_needed = ["answer_relevance", "semantic_accuracy"]
+    if has_context:
+        llm_metrics_needed.extend(["faithfulness", "citation_fidelity"])
     elif baseline_name != "B0":
         con.warning(
             f"No retrieved chunks found for baseline {baseline_name} in case {case_id}. "
@@ -366,17 +385,54 @@ async def evaluate_baseline_case(
             "not the simplified evaluation_results_judge.yaml file."
         )
 
-    # Run LLM calls concurrently
-    keys = list(llm_tasks.keys())
-    if keys:
-        eval_results = await asyncio.gather(*llm_tasks.values(), return_exceptions=True)
+    # Check if we need to call LLM:
+    need_llm_call = any(cached.get(m) is None for m in llm_metrics_needed)
 
-        for key, val in zip(keys, eval_results):
-            if isinstance(val, Exception):
-                con.error(f"Failed evaluating {key} for {checkpoint_key}: {val}")
-                eval_metrics[key] = 0.0
-            else:
-                eval_metrics[key] = float(val.get("score", 0.0))
+    if need_llm_call:
+        prompt_key = "unified_with_context_evaluator" if has_context else "unified_without_context_evaluator"
+        if prompt_key in prompts:
+            evaluator_config = prompts[prompt_key]
+        else:
+            # Fallback for backward compatibility/minimal test prompts
+            evaluator_config = prompts.get("answer_relevance_evaluator", {"system_prompt": "", "user_prompt_template": ""})
+
+        kwargs = {
+            "query": query,
+            "golden_answer": golden_answer,
+            "answer": judge_answer
+        }
+        if has_context:
+            kwargs["context"] = context_str
+
+        try:
+            eval_results = await evaluator.evaluate_all_metrics(
+                evaluator_config=evaluator_config,
+                has_context=has_context,
+                **kwargs
+            )
+            for m in llm_metrics_needed:
+                metric_data = eval_results.get(m, {})
+                if isinstance(metric_data, dict):
+                    score_val = metric_data.get("score")
+                elif isinstance(metric_data, (int, float)):
+                    score_val = metric_data
+                else:
+                    score_val = None
+
+                if score_val is None:
+                    eval_metrics[m] = 0.0
+                else:
+                    try:
+                        eval_metrics[m] = float(score_val)
+                    except (ValueError, TypeError):
+                        eval_metrics[m] = 0.0
+        except Exception as e:
+            con.error(f"Failed executing unified LLM evaluator for {checkpoint_key}: {e}")
+            for m in llm_metrics_needed:
+                eval_metrics[m] = 0.0
+    else:
+        for m in llm_metrics_needed:
+            eval_metrics[m] = cached.get(m, 0.0)
 
     # Save to checkpoint
     checkpoint_data[checkpoint_key] = eval_metrics
@@ -587,7 +643,11 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                 "latency_sec": latency,
                 "retrieved_papers": baseline_data.get("retrieved_papers", []),
                 "eval_metrics": eval_metrics,
-                "generated_answer": baseline_data.get("generated_answer", "")
+                "generated_answer": baseline_data.get("generated_answer", ""),
+                "retrieved_chunks": baseline_data.get("retrieved_chunks", []),
+                "context_token": baseline_data.get("context_token"),
+                "max_input_token": baseline_data.get("max_input_token"),
+                "context_fillness": baseline_data.get("context_fillness")
             }
 
         final_results.append(case_output)
@@ -665,6 +725,15 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
         Console().print(table)
 
 
+def get_clean_judge_answer(generated_answer: str) -> str:
+    """Helper to extract clean final answer for judge metrics / reports."""
+    if not generated_answer:
+        return ""
+    from core.sanitization import extract_clean_answer
+    _, judge_answer = extract_clean_answer(generated_answer)
+    return judge_answer
+
+
 def _fallback_parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
     """
     Fallback implementation of parse_reasoning_response that does not depend on
@@ -686,7 +755,7 @@ def _fallback_parse_reasoning_response(raw_response: str) -> Tuple[str, str]:
 
     if status == "UNKNOWN":
         status_sec_match = re.search(
-            r"(?:###\s*)?4\.\s*_(?:status)\.\.\.[_a-zA-Z0-9:]*\s*(.*?)(?=(?:###\s*)?(?:5\.\s*_(?:answer)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:|$))",
+            r"(?:###\s*)?4\.\s*_(?:status)(?:\.\.\.)?[_a-zA-Z0-9:]*\s*(.*?)(?=(?:###\s*)?(?:5\.\s*_(?:answer)(?:\.\.\.)?[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:?|$))",
             raw_response,
             re.IGNORECASE | re.DOTALL
         )
@@ -722,8 +791,8 @@ def _fallback_clean_reasoning_text(text: str) -> str:
         return text
 
     answer_markers = [
-        r"(?:###\s*)?Final\s+Answer\s*:\s*",
-        r"(?:###\s*)?5\.\s*_(?:answer|status|reasoning|analysis|source_analysis)\.\.\.[_a-zA-Z0-9:]*\s*",
+        r"(?:###\s*)?Final\s+Answer\s*:?\s*",
+        r"(?:###\s*)?5\.\s*_(?:answer|status|reasoning|analysis|source_analysis)(?:\.\.\.)?[_a-zA-Z0-9:]*\s*",
     ]
     combined_pattern = re.compile(
         r"|".join(f"(?:{p})" for p in answer_markers),
@@ -739,15 +808,15 @@ def _fallback_clean_reasoning_text(text: str) -> str:
         text = candidate
     else:
         text = re.sub(
-            r"(?:###\s*)?[1-4]\.\s*_(?:analysis|start|reasoning|status|source_analysis)\.\.\..*?(?=(?:###\s*)?(?:5\.\s*_(?:answer|status|reasoning|analysis)\.\.\.[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:))",
+            r"(?:###\s*)?[1-4]\.\s*_(?:analysis|start|reasoning|status|source_analysis)(?:\.\.\.)?.*?(?=(?:###\s*)?(?:5\.\s*_(?:answer|status|reasoning|analysis)(?:\.\.\.)?[_a-zA-Z0-9:]*|(?:###\s*)?Final\s+Answer\s*:?))",
             "",
             text,
             flags=re.IGNORECASE | re.DOTALL
         )
 
-    header_pattern = r"(?:###\s*)?[1-5]\.\s*_(?:analysis|start|reasoning|status|answer|source_analysis)\.\.\.[_a-zA-Z0-9:]*"
+    header_pattern = r"(?:###\s*)?[1-5]\.\s*_(?:analysis|start|reasoning|status|answer|source_analysis)(?:\.\.\.)?[_a-zA-Z0-9:]*"
     text = re.sub(header_pattern, "", text, flags=re.IGNORECASE)
-    text = re.sub(r"(?:###\s*)?Final\s+Answer\s*:", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:###\s*)?Final\s+Answer\s*:?", "", text, flags=re.IGNORECASE)
     
     text = re.sub(r"<\|source_id\|>", "__SOURCE_ID_TAG__", text, flags=re.IGNORECASE)
     

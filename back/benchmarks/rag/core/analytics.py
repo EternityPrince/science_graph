@@ -74,8 +74,10 @@ def analyze_metrics(data: Any) -> dict:
                 sem = b_data.get("semantic_accuracy")
             if sem is None:
                 gold = (r.get("golden_answer") or "").strip()
-                gen = (b_data.get("generated_answer") or "").strip()
-                if gold and gen:
+                gen_raw = (b_data.get("generated_answer") or "").strip()
+                if gold and gen_raw:
+                    from core.sanitization import extract_clean_answer
+                    _, gen = extract_clean_answer(gen_raw)
                     golden_list.append(gold)
                     generated_list.append(gen)
                     missing_semantics.append((r_idx, b))

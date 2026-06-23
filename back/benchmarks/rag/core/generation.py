@@ -280,6 +280,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             con.dim(f"  Running {baseline}: {description.split('—')[0]}")
             
             t0 = time.perf_counter()
+            raw_response = ""
             if args.consume_contexts:
                 pre_case = pre_contexts.get(case_id, {})
                 pre_baseline = pre_case.get("baselines", {}).get(baseline, {}) if pre_case else {}
@@ -385,6 +386,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                     answer, retrieved, metrics, chunks = run_query_on_baseline(
                         rag_service, query, baseline, use_cloud=args.cloud, config=config
                     )
+                    raw_response = answer
                     status = "success"
                 except Exception as e:
                     answer = f"Error occurred during generation: {e}"
@@ -433,7 +435,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 "context_fillness": context_fillness,
                 "retrieval_recall": recall_val,
                 "context_precision": precision_val,
-                "generated_answer": answer.strip(),
+                "generated_answer": raw_response.strip() if raw_response else answer.strip(),
                 "retrieved_chunks": chunks
             }
             
