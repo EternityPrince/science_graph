@@ -11,7 +11,7 @@ class MockSchema(BaseModel):
     age: int
 
 
-class TestMlxImpl(unittest.TestCase):
+class TestMlxImpl(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.orig_data = config.data
         config.data = {
@@ -182,3 +182,116 @@ class TestMlxImpl(unittest.TestCase):
         # Test count_tokens method
         mock_tokenizer.encode.return_value = [1, 2, 3]
         self.assertEqual(engine.count_tokens("hello"), 3)
+
+    @patch("os.path.isdir")
+    def test_unload_model(self, mock_isdir):
+        mock_isdir.return_value = True
+        engine = MlxLLMEngine(model_path="/fake/model/path")
+        
+        # Scenario 1: model is None
+        engine.unload_model()
+        self.assertIsNone(engine.model)
+        
+        # Scenario 2: model is loaded, mlx has clear_cache
+        mock_model = MagicMock()
+        engine.model = mock_model
+        engine.tokenizer = MagicMock()
+        engine._tokenizer_data = MagicMock()
+        
+        with patch("mlx.core.clear_cache") as mock_clear_cache:
+            engine.unload_model()
+            mock_clear_cache.assert_called_once()
+            self.assertIsNone(engine.model)
+            self.assertIsNone(engine.tokenizer)
+            self.assertIsNone(engine._tokenizer_data)
+            
+        # Scenario 3: mlx has metal.clear_cache instead
+        engine.model = mock_model
+        with patch("mlx.core") as mock_mx:
+            if hasattr(mock_mx, "clear_cache"):
+                del mock_mx.clear_cache
+            mock_metal_clear_cache = mock_mx.metal.clear_cache
+            engine.unload_model()
+            mock_metal_clear_cache.assert_called_once()
+
+        # Scenario 4: mlx.core import raises ImportError
+        engine.model = mock_model
+        with patch.dict("sys.modules", {"mlx.core": None}):
+            engine.unload_model()
+            self.assertIsNone(engine.model)
+
+    def test_build_mlx_tokenizer_data_edge_cases(self):
+        # 1. eos_token_id is None
+        mock_hf_tokenizer = MagicMock()
+        mock_hf_tokenizer.__len__.return_value = 5
+        mock_hf_tokenizer.all_special_ids = [4]
+        mock_hf_tokenizer.eos_token_id = None
+        mock_hf_tokenizer.encode.side_effect = Exception("encode error")
+        
+        # fallback encode raises exception, decode throws on some tokens
+        def mock_decode(tokens):
+            if tokens == [0, 1]:
+                raise ValueError("cannot decode")
+            return f"decoded-{tokens}"
+        mock_hf_tokenizer.decode.side_effect = mock_decode
+        
+        # Mock token_0 encode fallback
+        def mock_encode(text, **kwargs):
+            if kwargs.get("add_special_tokens") is False:
+                raise ValueError("No special tokens allowed")
+            return [0]
+        mock_hf_tokenizer.encode.side_effect = mock_encode
+        
+        tokenizer = MagicMock()
+        tokenizer._tokenizer = mock_hf_tokenizer
+        
+        data = build_mlx_tokenizer_data(tokenizer)
+        self.assertEqual(data.eos_token_id, [])
+        self.assertEqual(data.vocab_size, 5)
+
+        # 2. eos_token_id is list
+        mock_hf_tokenizer.eos_token_id = [1, 2]
+        data = build_mlx_tokenizer_data(tokenizer)
+        self.assertEqual(data.eos_token_id, [1, 2])
+
+    @patch("os.path.isdir")
+    @patch("mlx_lm.load")
+    @patch("mlx_lm.generate")
+    @patch("src.llm_engine.mlx_impl.build_mlx_tokenizer_data")
+    @patch("lmformatenforcer.TokenEnforcer")
+    @patch("lmformatenforcer.JsonSchemaParser")
+    async def test_async_generation(self, mock_parser, mock_enforcer, mock_build_data, mock_generate, mock_load, mock_isdir):
+        mock_isdir.return_value = True
+        mock_load.return_value = (MagicMock(), MagicMock())
+        mock_generate.return_value = "async response"
+        
+        engine = MlxLLMEngine(model_path="/fake/model/path")
+        res = await engine.generate_response_async("prompt")
+        self.assertEqual(res, "async response")
+        
+        mock_generate.return_value = '{"name": "async", "age": 2}'
+        res_json = await engine.generate_json_async("prompt", MockSchema)
+        self.assertEqual(res_json, '{"name": "async", "age": 2}')
+
+    @patch("os.path.isdir")
+    @patch("mlx_lm.load")
+    @patch("mlx_lm.generate")
+    @patch("src.llm_engine.mlx_impl.build_mlx_tokenizer_data")
+    @patch("lmformatenforcer.TokenEnforcer")
+    @patch("lmformatenforcer.JsonSchemaParser")
+    async def test_chat_template_exception_handling(self, mock_parser, mock_enforcer, mock_build_data, mock_generate, mock_load, mock_isdir):
+        mock_isdir.return_value = True
+        
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.apply_chat_template.side_effect = Exception("apply_chat_template error")
+        mock_load.return_value = (MagicMock(), mock_tokenizer)
+        
+        mock_generate.return_value = "response with exception template"
+        
+        engine = MlxLLMEngine(model_path="/fake/model/path")
+        res = await engine.generate_response_async("prompt")
+        self.assertEqual(res, "response with exception template")
+        
+        mock_generate.return_value = '{"name": "test", "age": 1}'
+        res_json = await engine.generate_json_async("prompt", MockSchema)
+        self.assertEqual(res_json, '{"name": "test", "age": 1}')

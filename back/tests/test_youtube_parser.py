@@ -77,14 +77,117 @@ class TestYoutubeVideoParser(unittest.TestCase):
         mock_ytdl.side_effect = Exception("yt-dlp error")
 
         parser = YoutubeVideoParser()
-        paper, links, full_text = parser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        paper, links, full_text = parser.parse(url)
 
-        # Verify fallback metadata
+        # Verify fallback metadata has URL in title
         self.assertEqual(paper.id, "yt_dQw4w9WgXcQ")
-        self.assertEqual(paper.title, "YouTube Video")
+        self.assertEqual(paper.title, f"YouTube Video ({url})")
         self.assertEqual(paper.authors, ["Unknown Creator"])
         self.assertEqual(paper.properties["source_type"], "video")
         self.assertIn("Audio download failed", paper.properties["transcript"])
+
+    @patch("yt_dlp.YoutubeDL")
+    def test_parse_publish_date_invalid(self, mock_ytdl):
+        """Test fallback when publish_date cannot be parsed as integer year."""
+        mock_ytdl_instance = MagicMock()
+        mock_ytdl.return_value.__enter__.return_value = mock_ytdl_instance
+        mock_ytdl_instance.extract_info.return_value = {
+            "title": "Test Title",
+            "uploader": "Test Uploader",
+            "description": "Desc",
+            "duration": 100,
+            "upload_date": "invalid_date",
+        }
+        mock_ytdl_instance.prepare_filename.return_value = "yt_test.m4a"
+
+        parser = YoutubeVideoParser()
+        paper, links, full_text = parser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertIsNone(paper.year)
+
+    @patch("yt_dlp.YoutubeDL")
+    @patch("src.parsers.youtube_parser.os.path.exists")
+    def test_parse_whisper_model_missing(self, mock_exists, mock_ytdl):
+        """Test fallback when local Whisper model path does not exist."""
+        # yt_dlp succeeds and returns temporary audio path
+        mock_ytdl_instance = MagicMock()
+        mock_ytdl.return_value.__enter__.return_value = mock_ytdl_instance
+        mock_ytdl_instance.extract_info.return_value = {
+            "title": "Test Title",
+            "uploader": "Test Uploader",
+            "description": "My Video Desc",
+            "duration": 100,
+            "upload_date": "20260522",
+        }
+        mock_ytdl_instance.prepare_filename.return_value = "yt_test.m4a"
+
+        # os.path.exists returns True for temp_audio_path but False for the Whisper model path
+        def side_effect(path):
+            if "faster-whisper-large-v3-turbo" in path:
+                return False
+            return True
+        mock_exists.side_effect = side_effect
+
+        parser = YoutubeVideoParser()
+        paper, links, full_text = parser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertIn("Transcription unavailable", paper.properties["transcript"])
+
+    @patch("yt_dlp.YoutubeDL")
+    @patch("faster_whisper.WhisperModel")
+    @patch("src.parsers.youtube_parser.os.path.exists")
+    def test_parse_whisper_transcription_fails(self, mock_exists, mock_whisper, mock_ytdl):
+        """Test fallback when WhisperModel.transcribe raises an exception."""
+        mock_exists.return_value = True
+        mock_ytdl_instance = MagicMock()
+        mock_ytdl.return_value.__enter__.return_value = mock_ytdl_instance
+        mock_ytdl_instance.extract_info.return_value = {
+            "title": "Test Title",
+            "uploader": "Test Uploader",
+            "description": "My Video Desc",
+            "duration": 100,
+            "upload_date": "20260522",
+        }
+        mock_ytdl_instance.prepare_filename.return_value = "yt_test.m4a"
+
+        # Whisper transcribe raises exception
+        mock_whisper_instance = MagicMock()
+        mock_whisper.return_value = mock_whisper_instance
+        mock_whisper_instance.transcribe.side_effect = Exception("Whisper transcription crash")
+
+        parser = YoutubeVideoParser()
+        paper, links, full_text = parser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertIn("Transcription unavailable", paper.properties["transcript"])
+
+    @patch("yt_dlp.YoutubeDL")
+    @patch("faster_whisper.WhisperModel")
+    @patch("src.parsers.youtube_parser.os.path.exists")
+    @patch("src.parsers.youtube_parser.os.remove")
+    def test_parse_os_remove_raises_error(self, mock_remove, mock_exists, mock_whisper, mock_ytdl):
+        """Test fallback when cleaning up the temp audio file raises an exception."""
+        mock_exists.return_value = True
+        mock_ytdl_instance = MagicMock()
+        mock_ytdl.return_value.__enter__.return_value = mock_ytdl_instance
+        mock_ytdl_instance.extract_info.return_value = {
+            "title": "Test Title",
+            "uploader": "Test Uploader",
+            "description": "My Video Desc",
+            "duration": 100,
+            "upload_date": "20260522",
+        }
+        mock_ytdl_instance.prepare_filename.return_value = "yt_test.m4a"
+
+        # Whisper succeeds
+        mock_whisper_instance = MagicMock()
+        mock_whisper.return_value = mock_whisper_instance
+        mock_whisper_instance.transcribe.return_value = ([], None)
+
+        # os.remove raises OSError
+        mock_remove.side_effect = OSError("Permission denied")
+
+        parser = YoutubeVideoParser()
+        # Should not raise exception out of parse
+        paper, links, full_text = parser.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertEqual(paper.title, "Test Title")
 
 if __name__ == "__main__":
     unittest.main()

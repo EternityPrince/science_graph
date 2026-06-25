@@ -132,12 +132,12 @@ class NEREngine:
             con.model_msg(f"Loading NER model [bold]{self.model_id}[/bold] from cache…")
 
         try:
-            from transformers import pipeline
+            import transformers
             import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 # Use 'first' strategy — more reliable for multi-token names than 'simple'
-                self._pipeline = pipeline(
+                self._pipeline = transformers.pipeline(
                     "ner",
                     model=self.model_id,
                     aggregation_strategy="first",

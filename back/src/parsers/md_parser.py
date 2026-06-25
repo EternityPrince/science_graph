@@ -72,7 +72,7 @@ class MarkdownParser(BaseParser):
         links = WIKILINK_RE.findall(body)
 
         # Standard markdown links: [Label](Target)
-        standard_links = re.findall(r'(?<!\!)\[([^\]]+)\]\(([^)\s]+)(?:\s+["\'][^"\']*["\'])?\)', body)
+        standard_links = re.findall(r'(?<!\!)\[([^\]]+)\]\(([^)\s]*)(?:\s+["\'][^"\']*["\'])?\)', body)
         resolved_links = []
         for label, target in standard_links:
             target = target.strip()

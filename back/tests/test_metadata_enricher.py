@@ -135,3 +135,10 @@ class TestMetadataEnricher(unittest.IsolatedAsyncioTestCase):
         res = await self.enricher.enrich_async(paper)
         self.assertEqual(res, {"title": "Mocked Sync Enriched"})
         self.enricher.enrich.assert_called_once_with(paper)
+
+    async def test_enrich_async_import_error_handling(self):
+        """Test enrich_async handles ImportError when importing unittest.mock."""
+        paper = Paper(id="p1", title="", authors=[], year=None, doi=None)
+        with patch.dict("sys.modules", {"unittest.mock": None}):
+            res = await self.enricher.enrich_async(paper)
+            self.assertIsNone(res)

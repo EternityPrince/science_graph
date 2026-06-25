@@ -16,11 +16,13 @@ Compared to generic vector search databases or typical RAG frameworks, **Science
 
 1. **Graph-Augmented RAG (not just flat vectors)**: Instead of treating your library as disconnected text chunks, Science Graph structures them into a queryable semantic graph connecting `Paper` ↔ `Author` ↔ `Concept` ↔ `Tag` nodes. The LLM receives both textual context and relational context (citations, co-authors, and tag chains).
 2. **Concept Ontology & spaCy Lemmatization**: Extracted concepts are processed through spaCy for multilingual lemmatization and alias matching. Synonyms (e.g., *"convolutional network"*, *"сверточная сеть"*, and *"CNN"*) are automatically resolved to a single canonical `Concept` node, preventing graph fragmentation.
-3. **Local Apple Silicon Optimizations & Cloud Fallback**: Built with native support for [MLX](https://github.com/ml-explore/mlx) to run Gemma, Qwen, and LLaMA models directly on macOS GPUs with high speed and zero inference latency. If desired, cheap/fast cloud providers can be toggled via `config.yaml` using OpenAI-compatible APIs (OpenRouter, OpenAI).
-4. **Multimodal Local Parsers**: Ingests Markdown (Obsidian-style `[[wikilinks]]`), PDFs, EPUBs, and YouTube videos. For PDFs, it uses the high-performance **Marker** parser by default with local OCR and layout analysis to convert PDFs into structured Markdown with LaTeX math and tables (Russian and English languages supported). For videos, it extracts the audio track, runs local **Whisper** transcription, and filters transcript chunks to discard conversational fluff before indexing.
-5. **Hybrid Retrieval with Reciprocal Rank Fusion (RRF)**: Combines dense embeddings search (`USearch` HNSW index) and sparse keyword matches (SQLite `FTS5`) with adaptive BM25 weighting based on match strength.
-6. **Smart Context Trimming**: To ensure inputs fit local LLM context limits (e.g. 4k/8k tokens), the system dynamically prunes context. It groups chunks by paper, soft-trims sentences from the *middle* of paragraphs (retaining critical intro/conclusion sentences), and drops low-importance graph edges last.
-7. **Model Context Protocol (MCP) Server**: Ships with a built-in MCP server. Agents like Claude Desktop, Cursor, or peer AIs can connect to it to query, explore, index files, or manage research notes directly.
+3. **Hierarchical (Parent-Child) Chunking**: Chunks documents at two levels: large parent chunks (e.g., 2500 characters) for context richness, and smaller child chunks (e.g., 300 characters) for high-precision semantic retrieval. The system embeds the child chunks but feeds the broader parent context to the LLM during generation, optimizing both search accuracy and comprehension.
+4. **Local Hardware Acceleration (MLX & GGUF)**: Runs local LLMs with high speed. Built with native support for [MLX](https://github.com/ml-explore/mlx) on Apple Silicon macOS GPUs, and cross-platform [GGUF](https://github.com/ggerganov/llama.cpp) support via `llama-cpp-python`. Easy fallback to cloud models (OpenRouter, OpenAI) is also available.
+5. **Multimodal Local Ingestion**: Ingests Markdown (with Obsidian-style `[[wikilinks]]`), PDFs, EPUBs, and YouTube videos. For PDFs, it runs **Marker** (default, with OCR and layout analysis) or **PyMuPDF**. For YouTube, it uses `yt-dlp` and `faster-whisper` for local transcription and filters transcriptions to remove conversational noise.
+6. **Hybrid Retrieval with Reciprocal Rank Fusion (RRF)**: Combines dense embeddings search (`USearch` HNSW index) and sparse keyword matches (SQLite `FTS5`) with adaptive BM25 weighting based on match strength.
+7. **Smart Context Trimming**: To fit local LLM context limits, the engine groups chunks by paper, soft-trims sentences from the *middle* of paragraphs (retaining critical intro/conclusion sentences), and drops low-importance graph edges last.
+8. **Reasoning Model Support & Answer Sanitization**: Optimised for reasoning models (e.g. DeepSeek-R1, Qwen-2.5-Instruct). It automatically strips thinking blocks (`<think>...</think>`), technical/chat control tags (like `<|im_start|>`), and parses structured reasoning steps (`1. _analysis...`, `5. _answer...`) into clean final answers.
+9. **Model Context Protocol (MCP) Server**: Ships with an MCP server allowing desktop agents (Claude Desktop, Cursor, etc.) to query, explore, index files, and manage research notes directly.
 
 ---
 
@@ -175,11 +177,12 @@ The `index` command processes local files or URLs. Rather than running a simple 
 ```
 
 1. **Duplicate Detection & Shingle Matching**: Extracted text signatures are generated via shingles. Science Graph computes Jaccard similarity and checks existing database titles/IDs. If a duplicate is detected, it terminates the process early, saving computation and LLM tokens.
-2. **Parser Selection**:
+2. **Parser Selection & Hierarchical Chunking**:
    - **PDFs**: Parsed via **Marker** (default, layout-aware Markdown and LaTeX formulas converter) or **PyMuPDF** (legacy fast parser).
    - **Markdown notes**: Loaded with front-matter extraction (supporting Obsidian-style `[[wiki-links]]` for creating related Concept/Paper nodes).
    - **EPUBs**: Parsed using `ebooklib`.
    - **YouTube videos**: Ingested via `yt-dlp`. The audio track is downloaded, transcribed locally using `faster-whisper`, and the resulting text chunks are filtered for database relevance.
+   - **Hierarchical (Parent-Child) Strategy**: Once the text is parsed, it is split into large **Parent Chunks** (preserving complete paragraphs and semantic context) and then sub-divided into smaller **Child Chunks**. The child chunks are vectorized and indexed, while the parent mapping is stored in the database for prompt expansion during retrieval.
 3. **Four Concurrent Async Paths (DAG Ingestion)**:
    - **Path A (Metadata Enrichment)**: Interrogates the Semantic Scholar and arXiv APIs to fetch publication years, DOIs, formal citation list schemas, and author names.
    - **Path B (Concept & Tag Extraction)**: Utilizes spaCy and a local NER model (`bert-base-NER`) to parse core entities, filtering them through a lemmatization pipeline to resolve plurals or multilingual synonyms into unique Concept nodes.
@@ -255,8 +258,62 @@ When you ask a question via `query` or in the TUI/Web Chat, the pipeline execute
 5. **Score Blending**: Ranks candidates using a blended metric: `0.7 * Reranker_Score + 0.3 * RRF_Score` to prevent dense-only vector bias.
 6. **Graph Context Enrichment**: Gathers neighboring relations of the retrieved papers (e.g., citation chains, author links, concept tags) and appends them to the prompt context. Edges are weighted by strength (e.g., `AUTHORED`: 0.8, `CITES`: 0.7, `MENTIONS_CONCEPT`: 0.6).
 7. **Smart Token Trimming**: Measures total context token length against the LLM's limit. If too large, it groups chunks by paper, and iteratively prunes sentences from the middle of the paragraph (retaining the first/last sentences which contain the key thesis statements) rather than throwing away entire documents. If still too large, it prunes low-priority graph links.
-8. **LLM Generation**: Generates the final cited response using the local MLX engine or cloud model configuration.
-9. **Citation Validation & Repair**: A regex engine verifies the bracketed citations (e.g. `[1]`, `[2]`) in the output, maps them to the actual document metadata indexes, and filters out hallucinated citations.
+8. **LLM Generation**: Generates the response using the local MLX engine, GGUF engine, or cloud configuration.
+9. **Answer & Reasoning Token Sanitization**: Runs the generated text through a cleanup pipeline to remove thinking tokens (`<think>...</think>`), technical chat control structures, and model-specific formatting headers.
+10. **Citation Validation & Repair**: A regex engine verifies the bracketed citations (e.g. `[1]`, `[2]`) in the output, maps them to the actual document metadata indexes, and filters out hallucinated citations.
+
+---
+
+## 📊 RAG Quality Benchmarking
+
+Science Graph includes a robust quality evaluation suite to benchmark different RAG pipeline configurations against a golden evaluation dataset (e.g., the local SciQ scientific dataset `sciq_dataset.yaml`).
+
+### ⚙️ Baselines Matrix
+The benchmarking system evaluates the quality of retrieval and generation across several baseline presets:
+
+| Component Name | B0 (Zero-Shot) | B1 (Lexical) | B2 (Dense) | B3 (HyDE) | B4 (Hybrid) | B5 (Static Graph) | B6 (Full Pipeline) | CUSTOM |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`intent_classifier`** | OFF | OFF | OFF | OFF | OFF | OFF | OFF | OFF |
+| **`graph_ontology_lookup`** | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** |
+| **`llm_query_expansion`** | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | OFF |
+| **`hyde`** | OFF | OFF | OFF | **ON** | OFF | OFF | OFF | OFF |
+| **`lexical_search`** | OFF | **ON** | OFF | OFF | **ON** | **ON** | **ON** | **ON** |
+| **`dense_search`** | OFF | OFF | **ON** | **ON** | **ON** | **ON** | **ON** | **ON** |
+| **`dynamic_alpha_blending`** | OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** | OFF |
+| **`rrf`** (Reciprocal Rank Fusion) | OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** | **ON** |
+| **`graph_expansion`** | OFF | OFF | OFF | OFF | OFF | **ON (Static 1-Hop)** | **ON (Adaptive Crawl)** | OFF |
+| **`reranker`** (Cross-Encoder) | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** |
+| **`score_blending`** | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | OFF |
+| **`context_trimming`** | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** |
+| **`citation_repair`** | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** |
+
+*   **B0 (Zero-Shot)**: Pure LLM knowledge (no context retrieved).
+*   **B1 (Lexical)**: Simple keyword retrieval via SQLite `FTS5` BM25.
+*   **B2 (Dense)**: Vector retrieval via `USearch` HNSW index.
+*   **B3 (HyDE)**: Hypothetical Document Embeddings dense retrieval.
+*   **B4 (Hybrid)**: Blended lexical and dense retrieval using RRF.
+*   **B5 (Static Graph)**: Hybrid search augmented with static 1-hop neighboring node ingestion.
+*   **B6 (Full Pipeline)**: The complete pipeline with Adaptive Graph crawling, Cross-Encoder reranking, fact-filtering, and token-aware context pruning.
+*   **CUSTOM**: User-defined overrides for testing fine-tuned hyperparameters.
+
+### 🏃 Running the Benchmarks
+To run the full end-to-end benchmarking pipeline (Retrieval -> Generation -> LLM-as-a-Judge Evaluation -> Report Generation) on your dataset:
+
+```bash
+# Run the pipeline across all baselines
+uv run python back/benchmarks/rag/run_pipeline.py
+
+# Run only specific baselines using a cloud evaluation engine
+uv run python back/benchmarks/rag/run_pipeline.py --baselines B2,B6 --cloud
+
+# Limit the number of test questions to 5 for quick testing
+uv run python back/benchmarks/rag/run_pipeline.py --limit 5
+
+# Skip the LLM-as-a-Judge evaluation stage (for quick retrieval analysis)
+uv run python back/benchmarks/rag/run_pipeline.py --skip-eval
+```
+
+During execution, the script automatically saves checkpoints to resume interrupted runs, uses a rate limiter for LLM calls, and outputs final comparative reports with metrics (Recall, Precision, LLM Judge accuracy) under `back/reports/`.
 
 ---
 
@@ -426,7 +483,7 @@ hf_token: ""
 
 # Large Language Model (LLM) configuration
 llm:
-  # Provider: 'mlx' (local Apple Silicon) or 'openai' (OpenAI / OpenRouter / compatible APIs)
+  # Provider: 'mlx' (local Apple Silicon), 'gguf' (local GGUF models), or 'openai' (Cloud API)
   provider: "mlx"
   max_tokens: 1000
   model_max_context: 4096
@@ -452,6 +509,11 @@ llm:
   local:
     model_path: "~/models/llm/gemma-3-text-12b-it-4bit"
 
+  # GGUF model settings for local llama-cpp-python inference
+  gguf:
+    n_gpu_layers: -1 # Number of layers to offload to GPU (-1 for all)
+    n_ctx: 4096      # Context window size
+
   cloud:
     provider: "openai"
     model_name: "google/gemini-2.5-flash"
@@ -459,11 +521,22 @@ llm:
     api_key: ""
     base_url: "https://openrouter.ai/api/v1"
 
+  # Benchmarking evaluation settings
+  evaluation:
+    concurrency: 1
+    rpm: 10
+    retries: 5
+
 # Embedding model configuration
 embedding:
   model_name: "sentence-transformers/all-MiniLM-L6-v2"
   chunk_size: 1000
   chunk_overlap: 200
+  # Hierarchical child-parent chunking limits
+  child_chunk_size: 300
+  child_chunk_overlap: 50
+  parent_chunk_size: 2500
+  parent_chunk_overlap: 200
 
 # spaCy configuration for lemmatization
 spacy:
@@ -472,6 +545,10 @@ spacy:
 # Named Entity Recognition model
 ner:
   model_name: "dslim/bert-base-NER"
+
+# Cross-Encoder reranker configuration
+reranker:
+  model_name: "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
 # PDF compression settings to downsample scanned pages
 pdf_compression:
@@ -509,16 +586,29 @@ hyperparameters:
     dynamic_alpha_val_high: 1.0
   graph:
     p_base: 0.75
-    gamma: 0.85
-    max_expansion_depth: 2
-    max_crawled_nodes: 50
+    gamma: 0.5
+    crawl_stop_threshold: 1.0
+    semantic_score_threshold: 0.4
+    semantic_score_top_p: 0.9
+    sigmoid_score_threshold: 0.4
+    sigmoid_score_top_p: 0.9
+    essential_fact_threshold: 0.5
+    sigmoid_slope: -25.0
+    sigmoid_center: 0.5
+    weight_authored: 0.8
+    weight_cites: 0.7
+    weight_mentions_concept: 0.6
+    weight_default: 0.5
+  bm25:
+    k1: 1.5
+    b: 0.75
 ```
 
 ---
 
 ## 🧪 Testing & Current Project State
 
-Science Graph is a robust, local-first research tool. The codebase is backed by **604 automated unit and integration tests** checking:
+Science Graph is a robust, local-first research tool. The codebase is backed by **663 automated unit and integration tests** checking:
 
 - Core SQLite repository transactions, index updates, and neighbor query patterns.
 - EPUB, PDF, and Markdown parsing (wikilink parsing, fallback metadata heuristics).

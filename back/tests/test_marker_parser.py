@@ -164,3 +164,63 @@ Done.
             "И. Иванов. Статья. 2022.",
             "П. Петров. Книга. 2023."
         ]
+
+        # Case with empty elements in reference split
+        markdown4 = """
+# References
+- Vaswani et al. Attention is all you need. 2017.
+- Devlin et al. BERT. 2018.
+- 
+        """
+        refs4 = parser._extract_references_from_markdown(markdown4)
+        assert refs4 == [
+            "Vaswani et al. Attention is all you need. 2017.",
+            "Devlin et al. BERT. 2018."
+        ]
+
+    def test_parse_nonexistent_file(self):
+        """Test that parsing a nonexistent file raises FileNotFoundError."""
+        parser = MarkerPDFParser()
+        with self.assertRaises(FileNotFoundError):
+            parser.parse("nonexistent_file_path.pdf")
+
+    @patch("os.path.exists")
+    @patch("src.parsers.marker_parser.get_marker_models")
+    @patch("marker.convert.convert_single_pdf")
+    @patch("src.parsers.pdf_parser.PDFParser.parse")
+    def test_legacy_parser_fails(self, mock_legacy_parse, mock_convert_pdf, mock_get_models, mock_exists):
+        """Test fallback when the legacy parser raises an exception."""
+        mock_exists.return_value = True
+        mock_legacy_parse.side_effect = RuntimeError("Legacy parser failed")
+        mock_get_models.return_value = ["mock_model"]
+        mock_convert_pdf.return_value = ("# Title\nSome text.", {})
+
+        parser = MarkerPDFParser()
+        paper, references, full_text = parser.parse("dummy.pdf")
+
+        # Verify fallback paper was constructed
+        assert paper.id == "dummypdf"
+        assert paper.title == "dummy"
+        assert paper.authors == []
+        assert paper.year == 2026
+        assert paper.abstract == ""
+        assert paper.file_path == "dummy.pdf"
+
+    def test_module_imports_coverage(self):
+        """Force-reload marker_parser module to exercise import-time monkeypatches."""
+        import importlib
+        import sys
+        
+        orig_modules = sys.modules.copy()
+        try:
+            # 1. Simulate transformers.utils.model_parallel_utils not in sys.modules
+            if "transformers.utils.model_parallel_utils" in sys.modules:
+                del sys.modules["transformers.utils.model_parallel_utils"]
+            importlib.reload(marker_module)
+            
+            # 2. Simulate huggingface_hub.dataclasses raising ImportError
+            sys.modules["huggingface_hub.dataclasses"] = None
+            importlib.reload(marker_module)
+        finally:
+            sys.modules.clear()
+            sys.modules.update(orig_modules)

@@ -369,6 +369,8 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
             def get_val(metric_name):
                 if b == "B0" and metric_name in ["retrieval_recall", "context_precision", "faithfulness", "citation_fidelity"]:
                     return "N/A"
+                if metric_name not in stats["summary"][b]:
+                    return "N/A"
                 if stats["summary"][b][metric_name]["count"] == 0:
                     return "N/A"
                 val = stats["summary"][b][metric_name]["mean"]

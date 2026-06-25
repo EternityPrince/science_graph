@@ -305,7 +305,10 @@ class TestRagBenchmark(unittest.TestCase):
                     "answer_relevance": {"mean": 0.8, "count": 1},
                     "citation_fidelity": {"mean": 0.0, "count": 0},
                     "semantic_accuracy": {"mean": 0.75, "count": 1},
-                    "latency_sec": {"mean": 5.432, "count": 1}
+                    "latency_sec": {"mean": 5.432, "count": 1},
+                    "token_output": {"mean": 0.0, "count": 0},
+                    "token_answer": {"mean": 0.0, "count": 0},
+                    "token_reasoning": {"mean": 0.0, "count": 0}
                 },
                 "B1": {
                     "success_rate": 50.0,
@@ -315,7 +318,10 @@ class TestRagBenchmark(unittest.TestCase):
                     "answer_relevance": {"mean": 0.9, "count": 1},
                     "citation_fidelity": {"mean": 1.0, "count": 1},
                     "semantic_accuracy": {"mean": 0.88, "count": 1},
-                    "latency_sec": {"mean": 12.345, "count": 1}
+                    "latency_sec": {"mean": 12.345, "count": 1},
+                    "token_output": {"mean": 0.0, "count": 0},
+                    "token_answer": {"mean": 0.0, "count": 0},
+                    "token_reasoning": {"mean": 0.0, "count": 0}
                 }
             }
         }
@@ -367,12 +373,13 @@ class TestRagBenchmark(unittest.TestCase):
             self.assertEqual(len(reader), 3) # Header + 2 baselines
             self.assertEqual(reader[0], [
                 "Baseline", "Success Rate", "Recall", "Precision", 
-                "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)"
+                "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)",
+                "Token Output", "Token Answer", "Token Reasoning"
             ])
-            # B0 check (N/A for context metrics)
-            self.assertEqual(reader[1], ["B0", "100.0%", "N/A", "N/A", "N/A", "0.8000", "N/A", "0.7500", "5.43"])
+            # B0 check (N/A for context metrics and token metrics)
+            self.assertEqual(reader[1], ["B0", "100.0%", "N/A", "N/A", "N/A", "0.8000", "N/A", "0.7500", "5.43", "N/A", "N/A", "N/A"])
             # B1 check
-            self.assertEqual(reader[2], ["B1", "50.0%", "0.9000", "0.8500", "0.9500", "0.9000", "1.0000", "0.8800", "12.35"])
+            self.assertEqual(reader[2], ["B1", "50.0%", "0.9000", "0.8500", "0.9500", "0.9000", "1.0000", "0.8800", "12.35", "N/A", "N/A", "N/A"])
             
             # Export detailed
             export_detailed_csv(data, stats, details_csv)
@@ -385,10 +392,11 @@ class TestRagBenchmark(unittest.TestCase):
             self.assertEqual(reader_det[0], [
                 "query_id", "category", "baseline", "status", "latency_sec",
                 "retrieval_recall", "context_precision", "faithfulness",
-                "answer_relevance", "citation_fidelity", "semantic_accuracy"
+                "answer_relevance", "citation_fidelity", "semantic_accuracy",
+                "token_output", "token_answer", "token_reasoning"
             ])
-            self.assertEqual(reader_det[1], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75"])
-            self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88"])
+            self.assertEqual(reader_det[1], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", ""])
+            self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", ""])
 
     @patch("benchmarks.rag.run_pipeline.subprocess.run")
     @patch("benchmarks.rag.run_pipeline.run_command_with_progress")

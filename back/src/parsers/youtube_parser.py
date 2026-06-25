@@ -18,7 +18,7 @@ class YoutubeVideoParser(BaseParser):
         
         # 1. Initialize metadata fallbacks
         video_id = ""
-        video_title = "YouTube Video"
+        video_title = None
         uploader = "Unknown Creator"
         description = ""
         duration = 0
@@ -134,6 +134,7 @@ class YoutubeVideoParser(BaseParser):
             except ValueError:
                 pass
                 
+        video_title = video_title or "YouTube Video"
         paper = Paper(
             id=paper_id,
             title=video_title,

@@ -46,3 +46,8 @@ def test_parser_factory_unsupported():
     with pytest.raises(ValueError) as exc:
         ParserFactory.get_parser("unsupported.txt")
     assert "No parser available for source" in str(exc.value)
+
+def test_base_parser_abstract():
+    from src.parsers.base import BaseParser
+    res = BaseParser.parse(None, "dummy")
+    assert res is None

@@ -328,3 +328,104 @@ class TestDuplicateDetection(unittest.TestCase):
                 ))
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertIn("Duplicate message", ctx.exception.detail)
+
+    def test_reconstruct_text_non_numeric_chunk_id(self):
+        """Test reconstruct_text sort key fallback when chunk id lacks numeric suffix."""
+        # 1. Index a paper
+        paper1 = Paper(
+            id="test-paper-1",
+            title="Title A",
+            authors=["Alice Smith"],
+            doi="10.1000/111",
+            abstract="Abstract A",
+        )
+        self.indexer._run_pipeline(
+            paper=paper1,
+            full_text="Chunk content that will be matched by shingles or reconstruction.",
+            refs_or_links=[],
+            is_markdown=True,
+            needs_enrichment=False,
+            archive_fn=None
+        )
+
+        # 2. Mock chunk with non-numeric ID suffix
+        mock_chunk = Chunk(
+            id="test-paper-1#non_numeric",
+            paper_id="test-paper-1",
+            text_content="Reconstructed chunk text content that is long enough to pass the length check of fifty characters.",
+            page_number=1
+        )
+        
+        with patch.object(self.vector_repo, "get_chunks_for_paper", return_value=[mock_chunk]):
+            from src.services.duplicate_detector import DuplicateDetector
+            detector = DuplicateDetector(self.graph_repo, self.vector_repo, self.emb_engine)
+            # Reconstruct cache should handle the sort fallback and return the chunk text
+            paper2 = Paper(id="test-paper-2", title="Title B", authors=["Alice Smith"])
+            # Run shingle match which triggers reconstruction
+            res = detector.detect_duplicate(paper2, "Reconstructed chunk text content that is long enough to pass the length check of fifty characters.")
+            # Should match
+            self.assertEqual(res, ("test-paper-1", "shingle_similarity"))
+
+    def test_duplicate_first_chunk_text_fallback(self):
+        """Test that first_chunk_text falls back to full_text and title when chunks list is empty."""
+        from src.services.duplicate_detector import DuplicateDetector
+        detector = DuplicateDetector(self.graph_repo, self.vector_repo, self.emb_engine)
+        
+        paper = Paper(id="test-paper-1", title="Title A", authors=["Alice Smith"])
+        
+        # Mock _split_text_to_chunks_raw to return empty list
+        with patch("src.services.duplicate_detector._split_text_to_chunks_raw", return_value=[]):
+            # Also mock search_similar_chunks to return nothing to ensure it doesn't match early
+            with patch.object(self.vector_repo, "search_similar_chunks", return_value=[]):
+                # Scenario A: falls back to full_text
+                res = detector.detect_duplicate(paper, "Short body text.")
+                self.assertIsNone(res)
+
+                # Scenario B: falls back to paper title because full_text is empty
+                res2 = detector.detect_duplicate(paper, "")
+                self.assertIsNone(res2)
+
+    def test_duplicate_reconstruction_content_hash(self):
+        """Test duplicate detection matches on reconstructed content hash when graph properties lack it."""
+        # 1. Index a paper
+        paper1 = Paper(
+            id="test-paper-1",
+            title="Title A",
+            authors=["Alice Smith"],
+            abstract="Abstract A",
+        )
+        self.indexer._run_pipeline(
+            paper=paper1,
+            full_text="This is the original text content reconstructed from chunks.",
+            refs_or_links=[],
+            is_markdown=True,
+            needs_enrichment=False,
+            archive_fn=None
+        )
+
+        # 2. Remove the content_hash from graph repo database node properties to force reconstruction
+        props = self.graph_repo.get_paper("test-paper-1").properties
+        if "content_hash" in props:
+            del props["content_hash"]
+        self.graph_repo.update_node_properties("test-paper-1", props)
+
+        # 3. Try to index another paper with the exact same content, sharing author to make it a candidate
+        paper2 = Paper(
+            id="test-paper-2",
+            title="Title B",
+            authors=["Alice Smith"],
+        )
+        
+        # Ensure embedding matching is skipped by returning empty
+        with patch.object(self.vector_repo, "search_similar_chunks", return_value=[]):
+            with self.assertRaises(DuplicateDocumentError) as ctx:
+                self.indexer._run_pipeline(
+                    paper=paper2,
+                    full_text="This is the original text content reconstructed from chunks.",
+                    refs_or_links=[],
+                    is_markdown=True,
+                    needs_enrichment=False,
+                    archive_fn=None
+                )
+            self.assertEqual(ctx.exception.duplicate_paper_id, "test-paper-1")
+            self.assertIn("content_hash", str(ctx.exception))

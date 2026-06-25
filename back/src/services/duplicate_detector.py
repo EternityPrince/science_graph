@@ -82,8 +82,6 @@ class DuplicateDetector:
 
         # Helper to check if a paper is a placeholder
         def is_placeholder(p: Paper) -> bool:
-            if not p:
-                return False
             return bool(p.properties.get("placeholder") or p.properties.get("is_placeholder"))
 
         # 1. Exact ID check

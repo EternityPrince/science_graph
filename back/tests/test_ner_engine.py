@@ -12,6 +12,7 @@ from src.ner_engine import (
     get_ner_engine,
     extract_persons_from_text,
 )
+from transformers import pipeline
 
 class TestNEREngineFunctions(unittest.TestCase):
     def test_is_likely_name(self):
@@ -89,8 +90,11 @@ class TestNEREngine(unittest.TestCase):
         mock_cached.return_value = True
         mock_pipeline.side_effect = Exception("pipeline load error")
 
-        engine = NEREngine()
-        self.assertIsNone(engine._pipeline)
+        try:
+            engine = NEREngine()
+            self.assertIsNone(engine._pipeline)
+        finally:
+            mock_pipeline.side_effect = None
 
     @patch("src.ner_engine.NEREngine._load_model")
     def test_regex_extract(self, mock_load):
