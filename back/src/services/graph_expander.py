@@ -49,7 +49,7 @@ class ExperimentalGraphExpander:
         reranker: Any,
         p_base: Optional[float] = None,
         gamma: Optional[float] = None,
-        limit: int = 5,
+        limit: Optional[int] = None,
         top_chunks_per_paper: int = 2,
     ):
         self.graph_repo = graph_repo
@@ -58,7 +58,11 @@ class ExperimentalGraphExpander:
         self.reranker = reranker
         self.p_base = p_base if p_base is not None else _safe_float(config.graph_p_base, 0.75)
         self.gamma = gamma if gamma is not None else _safe_float(config.graph_gamma, 0.5)
-        self.limit = limit
+        if limit is None:
+            order = _safe_int(getattr(config, "b6_graph_neighbors_order", 2), 2)
+            self.limit = order + 1
+        else:
+            self.limit = limit
         self.top_chunks_per_paper = top_chunks_per_paper
         
         # Semaphore/lock to prevent concurrent model execution and minimize model switching overhead
