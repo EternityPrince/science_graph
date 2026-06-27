@@ -7,8 +7,8 @@ BASELINES_INFO: Dict[str, str] = {
     "B1": "Pure Lexical (Только лексика) — поиск строго по ключевым словам через SQLite FTS5.",
     "B2": "Pure Dense (Только векторы) — классический семантический поиск по эмбеддингам.",
     "B3": "Dense + HyDE (Векторы + Гипотетический документ) — семантический поиск с гипотетическим ответом.",
-    "B4": "Standard Hybrid (Базовый гибрид) — связка FTS5 + Векторы через RRF без графов.",
-    "B5": "Hybrid + Graph (Базовый Граф-RAG) — гибридный поиск + статический обход графа (без реранкера/LLM-расширения).",
+    "B4": "Standard Hybrid + Reranker (Базовый гибрид с реранкером) — связка FTS5 + Векторы через RRF + реранкер без графов.",
+    "B5": "Hybrid + Graph + Reranker (Базовый Граф-RAG с реранкером) — гибридный поиск + статический обход графа + реранкер.",
     "B6": "Full Pipeline (Максимальный запуск) — включены все 12 компонентов (граф, реранкер, LLM-расширение и др. без HyDE).",
     "CUSTOM": "Custom Run (Конфигурация с пользовательскими параметрами) — для тестирования влияния настроек на поиск."
 }
@@ -36,6 +36,7 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         components["lexical_search"] = True
         components["rrf"] = True
         components["dynamic_alpha_blending"] = True
+        components["reranker"] = True
     elif baseline == "B5":
         components["dense_search"] = True
         components["lexical_search"] = True
@@ -44,10 +45,12 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         components["graph_expansion"] = True
         components["context_trimming"] = True
         components["citation_repair"] = True
+        components["reranker"] = True
     elif baseline == "B6":
         # Full pipeline has everything enabled except hyde (respecting user overrides)
         components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
         components["hyde"] = False
+        components["reranker"] = True
     elif baseline == "CUSTOM":
         # Custom has everything enabled except hyde by default (respecting user overrides)
         components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}

@@ -35,13 +35,14 @@ class TestRagBenchmark(unittest.TestCase):
         self.assertTrue(b4_cfg["dense_search"])
         self.assertTrue(b4_cfg["rrf"])
         self.assertFalse(b4_cfg["graph_expansion"])
+        self.assertTrue(b4_cfg["reranker"])
         
         # B5: Hybrid + Graph (Lexical + Dense + RRF + Graph)
         b5_cfg = get_baseline_config("B5")
         self.assertTrue(b5_cfg["lexical_search"])
         self.assertTrue(b5_cfg["dense_search"])
         self.assertTrue(b5_cfg["graph_expansion"])
-        self.assertFalse(b5_cfg["reranker"])
+        self.assertTrue(b5_cfg["reranker"])
         
         # B6: Full Pipeline (All components should be True except hyde and intent_classifier)
         b6_cfg = get_baseline_config("B6")

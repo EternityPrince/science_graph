@@ -43,10 +43,12 @@ def test_get_baseline_config():
     assert b4_conf["dense_search"]
     assert b4_conf["lexical_search"]
     assert b4_conf["rrf"]
+    assert b4_conf["reranker"]
     
     # Test B5
     b5_conf = get_baseline_config("B5", mock_rag_components)
     assert b5_conf["graph_expansion"]
+    assert b5_conf["reranker"]
     
     # Test B6
     b6_conf = get_baseline_config("B6", mock_rag_components)

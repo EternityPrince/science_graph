@@ -1,99 +1,115 @@
-# RAG Benchmarking Baselines (B0 - B6 + CUSTOM)
+# Описание бейзлайнов RAG (B0 - B6 + CUSTOM)
 
-This document provides a precise, detailed technical specification of the 7 benchmarking baselines (**B0** to **B6**) and the **CUSTOM** configuration implemented in the Science Graph RAG pipeline.
-
----
-
-## 1. RAG Component Matrix
-
-Below is a matrix showing which modules are enabled (**ON**) or disabled (**OFF**) for each baseline configuration:
-
-| Component Name | B0 (Zero-Shot) | B1 (Lexical) | B2 (Dense) | B3 (HyDE) | B4 (Hybrid) | B5 (Static Graph) | B6 (Full Pipeline) | CUSTOM |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`intent_classifier`** | OFF | OFF | OFF | OFF | OFF | OFF | OFF | OFF |
-| **`graph_ontology_lookup`** | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** |
-| **`llm_query_expansion`** | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | OFF |
-| **`hyde`** | OFF | OFF | OFF | **ON** | OFF | OFF | OFF | OFF |
-| **`lexical_search`** | OFF | **ON** | OFF | OFF | **ON** | **ON** | **ON** | **ON** |
-| **`dense_search`** | OFF | OFF | **ON** | **ON** | **ON** | **ON** | **ON** | **ON** |
-| **`dynamic_alpha_blending`**| OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** | OFF |
-| **`rrf`** (Reciprocal Rank Fusion) | OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** | **ON** |
-| **`graph_expansion`** | OFF | OFF | OFF | OFF | OFF | **ON (Static 1-Hop)** | **ON (Adaptive Crawl)** | OFF |
-| **`reranker`** (Cross-Encoder) | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** |
-| **`score_blending`** | OFF | OFF | OFF | OFF | OFF | OFF | **ON** | OFF |
-| **`context_trimming`** | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** |
-| **`citation_repair`** | OFF | OFF | OFF | OFF | OFF | **ON** | **ON** | **ON** |
+В данном документе представлено подробное техническое описание 7 бейзлайнов (**B0** – **B6**) и пользовательской конфигурации (**CUSTOM**), реализованных в пайплайне Science Graph RAG.
 
 ---
 
-## 2. Baseline Descriptions
+## 1. Фиксированные и динамические бейзлайны
 
-### B0: Zero-Shot (Base Knowledge Evaluation)
-*   **Purpose**: Evaluation of the LLM's raw pre-trained knowledge without any external context.
-*   **How it works**: Bypasses the retrieval stage entirely. The query is sent straight to the LLM with a instruction to answer based solely on its own general knowledge.
-*   **Active Modules**: None.
+Все бейзлайны делятся на две группы по способу конфигурации:
+1. **Фиксированные бейзлайны (B0 - B5)**: Их набор включенных модулей жестко закодирован в [core/config.py](file:///Users/vladimirkasterin/python/graph/back/benchmarks/rag/core/config.py) и не зависит от настроек в пользовательском файле конфигурации.
+2. **Динамические бейзлайны (B6 и CUSTOM)**: Напрямую наследуют состояние модулей из файла конфигурации [config.yaml](file:///Users/vladimirkasterin/.config/pdf-graph-analyzer/config.yaml) приложения `pdf-graph-analyzer` (за исключением модуля `hyde`, который принудительно отключается).
+   * *Примечание для CUSTOM*: При запуске бенчмарка с флагом `--custom`, конфигурация CUSTOM перезаписывается предустановленным набором параметров (preset) из [config_creator.py](file:///Users/vladimirkasterin/python/graph/back/benchmarks/rag/config_creator.py).
 
-### B1: Pure Lexical (Keyword Search)
-*   **Purpose**: Simple keyword matching baseline.
-*   **How it works**: Uses SQLite FTS5 (Full-Text Search) to retrieve the top text chunks matching the query. No semantic understanding.
-*   **Active Modules**: `lexical_search`.
+---
 
-### B2: Pure Dense (Standard Vector RAG)
-*   **Purpose**: Classic semantic search baseline.
-*   **How it works**: Encodes the query into an embedding vector and retrieves the top-k chunks using cosine similarity from the vector database.
-*   **Active Modules**: `dense_search`.
+## 2. Матрица компонентов RAG (Теоретическая vs Актуальная)
 
-### B3: Dense + HyDE (Hypothetical Document Embeddings)
-*   **Purpose**: Semantic search enhanced by hypothetical answers.
-*   **How it works**: First, the LLM generates a hypothetical answer (HyDE) based on the user's query. This generated response is then embedded and used to query the vector database, bridging the vocabulary gap.
-*   **Active Modules**: `dense_search`, `hyde` (with `hyde_enabled=True`).
+В таблице ниже приведено сравнение теоретического (задуманного по умолчанию) состояния компонентов и их **актуального** состояния для каждого бейзлайна с учетом текущего конфигурационного файла `config.yaml` в `@[pdf-graph-analyzer]`.
 
-### B4: Standard Hybrid (Lexical + Dense Fusion)
-*   **Purpose**: Traditional non-graph retrieval baseline.
-*   **How it works**: Runs both `dense_search` and `lexical_search` concurrently. Merges the retrieved chunks using Reciprocal Rank Fusion (RRF). Weighs FTS5 results dynamically through `dynamic_alpha_blending` based on keyword match strength.
-*   **Active Modules**: `dense_search`, `lexical_search`, `rrf`, `dynamic_alpha_blending`.
+> [!IMPORTANT]
+> **Текущий файл конфигурации `config.yaml` отключает ключевые функции графа и постобработки.** 
+> В связи с этим актуальный пайплайн **B6 (Full Pipeline)** существенно отличается от теоретического и фактически работает без графового обхода.
 
-### B5: Hybrid + Graph (Static Graph-RAG)
-*   **Purpose**: Hybrid search with static 1-hop bibliographic context.
-*   **How it works**:
-    1.  Retrieves top text chunks using the **B4 Standard Hybrid** pipeline.
-    2.  Identifies all `paper_id`s present in those chunks.
-    3.  Queries the graph database for all **immediate neighbors (depth=1)** of those papers (e.g., authors, cited papers, mentioned concepts).
-    4.  Formats these raw relationships as text lines and appends them statically to the prompt in the `### KNOWLEDGE GRAPH CONNECTIONS:` section.
-    5.  Does **not** crawl deeper, does **not** fetch texts of neighboring papers, and does **not** filter relationships using an LLM.
-*   **Active Modules**: `dense_search`, `lexical_search`, `rrf`, `dynamic_alpha_blending`, `graph_expansion` (Static neighbor mapping), `context_trimming`, `citation_repair`.
-*   **Key configuration detail**: `self.expander` is set to `None`, forcing `RAGService.ask` to bypass the advanced graph crawl.
+| Название компонента | B0 | B1 | B2 | B3 | B4 | B5 | B6 (Теория) | B6 (Текущий config.yaml) | CUSTOM (Текущий config.yaml)* |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`intent_classifier`** | OFF | OFF | OFF | OFF | OFF | OFF | OFF | **OFF** | **OFF** |
+| **`graph_ontology_lookup`** | OFF | OFF | OFF | OFF | OFF | OFF | ON | **ON** | **ON** |
+| **`llm_query_expansion`** | OFF | OFF | OFF | OFF | OFF | OFF | ON | **OFF** | **OFF** |
+| **`hyde`** | OFF | OFF | OFF | ON | OFF | OFF | OFF | **OFF** | **OFF** |
+| **`lexical_search`** | OFF | ON | OFF | OFF | ON | ON | ON | **ON** | **ON** |
+| **`dense_search`** | OFF | OFF | ON | ON | ON | ON | ON | **ON** | **ON** |
+| **`dynamic_alpha_blending`**| OFF | OFF | OFF | OFF | ON | ON | ON | **OFF** | **OFF** |
+| **`rrf`** | OFF | OFF | OFF | OFF | ON | ON | ON | **ON** | **ON** |
+| **`graph_expansion`** | OFF | OFF | OFF | OFF | OFF | ON (Static) | ON (Adaptive) | **OFF** *(Отключен!)* | **OFF** |
+| **`reranker`** | OFF | OFF | OFF | OFF | **ON** | **ON** | ON | **ON** | **ON** |
+| **`score_blending`** | OFF | OFF | OFF | OFF | OFF | OFF | ON | **OFF** | **OFF** |
+| **`context_trimming`** | OFF | OFF | OFF | OFF | OFF | ON | ON | **ON** | **ON** |
+| **`citation_repair`** | OFF | OFF | OFF | OFF | OFF | ON | ON | **OFF** | **OFF** |
 
-### B6: Full Pipeline (Advanced Graph-RAG)
-*   **Purpose**: The maximum capability configuration of the Science Graph RAG pipeline.
-*   **How it works**:
-    1.  **Query Processing**: Bypasses the `intent_classifier` (disabled in code by default), but uses `llm_query_expansion` / `graph_ontology_lookup` to expand the query with synonyms.
-    2.  **Hybrid Retrieval**: Retrieves candidates using dense and lexical search, scores them with `CrossEncoder` (`reranker`), and blends the scores using `score_blending`.
-    3.  **Adaptive Graph Expansion**: Instantiates `ExperimentalGraphExpander` to perform an intelligent crawl:
-        *   **Crawl with Geometric Decay**: Expands depth-first up to `limit` hops, stopping early if neighbors count decays ($K_n < 1.0$) to avoid combinatoric explosion.
-        *   **Summary-First Evaluation**: Fetches abstract/summary cards of neighboring nodes and ranks them against the query using the Cross-Encoder.
-        *   **Chunk Ingestion**: Ingests new text chunks for the highly relevant papers discovered during the crawl.
-        *   **LLM Fact Filtering (Evidence List)**: Compiles all gathered chunks and graph connections, and prompts the LLM to filter out noise, leaving only *essential* facts (`is_essential: true`).
-    4.  **Generation & Validation**: Feeds the unified `enrichment_block` to the generation prompt and cleans up citation indices using `citation_repair`.
-*   **Active Modules**: All components enabled, except `hyde` and `intent_classifier` (which are disabled to isolate performance gains from the graph search and prevent intent classification overhead).
-*   **Key configuration detail**: `self.expander` is instantiated as `ExperimentalGraphExpander`.
+*\*Примечание: При запуске с флагом `--custom` в CLI для CUSTOM применяются фиксированные хардкод-значения (включая `citation_repair: True`). Без этого флага CUSTOM совпадает с текущим config.yaml.*
 
-### CUSTOM: Custom Run Configuration
-*   **Purpose**: User-customized pipeline configuration to optimize hyperparameters and evaluate alternative component selections.
-*   **How it works**:
-    1.  **Query Processing**: Skips LLM Query Expansion and Intent Classifier, but keeps `graph_ontology_lookup` enabled for short concepts.
-    2.  **Hybrid Retrieval**: Retrieves candidate chunks using dense search and lexical search. Dynamic Alpha Blending is disabled, which locks the FTS5 weight at 1.0.
-    3.  **Reranking**: Pulls the top 10 candidates from Stage 3 and rerank them with the Cross-Encoder. Bypasses Score Blending, ranking candidates strictly by the raw Cross-Encoder reranker score to select the top 5 chunks.
-    4.  **Context Construction & Post-Processing**: Bypasses both Static and Adaptive Graph Expansion (graph crawl is completely deactivated due to `p_base=0.0` and `gamma=0.0` inside `GraphPreset`). Applies `context_trimming` and `citation_repair` on the top 5 chunks.
-*   **Active Modules**: `graph_ontology_lookup`, `lexical_search`, `dense_search`, `rrf`, `reranker`, `context_trimming`, `citation_repair`.
-*   **Key configuration details**:
-    *   **Disabled Modules**: `intent_classifier=False`, `llm_query_expansion=False`, `dynamic_alpha_blending=False`, `graph_expansion=False`, `hyde=False`, `score_blending=False`.
-    *   **Custom Hyperparameters**:
-        *   `rag.score_blend_reranker_weight` = `0.75` (vs `0.7` default)
-        *   `rag.score_blend_rrf_weight` = `0.25` (vs `0.3` default)
-        *   `rag.dynamic_alpha_threshold_low` = `1.2` (vs `1.0` default)
-        *   `rag.dynamic_alpha_val_low` = `1.0` (vs `0.2` default)
-        *   `graph.p_base` = `0.0` (vs `0.75` default)
-        *   `graph.gamma` = `0.0` (vs `0.5` default)
-        *   `graph.semantic_score_threshold` = `0.35` (vs `0.4` default)
-        *   Heuristic Graph edge weights set to 1.0 (e.g. `weight_authored=1.0`, `weight_cites=1.0`, `weight_mentions_concept=1.0`, `weight_default=1.0`).
+---
+
+## 3. Критическое отличие B6 в текущей конфигурации
+
+Исходя из файла `config.yaml` в директории `@[pdf-graph-analyzer]`, в секции `rag_components` установлены следующие значения:
+* `graph_expansion: false`
+* `llm_query_expansion: false`
+* `dynamic_alpha_blending: false`
+* `score_blending: false`
+* `citation_repair: false`
+
+### Последствия для B6 (Full Pipeline):
+1. **Полное отключение Graph-RAG**: Модуль `graph_expansion` отключен. Это означает, что **B6 вообще не выполняет обход графа (crawling)** — ни адаптивный, ни статический. Вся информация извлекается исключительно из стандартного векторного и лексического поиска.
+2. **Отключение постобработки и блендинга**:
+   * Отсутствует `dynamic_alpha_blending` (вес лексического поиска зафиксирован).
+   * Отсутствует `score_blending` (результаты ранжируются строго по оценке реранкера).
+   * Отсутствует `citation_repair` (ссылки в сгенерированном ответе не проверяются и не чинятся).
+3. **Фактическая суть B6 сейчас**:
+   Вместо сложного Graph-RAG пайплайна, B6 сейчас представляет собой стандартный гибридный поиск (Dense + Lexical) с RRF-слиянием, последующим реранкингом через Cross-Encoder, извлечением сущностей из онтологии (`graph_ontology_lookup`) и обрезкой контекста (`context_trimming`).
+
+---
+
+## 4. Детальное описание работы пайплайнов
+
+### B0: Zero-Shot (Чистая генерация)
+* **Назначение**: Оценка базовых знаний LLM без предоставления контекста.
+* **Как работает**: Этап извлечения полностью пропускается. Запрос отправляется напрямую в LLM с инструкцией ответить только на основе своих предобученных знаний.
+
+### B1: Pure Lexical (Только лексика)
+* **Назначение**: Простой поиск по ключевым словам.
+* **Как работает**: Использует SQLite FTS5 для поиска наиболее релевантных текстовых чанков. Семантический анализ отсутствует.
+
+### B2: Pure Dense (Только векторы)
+* **Назначение**: Классический семантический векторный поиск.
+* **Как работает**: Запрос кодируется эмбеддинг-моделью, после чего из векторной базы извлекаются топ-k наиболее похожих чанков по косинусному сходству.
+
+### B3: Dense + HyDE
+* **Назначение**: Семантический поиск с генерацией гипотетического документа.
+* **Как работает**: Сначала LLM генерирует гипотетический ответ на запрос. Этот сгенерированный текст эмбеддится и используется для поиска в векторной базе. Это помогает преодолеть терминологический разрыв.
+
+### B4: Standard Hybrid + Reranker (Гибрид с реранкером)
+* **Назначение**: Слияние векторного и ключевого поиска с последующим переранжированием чанков.
+* **Как работает**: Параллельно запускаются `dense_search` и `lexical_search`. Результаты объединяются с помощью Reciprocal Rank Fusion (RRF). Веса лексического поиска динамически калибруются через `dynamic_alpha_blending` в зависимости от силы совпадения ключевых слов. Перед построением контекста чанки ранжируются с использованием Cross-Encoder реранкера (`reranker: True`), оставляя наиболее релевантные.
+
+### B5: Hybrid + Graph + Reranker (Граф-RAG с реранкером)
+* **Назначение**: Гибридный поиск с добавлением фиксированных связей первого порядка и переранжированием чанков.
+* **Как работает**:
+  1. Выполняется поиск чанков, слияние RRF и переранжирование с помощью локального Cross-Encoder реранкера (`reranker: True`) по схеме **B4**.
+  2. Из полученных чанков извлекаются идентификаторы документов (`paper_id`).
+  3. В базе графов запрашиваются **только прямые соседи (глубина = 1)** этих документов (авторы, цитируемые статьи, упомянутые концепты).
+  4. Эти связи форматируются в виде текста и статически добавляются в промпт. Глубокий обход графа и фильтрация связей через LLM не производятся.
+
+### B6: Full Pipeline (Теория vs Практика)
+* **Назначение**: Максимальная конфигурация пайплайна с использованием адаптивного графового поиска и многоэтапной фильтрации.
+* **Как работает в ТЕОРИИ**:
+  1. **Query Processing**: Расширение запроса синонимами (`llm_query_expansion` + `graph_ontology_lookup`).
+  2. **Hybrid Retrieval**: Dense + Lexical + RRF + Reranker (Cross-Encoder) + Score Blending.
+  3. **Adaptive Graph Expansion**: Запуск `ExperimentalGraphExpander` для умного обхода графа с геометрическим затуханием, Cross-Encoder оценкой релевантности соседей и фильтрацией фактов через LLM.
+  4. **Post-Processing**: Citation repair.
+* **Как работает СЕЙЧАС (из-за config.yaml)**:
+  1. **Query Processing**: Расширение запроса отключено (работает только локальный `graph_ontology_lookup` для терминов).
+  2. **Hybrid Retrieval**: Извлечение кандидатов (dense + lexical), слияние RRF и переранжирование (`reranker`). Score Blending отключен.
+  3. **Graph Expansion**: **ПОЛНОСТЬЮ ОТКЛЮЧЕН**. Никакого обхода графа не происходит.
+  4. **Post-Processing**: Citation repair отключен. Работает только `context_trimming`.
+
+### CUSTOM: Пользовательский запуск
+* **Назначение**: Ручная калибровка гиперпараметров и тестирование влияния отдельных компонентов.
+* **Как работает по умолчанию (без CLI флагов)**: Полностью дублирует текущую конфигурацию `config.yaml`.
+* **При запуске с флагом `--custom`**:
+  Принудительно включает `citation_repair: true`, отключает `dynamic_alpha_blending` и `graph_expansion`. Также применяет измененные гиперпараметры:
+  * `score_blend_reranker_weight` = `0.75` (вместо `0.7`)
+  * `score_blend_rrf_weight` = `0.25` (вместо `0.3`)
+  * `graph.p_base` = `0.0` и `graph.gamma` = `0.0` (полностью блокирует обход графа на уровне логики вероятностей).
+  * Выравнивает эвристические веса ребер графа к `1.0`.
