@@ -90,6 +90,7 @@ DEFAULT_CONFIG = {
         "score_blending": True,
         "context_trimming": True,
         "citation_repair": True,
+        "graph_neighbors_in_rrf": False,
     },
     "hyperparameters": {
         "rag": {
@@ -139,6 +140,8 @@ DEFAULT_CONFIG = {
             "weight_mentions_concept": 0.6,
             # Default weight for other relationship types
             "weight_default": 0.5,
+            # Order/depth of graph neighbors to retrieve for Baseline 6 RRF/cross-encoding
+            "b6_graph_neighbors_order": 2,
         },
         "bm25": {
             # BM25 term frequency saturation parameter k1
@@ -700,6 +703,10 @@ hyperparameters:
     @property
     def graph_weight_default(self) -> float:
         return float(self.data.get("hyperparameters", {}).get("graph", {}).get("weight_default", 0.5))
+
+    @property
+    def b6_graph_neighbors_order(self) -> int:
+        return int(self.data.get("hyperparameters", {}).get("graph", {}).get("b6_graph_neighbors_order", 2))
 
     @property
     def bm25_k1(self) -> float:

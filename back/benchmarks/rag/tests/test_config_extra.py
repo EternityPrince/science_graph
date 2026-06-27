@@ -49,16 +49,19 @@ def test_get_baseline_config():
     b5_conf = get_baseline_config("B5", mock_rag_components)
     assert b5_conf["graph_expansion"]
     assert b5_conf["reranker"]
+    assert not b5_conf["graph_neighbors_in_rrf"]
     
     # Test B6
     b6_conf = get_baseline_config("B6", mock_rag_components)
     assert not b6_conf["hyde"]
     assert b6_conf["dense_search"]
+    assert b6_conf["graph_neighbors_in_rrf"]
     
     # Test CUSTOM
     custom_conf = get_baseline_config("CUSTOM", mock_rag_components)
     assert not custom_conf["hyde"]
     assert custom_conf["dense_search"]
+    assert not custom_conf["graph_neighbors_in_rrf"]
 
 def test_get_safe_model_name():
     assert get_safe_model_name("provider/model-name:v1") == "model-name_v1"

@@ -51,6 +51,7 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
         components["hyde"] = False
         components["reranker"] = True
+        components["graph_neighbors_in_rrf"] = True
     elif baseline == "CUSTOM":
         # Custom has everything enabled except hyde by default (respecting user overrides)
         components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
@@ -60,6 +61,9 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         components["intent_classifier"] = False
     else:
         components["intent_classifier"] = config_rag_components.get("intent_classifier", False)
+        
+    if baseline != "B6":
+        components["graph_neighbors_in_rrf"] = False
     return components
 
 

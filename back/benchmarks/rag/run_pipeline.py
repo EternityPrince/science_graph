@@ -103,6 +103,7 @@ def run_command_with_progress(cmd: list, title: str, total_steps: int, step_patt
             
     return time.perf_counter() - t0
 
+from core.pipelined import run_pipelined_stage_async
 
 def main():
     parser = argparse.ArgumentParser(description="End-to-End RAG Benchmarking Pipeline")
@@ -149,6 +150,10 @@ def main():
     parser.add_argument(
         "--skip-eval", action="store_true",
         help="Skip the LLM-as-a-Judge evaluation stage and metrics parsing."
+    )
+    parser.add_argument(
+        "--pipelined", action="store_true",
+        help="Run generation and evaluation concurrently in a pipelined fashion, writing results immediately."
     )
     add_custom_config_arguments(parser)
     args = parser.parse_args()
@@ -325,81 +330,138 @@ def main():
                     pass
             sys.exit(e.returncode)
 
-    # STEP 1b: RAG Generation Stage (consuming pre-retrieved contexts)
-    con.blank()
-    con.info("=== STEP 1b: Running RAG Generation Stage ===")
-    gen_cmd = [
-        python_bin, str(script_dir / "run_benchmarks.py"),
-        "--dataset", str(dataset_path),
-        "--output", str(eval_results),
-        "--baselines", ",".join(baselines_to_run),
-        "--consume-contexts", str(retrieved_contexts_file),
-        "--no-unique-dir"
-    ]
-    gen_cmd.extend(["--limit", str(num_cases)])
-    if args.cloud:
-        gen_cmd.append("--cloud")
-    if temp_config_file:
-        gen_cmd.extend(["--config-file", str(temp_config_file)])
-
-    con.dim(f"Running command: {' '.join(gen_cmd)}")
-    try:
-        elapsed_gen = run_command_with_progress(gen_cmd, "RAG Generation Stage", total_generation_steps, "generation")
-        con.success(f"RAG Generation completed in {elapsed_gen:.2f} seconds.")
-    except subprocess.CalledProcessError as e:
-        con.error(f"RAG Generation failed with exit code {e.returncode}.")
-        if temp_config_file and temp_config_file.exists():
+    if args.pipelined:
+        import asyncio
+        con.blank()
+        con.info("=== Running Pipelined RAG Generation and Evaluation ===")
+        
+        # Apply custom config overrides to this process if we have them
+        if has_overrides:
+            from config_creator import patch_config_for_custom
+            patch_config_for_custom(custom_comp, custom_hype)
+            
+        t0 = time.perf_counter()
+        try:
+            asyncio.run(
+                run_pipelined_stage_async(
+                    args,
+                    config,
+                    run_dir,
+                    dataset_path,
+                    baselines_to_run,
+                    eval_results,
+                    metrics_results,
+                    retrieved_contexts_file,
+                    total_generation_steps
+                )
+            )
+            con.success(f"Pipelined execution completed in {time.perf_counter() - t0:.2f} seconds.")
+        except Exception as e:
+            con.error(f"Pipelined run failed: {e}")
+            if temp_config_file and temp_config_file.exists():
+                try:
+                    temp_config_file.unlink()
+                except Exception:
+                    pass
+            sys.exit(1)
+            
+        if not args.skip_eval:
+            # STEP 3: Quality Metrics Parsing & Exporting CSVs
+            con.blank()
+            con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
+            parse_cmd = [
+                python_bin, str(script_dir / "parse_metrics.py"),
+                "--file", str(metrics_results),
+                "--output-md", str(summary_md),
+                "--csv-summary", str(summary_csv),
+                "--csv-details", str(details_csv)
+            ]
+            con.dim(f"Running command: {' '.join(parse_cmd)}")
             try:
-                temp_config_file.unlink()
-            except Exception:
-                pass
-        sys.exit(e.returncode)
-
-    if not args.skip_eval:
-        # STEP 2: LLM-as-a-Judge Evaluation
-        con.blank()
-        con.info("=== STEP 2: Running LLM-as-a-Judge Evaluation ===")
-        eval_cmd = [
-            python_bin, str(script_dir / "run_evaluator.py"),
-            "--input", str(eval_results),
-            "--output", str(metrics_results),
-            "--baselines", ",".join(baselines_to_run),
-            "--concurrency", str(args.concurrency),
-            "--rpm", str(args.rpm),
-            "--retries", str(args.retries)
-        ]
-        eval_cmd.extend(["--limit", str(num_cases)])
-        if args.clear_checkpoint:
-            eval_cmd.append("--clear-checkpoint")
-
-        con.dim(f"Running command: {' '.join(eval_cmd)}")
-        try:
-            elapsed_eval = run_command_with_progress(eval_cmd, "LLM-as-a-Judge Evaluation Stage", total_evaluation_steps, "evaluation")
-            con.success(f"LLM-as-a-Judge Evaluation completed in {elapsed_eval:.2f} seconds.")
-        except subprocess.CalledProcessError as e:
-            con.error(f"LLM-as-a-Judge Evaluation failed with exit code {e.returncode}.")
-            sys.exit(e.returncode)
-
-        # STEP 3: Quality Metrics Parsing & Exporting CSVs
-        con.blank()
-        con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
-        parse_cmd = [
-            python_bin, str(script_dir / "parse_metrics.py"),
-            "--file", str(metrics_results),
-            "--output-md", str(summary_md),
-            "--csv-summary", str(summary_csv),
-            "--csv-details", str(details_csv)
-        ]
-        con.dim(f"Running command: {' '.join(parse_cmd)}")
-        try:
-            subprocess.run(parse_cmd, check=True)
-            con.success("Metrics parsing and CSV exports completed successfully.")
-        except subprocess.CalledProcessError as e:
-            con.error(f"Metrics parsing/reporting failed with exit code {e.returncode}.")
-            sys.exit(e.returncode)
+                subprocess.run(parse_cmd, check=True)
+                con.success("Metrics parsing and CSV exports completed successfully.")
+            except subprocess.CalledProcessError as e:
+                con.error(f"Metrics parsing/reporting failed with exit code {e.returncode}.")
+                sys.exit(e.returncode)
+        else:
+            con.blank()
+            con.info("=== Skipping LLM-as-a-Judge Evaluation & Metrics Parsing (Pipeline Optimized) ===")
     else:
+        # STEP 1b: RAG Generation Stage (consuming pre-retrieved contexts)
         con.blank()
-        con.info("=== Skipping LLM-as-a-Judge Evaluation & Metrics Parsing (Pipeline Optimized) ===")
+        con.info("=== STEP 1b: Running RAG Generation Stage ===")
+        gen_cmd = [
+            python_bin, str(script_dir / "run_benchmarks.py"),
+            "--dataset", str(dataset_path),
+            "--output", str(eval_results),
+            "--baselines", ",".join(baselines_to_run),
+            "--consume-contexts", str(retrieved_contexts_file),
+            "--no-unique-dir"
+        ]
+        gen_cmd.extend(["--limit", str(num_cases)])
+        if args.cloud:
+            gen_cmd.append("--cloud")
+        if temp_config_file:
+            gen_cmd.extend(["--config-file", str(temp_config_file)])
+
+        con.dim(f"Running command: {' '.join(gen_cmd)}")
+        try:
+            elapsed_gen = run_command_with_progress(gen_cmd, "RAG Generation Stage", total_generation_steps, "generation")
+            con.success(f"RAG Generation completed in {elapsed_gen:.2f} seconds.")
+        except subprocess.CalledProcessError as e:
+            con.error(f"RAG Generation failed with exit code {e.returncode}.")
+            if temp_config_file and temp_config_file.exists():
+                try:
+                    temp_config_file.unlink()
+                except Exception:
+                    pass
+            sys.exit(e.returncode)
+
+        if not args.skip_eval:
+            # STEP 2: LLM-as-a-Judge Evaluation
+            con.blank()
+            con.info("=== STEP 2: Running LLM-as-a-Judge Evaluation ===")
+            eval_cmd = [
+                python_bin, str(script_dir / "run_evaluator.py"),
+                "--input", str(eval_results),
+                "--output", str(metrics_results),
+                "--baselines", ",".join(baselines_to_run),
+                "--concurrency", str(args.concurrency),
+                "--rpm", str(args.rpm),
+                "--retries", str(args.retries)
+            ]
+            eval_cmd.extend(["--limit", str(num_cases)])
+            if args.clear_checkpoint:
+                eval_cmd.append("--clear-checkpoint")
+
+            con.dim(f"Running command: {' '.join(eval_cmd)}")
+            try:
+                elapsed_eval = run_command_with_progress(eval_cmd, "LLM-as-a-Judge Evaluation Stage", total_evaluation_steps, "evaluation")
+                con.success(f"LLM-as-a-Judge Evaluation completed in {elapsed_eval:.2f} seconds.")
+            except subprocess.CalledProcessError as e:
+                con.error(f"LLM-as-a-Judge Evaluation failed with exit code {e.returncode}.")
+                sys.exit(e.returncode)
+
+            # STEP 3: Quality Metrics Parsing & Exporting CSVs
+            con.blank()
+            con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
+            parse_cmd = [
+                python_bin, str(script_dir / "parse_metrics.py"),
+                "--file", str(metrics_results),
+                "--output-md", str(summary_md),
+                "--csv-summary", str(summary_csv),
+                "--csv-details", str(details_csv)
+            ]
+            con.dim(f"Running command: {' '.join(parse_cmd)}")
+            try:
+                subprocess.run(parse_cmd, check=True)
+                con.success("Metrics parsing and CSV exports completed successfully.")
+            except subprocess.CalledProcessError as e:
+                con.error(f"Metrics parsing/reporting failed with exit code {e.returncode}.")
+                sys.exit(e.returncode)
+        else:
+            con.blank()
+            con.info("=== Skipping LLM-as-a-Judge Evaluation & Metrics Parsing (Pipeline Optimized) ===")
 
     # Clean up temporary configuration file if created
     if temp_config_file and temp_config_file.exists():

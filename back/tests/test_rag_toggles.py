@@ -125,3 +125,34 @@ class TestRAGToggles(unittest.IsolatedAsyncioTestCase):
             res = self.service.ask("test query")
             mock_repair.assert_not_called()
             self.assertEqual(res, "This is a response [99].")
+
+    @patch.dict(os.environ, {"RAG_GRAPH_NEIGHBORS_IN_RRF": "true", "RAG_RERANKER": "false"})
+    def test_graph_neighbors_in_rrf_enabled(self):
+        # Initial chunk
+        chunk = Chunk(id="c1", paper_id="p1", text_content="content 1", page_number=1, embedding=[0.1, 0.2])
+        self.vector_repo.search_similar_chunks.return_value = [(chunk, 0.8)]
+        self.vector_repo.search_text_fts5.return_value = []
+        
+        # Neighbor chunk
+        n_chunk = Chunk(id="c2", paper_id="p2", text_content="neighbor content", page_number=1, embedding=[0.3, 0.4])
+        
+        # Mock get_neighbors returning p2 as a neighbor of p1
+        self.graph_repo.get_neighbors.return_value = [
+            ("p1", "Paper", "CITES", "p2", "Paper", "{}")
+        ]
+        
+        # Mock vector repo returning neighbor chunks
+        self.vector_repo.get_chunks_for_paper.return_value = [n_chunk]
+        
+        # Mock emb_engine query embedding
+        self.emb_engine.get_embedding.return_value = [0.1, 0.2]
+        
+        res = self.service.retrieve_relevant_chunks("test query", limit=2)
+        
+        # The result should contain both chunk c1 and c2 (from the neighbor paper p2)
+        self.assertEqual(len(res), 2)
+        retrieved_ids = {c[0].id for c in res}
+        self.assertIn("c1", retrieved_ids)
+        self.assertIn("c2", retrieved_ids)
+        self.graph_repo.get_neighbors.assert_called_once_with("p1", max_depth=2)
+        self.vector_repo.get_chunks_for_paper.assert_called_once_with("p2")

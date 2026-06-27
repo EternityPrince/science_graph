@@ -730,10 +730,6 @@ class RAGService:
                         import logging
                         logging.getLogger(__name__).warning(f"HyDE generation failed: {e}")
                             
-        dense_results = list(all_dense_results.values())
-        # Sort dense results by score descending to assign proper ranks for RRF
-        dense_results.sort(key=lambda x: x[1], reverse=True)
-
         if config.rag_components.get("lexical_search", True):
             if filters:
                 fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2, filters=filters)
@@ -741,6 +737,59 @@ class RAGService:
                 fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2)
         else:
             fts5_results = []
+
+        if config.rag_components.get("graph_neighbors_in_rrf", False):
+            # Collect paper IDs
+            paper_ids = set()
+            for chunk, _ in all_dense_results.values():
+                pid = getattr(chunk, "paper_id", None)
+                if pid:
+                    paper_ids.add(pid)
+            for chunk, _ in fts5_results:
+                pid = getattr(chunk, "paper_id", None)
+                if pid:
+                    paper_ids.add(pid)
+            
+            # Find neighbors
+            neighbor_paper_ids = set()
+            order = _safe_int(getattr(config, "b6_graph_neighbors_order", 2), 2)
+            for pid in paper_ids:
+                neighbors = self.graph_repo.get_neighbors(pid, max_depth=order)
+                for src_id, src_label, _, tgt_id, tgt_label, _ in neighbors:
+                    if src_label in ("Paper", "UserNote") and src_id not in paper_ids:
+                        neighbor_paper_ids.add(src_id)
+                    if tgt_label in ("Paper", "UserNote") and tgt_id not in paper_ids:
+                        neighbor_paper_ids.add(tgt_id)
+            
+            # Load chunks and score them
+            if neighbor_paper_ids:
+                import numpy as np
+                expanded_embs = []
+                for variant in expanded_queries:
+                    emb = self.emb_engine.get_embedding(variant)
+                    expanded_embs.append(np.array(emb, dtype=np.float32))
+                
+                for neighbor_pid in neighbor_paper_ids:
+                    neighbor_chunks = self.vector_repo.get_chunks_for_paper(neighbor_pid)
+                    for chunk in neighbor_chunks:
+                        cid = getattr(chunk, "id", None)
+                        if cid and cid not in all_dense_results:
+                            max_sim = -1.0
+                            c_emb = getattr(chunk, "embedding", None)
+                            if c_emb:
+                                chunk_emb = np.array(c_emb, dtype=np.float32)
+                                for q_emb in expanded_embs:
+                                    if len(chunk_emb) == len(q_emb):
+                                        sim = float(np.dot(chunk_emb, q_emb))
+                                        if sim > max_sim:
+                                            max_sim = sim
+                            if max_sim == -1.0:
+                                max_sim = 0.0
+                            all_dense_results[cid] = (chunk, max_sim)
+
+        dense_results = list(all_dense_results.values())
+        # Sort dense results by score descending to assign proper ranks for RRF
+        dense_results.sort(key=lambda x: x[1], reverse=True)
         
         if not dense_results and not fts5_results:
             return []

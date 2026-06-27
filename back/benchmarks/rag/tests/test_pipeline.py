@@ -7,6 +7,8 @@ from rich.text import Text
 
 from run_pipeline import IterationSpeedColumn
 from core.evaluator import CloudEvaluator
+import src.services.container
+
 
 # =========================================================================
 # 1. Test IterationSpeedColumn
@@ -274,3 +276,183 @@ async def test_cloud_evaluator_rate_limit_reset_string_fallback_parsing(mock_sle
     mock_sleep.assert_called_once()
     sleep_call_arg = mock_sleep.call_args[0][0]
     assert 23.0 <= sleep_call_arg <= 27.0
+
+
+# =========================================================================
+# 4. Test Concurrency & Pipelined Execution
+# =========================================================================
+
+@pytest.mark.asyncio
+async def test_concurrent_yaml_writes(tmp_path):
+    import asyncio
+    import yaml
+    from core.pipelined import safe_read_modify_write_yaml
+    
+    file_path = tmp_path / "concurrent_test.yaml"
+    
+    def append_to_list(val):
+        def modify_fn(existing_data):
+            if not existing_data or not isinstance(existing_data, dict):
+                existing_data = {"items": []}
+            existing_data["items"].append(val)
+            return existing_data
+        return modify_fn
+        
+    async def writer_task(i):
+        # run in thread pool to simulate thread concurrency
+        await asyncio.to_thread(safe_read_modify_write_yaml, file_path, append_to_list(i))
+        
+    # Launch 30 concurrent writer tasks
+    tasks = [writer_task(i) for i in range(30)]
+    await asyncio.gather(*tasks)
+    
+    # Read and verify
+    assert file_path.exists()
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+        
+    assert data is not None
+    items = data.get("items", [])
+    assert len(items) == 30
+    assert sorted(items) == list(range(30))
+
+
+@pytest.mark.asyncio
+@patch("core.evaluator.CloudEvaluator.call_llm")
+@patch("src.services.container.container.get_rag_service")
+async def test_pipelined_stage_execution(mock_get_rag_service, mock_call_llm, tmp_path):
+    import yaml
+    import json
+    from core.pipelined import run_pipelined_stage_async
+    from src.config import config
+    
+    # Mock call_llm to return simulated judge JSON scores
+    async def mock_call_llm_fn(system_prompt, user_prompt):
+        # check if it needs context or not
+        if "faithfulness" in user_prompt or "faithfulness" in system_prompt or "citation_fidelity" in user_prompt:
+            return json.dumps({
+                "answer_relevance": {"score": 0.9},
+                "semantic_accuracy": {"score": 0.8},
+                "faithfulness": {"score": 0.95},
+                "citation_fidelity": {"score": 0.85}
+            })
+        else:
+            return json.dumps({
+                "answer_relevance": {"score": 0.9},
+                "semantic_accuracy": {"score": 0.8}
+            })
+    mock_call_llm.side_effect = mock_call_llm_fn
+    
+    # Mock RAG Service
+    rag_service = MagicMock()
+    rag_service.llm_engine.generate_response.return_value = "generated pipelined response"
+    rag_service.llm_engine.count_tokens.return_value = 10
+    rag_service.llm_engine.unload_model = MagicMock()
+    
+    # Mock retrieved chunks
+    class MockChunk:
+        def __init__(self, cid, pid, text, page):
+            self.id = cid
+            self.paper_id = pid
+            self.text_content = text
+            self.page_number = page
+            
+    mock_chunk = MockChunk("c1", "p1", "some scientific context text", 1)
+    rag_service.retrieve_relevant_chunks.return_value = [(mock_chunk, 0.95)]
+    rag_service.ask.return_value = "ask response"
+    rag_service.last_raw_response = "raw response"
+    
+    mock_get_rag_service.return_value = rag_service
+    
+    # Set up config mockup
+    mock_config = MagicMock()
+    mock_config.data = {
+        "llm": {
+            "provider": "local",
+            "local": {"model_path": "test_model"},
+            "temp": 0.1,
+            "max_tokens": 100
+        },
+        "embedding": {
+            "model_name": "test_emb"
+        },
+        "rag_components": {
+            "reranker": False,
+            "citation_repair": False
+        }
+    }
+    mock_config.rag_components = mock_config.data["rag_components"]
+    mock_config.llm_model_max_context = 4096
+    mock_config.reranker_model_name = "disabled"
+    mock_config.llm_evaluation_concurrency = 2
+    mock_config.llm_evaluation_rpm = 100
+    mock_config.llm_evaluation_retries = 3
+    mock_config.llm_cloud_api_key = "dummy_key"
+    mock_config.llm_cloud_base_url = "https://api.openai.com/v1"
+    mock_config.llm_cloud_model_name = "google/gemini-2.5-flash"
+    
+    # Dataset path setup
+    dataset_path = tmp_path / "dataset.yaml"
+    dataset_data = [
+        {"id": "Q1", "query": "What is deep learning?", "expected_papers": ["paper_1"]},
+        {"id": "Q2", "query": "What is reinforcement learning?", "expected_papers": ["paper_2"]}
+    ]
+    with open(dataset_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(dataset_data, f)
+        
+    eval_results = tmp_path / "evaluation_results.yaml"
+    metrics_results = tmp_path / "result_metrics.yaml"
+    
+    # Set up args mock
+    args = MagicMock()
+    args.limit = 2
+    args.consume_contexts = None
+    args.cloud = False
+    args.concurrency = 2
+    args.rpm = 100
+    args.retries = 2
+    args.clear_checkpoint = True
+    
+    # Run pipelined async function
+    await run_pipelined_stage_async(
+        args=args,
+        config=mock_config,
+        run_dir=tmp_path,
+        dataset_path=dataset_path,
+        baselines_to_run=["B0", "B1"],
+        eval_results=eval_results,
+        metrics_results=metrics_results,
+        retrieved_contexts_file=None,
+        total_steps=4
+    )
+    
+    # Assert eval_results exists and contains the generated answers
+    assert eval_results.exists()
+    with open(eval_results, "r", encoding="utf-8") as f:
+        eval_data = yaml.safe_load(f)
+    assert len(eval_data["results"]) == 2
+    assert "B0" in eval_data["results"][0]["baselines"]
+    assert "B1" in eval_data["results"][0]["baselines"]
+    
+    # Assert metrics_results exists and contains scores
+    assert metrics_results.exists()
+    with open(metrics_results, "r", encoding="utf-8") as f:
+        metrics_data = yaml.safe_load(f)
+    assert len(metrics_data["results"]) == 2
+    assert "eval_metrics" in metrics_data["results"][0]["baselines"]["B0"]
+    assert "eval_metrics" in metrics_data["results"][0]["baselines"]["B1"]
+    
+    # B0 should have relevance and semantic, but B1 (with context) should also have faithfulness and citation fidelity
+    b0_metrics = metrics_data["results"][0]["baselines"]["B0"]["eval_metrics"]
+    b1_metrics = metrics_data["results"][0]["baselines"]["B1"]["eval_metrics"]
+    assert b0_metrics["answer_relevance"] == 0.9
+    assert b0_metrics["semantic_accuracy"] == 0.8
+    assert b1_metrics["faithfulness"] == 0.95
+    assert b1_metrics["citation_fidelity"] == 0.85
+    
+    # Check that summary average is calculated
+    assert "summary" in metrics_data
+    assert "B0" in metrics_data["summary"]
+    assert "avg_answer_relevance" in metrics_data["summary"]["B0"]
+    assert metrics_data["summary"]["B0"]["avg_answer_relevance"] == 0.9
+
