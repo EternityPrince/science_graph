@@ -483,6 +483,8 @@ async def run_pipelined_stage_async(
                 expected_papers = case.get("expected_papers", [])
                 golden_answer = case.get("golden_answer", "").strip()
                 
+                con.info(f"[{case_id}] Query: '{query[:60]}...'")
+                
                 for baseline in baselines_to_run:
                     reused = False
                     baseline_data = None
@@ -496,6 +498,7 @@ async def run_pipelined_stage_async(
                             con.dim(f"  Reusing previously generated answer for {baseline} from checkpoint.")
                             
                     if not reused:
+                        con.dim(f"  Running {baseline}...")
                         baseline_data = await asyncio.to_thread(
                             generate_baseline_case,
                             rag_service,
@@ -527,6 +530,7 @@ async def run_pipelined_stage_async(
                         baseline_data,
                         case
                     ))
+                con.success(f"[{case_id}] Completed generation.")
             
             for _ in range(args.concurrency):
                 await queue.put(None)

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from rich.progress import Task
 from rich.text import Text
 
-from run_pipeline import IterationSpeedColumn
+from core.subprocess_runner import IterationSpeedColumn
 from core.evaluator import CloudEvaluator
 import src.services.container
 
@@ -52,7 +52,7 @@ def test_iteration_speed_column_render_valid():
 @patch("rich.progress.Progress")
 @patch("subprocess.Popen")
 def test_run_command_with_progress_retrieval(mock_popen, mock_progress_class):
-    from run_pipeline import run_command_with_progress
+    from core.subprocess_runner import run_command_with_progress
     
     # Mock progress
     mock_progress = MagicMock()
@@ -82,7 +82,7 @@ def test_run_command_with_progress_retrieval(mock_popen, mock_progress_class):
 @patch("rich.progress.Progress")
 @patch("subprocess.Popen")
 def test_run_command_with_progress_generation(mock_popen, mock_progress_class):
-    from run_pipeline import run_command_with_progress
+    from core.subprocess_runner import run_command_with_progress
     
     mock_progress = MagicMock()
     mock_progress_class.return_value.__enter__.return_value = mock_progress
@@ -110,7 +110,7 @@ def test_run_command_with_progress_generation(mock_popen, mock_progress_class):
 @patch("rich.progress.Progress")
 @patch("subprocess.Popen")
 def test_run_command_with_progress_evaluation(mock_popen, mock_progress_class):
-    from run_pipeline import run_command_with_progress
+    from core.subprocess_runner import run_command_with_progress
     
     mock_progress = MagicMock()
     mock_progress_class.return_value.__enter__.return_value = mock_progress

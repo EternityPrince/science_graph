@@ -31,6 +31,7 @@
 | **`dense_search`** | OFF | OFF | ON | ON | ON | ON | ON | **ON** | **ON** |
 | **`dynamic_alpha_blending`**| OFF | OFF | OFF | OFF | ON | ON | ON | **OFF** | **OFF** |
 | **`rrf`** | OFF | OFF | OFF | OFF | ON | ON | ON | **ON** | **ON** |
+| **`graph_neighbors_in_rrf`**| OFF | OFF | OFF | OFF | OFF | OFF | ON | **ON** | **OFF** |
 | **`graph_expansion`** | OFF | OFF | OFF | OFF | OFF | ON (Static) | ON (Adaptive) | **OFF** *(Отключен!)* | **OFF** |
 | **`reranker`** | OFF | OFF | OFF | OFF | **ON** | **ON** | ON | **ON** | **ON** |
 | **`score_blending`** | OFF | OFF | OFF | OFF | OFF | OFF | ON | **OFF** | **OFF** |
@@ -41,7 +42,7 @@
 
 ---
 
-## 3. Критическое отличие B6 в текущей конфигурации
+## 3. Отличия B6 в текущей конфигурации
 
 Исходя из файла `config.yaml` в директории `@[pdf-graph-analyzer]`, в секции `rag_components` установлены следующие значения:
 * `graph_expansion: false`
@@ -50,14 +51,18 @@
 * `score_blending: false`
 * `citation_repair: false`
 
+Однако для бейзлайна **B6** в коде [core/config.py](file:///Users/vladimirkasterin/python/graph/back/benchmarks/rag/core/config.py) принудительно заданы:
+* `reranker: true`
+* `graph_neighbors_in_rrf: true`
+
 ### Последствия для B6 (Full Pipeline):
-1. **Полное отключение Graph-RAG**: Модуль `graph_expansion` отключен. Это означает, что **B6 вообще не выполняет обход графа (crawling)** — ни адаптивный, ни статический. Вся информация извлекается исключительно из стандартного векторного и лексического поиска.
+1. **Частичный Graph-RAG (RRF-соседи)**: Адаптивный обход графа `graph_expansion` (через `ExperimentalGraphExpander` и LLM-фильтрацию) отключен. Однако благодаря принудительному `graph_neighbors_in_rrf: True` пайплайн B6 выполняет поиск соседних статей на глубину `b6_graph_neighbors_order` (по умолчанию 2) для всех документов, найденных в ходе первичного векторного/лексического поиска. Чанки этих соседних статей дозагружаются, для них рассчитывается косинусное сходство с запросом, и они добавляются в пул кандидатов перед слиянием RRF и реранкингом.
 2. **Отключение постобработки и блендинга**:
    * Отсутствует `dynamic_alpha_blending` (вес лексического поиска зафиксирован).
    * Отсутствует `score_blending` (результаты ранжируются строго по оценке реранкера).
    * Отсутствует `citation_repair` (ссылки в сгенерированном ответе не проверяются и не чинятся).
 3. **Фактическая суть B6 сейчас**:
-   Вместо сложного Graph-RAG пайплайна, B6 сейчас представляет собой стандартный гибридный поиск (Dense + Lexical) с RRF-слиянием, последующим реранкингом через Cross-Encoder, извлечением сущностей из онтологии (`graph_ontology_lookup`) и обрезкой контекста (`context_trimming`).
+   B6 сейчас представляет собой гибридный поиск (Dense + Lexical) с добавлением в пул кандидатов всех чанков соседних документов из базы графов на глубину 2, последующим слиянием через RRF, Cross-Encoder реранкингом, извлечением сущностей из онтологии (`graph_ontology_lookup`) и обрезкой контекста (`context_trimming`).
 
 ---
 
@@ -92,21 +97,21 @@
   4. Эти связи форматируются в виде текста и статически добавляются в промпт. Глубокий обход графа и фильтрация связей через LLM не производятся.
 
 ### B6: Full Pipeline (Теория vs Практика)
-* **Назначение**: Максимальная конфигурация пайплайна с использованием адаптивного графового поиска и многоэтапной фильтрации.
+* **Назначение**: Максимальная конфигурация пайплайна с использованием расширения через граф соседей, адаптивного графового поиска и многоэтапной фильтрации.
 * **Как работает в ТЕОРИИ**:
   1. **Query Processing**: Расширение запроса синонимами (`llm_query_expansion` + `graph_ontology_lookup`).
-  2. **Hybrid Retrieval**: Dense + Lexical + RRF + Reranker (Cross-Encoder) + Score Blending.
-  3. **Adaptive Graph Expansion**: Запуск `ExperimentalGraphExpander` для умного обхода графа с геометрическим затуханием, Cross-Encoder оценкой релевантности соседей и фильтрацией фактов через LLM.
+  2. **Hybrid Retrieval + Graph Neighbors**: Извлечение кандидатов (`dense_search` + `lexical_search`), поиск соседей в графе на глубину `b6_graph_neighbors_order` (по умолчанию 2) с дозагрузкой их чанков и расчётом сходства (`graph_neighbors_in_rrf`), слияние через RRF, переранжирование (`reranker`) и последующий Score Blending.
+  3. **Adaptive Graph Expansion**: Запуск `ExperimentalGraphExpander` для умного обхода графа с геометрическим затуханием (глубина поиска/limit которого по умолчанию равна `b6_graph_neighbors_order + 1`), Cross-Encoder оценкой релевантности соседей и фильтрацией фактов через LLM.
   4. **Post-Processing**: Citation repair.
 * **Как работает СЕЙЧАС (из-за config.yaml)**:
   1. **Query Processing**: Расширение запроса отключено (работает только локальный `graph_ontology_lookup` для терминов).
-  2. **Hybrid Retrieval**: Извлечение кандидатов (dense + lexical), слияние RRF и переранжирование (`reranker`). Score Blending отключен.
-  3. **Graph Expansion**: **ПОЛНОСТЬЮ ОТКЛЮЧЕН**. Никакого обхода графа не происходит.
+  2. **Hybrid Retrieval + Graph Neighbors**: Извлечение кандидатов (`dense_search` + `lexical_search`), поиск соседних статей на глубину `b6_graph_neighbors_order` (по умолчанию 2) с добавлением их чанков в пул (`graph_neighbors_in_rrf`), слияние RRF и переранжирование (`reranker`). Score Blending отключен.
+  3. **Graph Expansion**: **ОТКЛЮЧЕН**. Адаптивный обход графа через `ExperimentalGraphExpander` и фильтрация фактов через LLM не запускаются (так как `graph_expansion` выключен в `config.yaml`).
   4. **Post-Processing**: Citation repair отключен. Работает только `context_trimming`.
 
 ### CUSTOM: Пользовательский запуск
 * **Назначение**: Ручная калибровка гиперпараметров и тестирование влияния отдельных компонентов.
-* **Как работает по умолчанию (без CLI флагов)**: Полностью дублирует текущую конфигурацию `config.yaml`.
+* **Как работает по умолчанию (без CLI флагов)**: Полностью дублирует текущую конфигурацию `config.yaml` (с отключенным `graph_neighbors_in_rrf`).
 * **При запуске с флагом `--custom`**:
   Принудительно включает `citation_repair: true`, отключает `dynamic_alpha_blending` и `graph_expansion`. Также применяет измененные гиперпараметры:
   * `score_blend_reranker_weight` = `0.75` (вместо `0.7`)
