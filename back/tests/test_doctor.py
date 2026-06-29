@@ -22,7 +22,7 @@ class TestDoctor(unittest.TestCase):
         
         self.ner_patcher = None
         if self._testMethodName != "test_doctor_ner_author_enrichment":
-            self.ner_patcher = patch("src.services.doctor_service.extract_persons_from_text", return_value=[])
+            self.ner_patcher = patch("src.ner_engine.extract_persons_from_text", return_value=[])
             self.ner_patcher.start()
 
     def tearDown(self):
@@ -399,7 +399,9 @@ class TestDoctor(unittest.TestCase):
         )
         self.assertTrue(authored_edge_exists)
 
-    def test_doctor_author_merge(self):
+    @patch("src.services.metadata_enricher.MetadataEnricher.enrich")
+    def test_doctor_author_merge(self, mock_enrich):
+        mock_enrich.return_value = None
         # Create destination author: Bob Smith -> ID 'bob_smith'
         bob = Author(id="bob_smith", name="Bob Smith")
         self.graph_repo.save_author(bob)

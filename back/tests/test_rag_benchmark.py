@@ -394,10 +394,15 @@ class TestRagBenchmark(unittest.TestCase):
                 "query_id", "category", "baseline", "status", "latency_sec",
                 "retrieval_recall", "context_precision", "faithfulness",
                 "answer_relevance", "citation_fidelity", "semantic_accuracy",
-                "token_output", "token_answer", "token_reasoning"
+                "token_output", "token_answer", "token_reasoning",
+                "seed_chunks_from_lexical_dense", "seed_paper_id_list",
+                "graph_neighbor_paper_id_list", "candidate_count_before_reranker",
+                "candidate_count_after_reranker", "final_context_paper_id_list",
+                "final_context_token_count", "whether_graph_neighbor_chunk_survived_into_final_context",
+                "answer_token_count"
             ])
-            self.assertEqual(reader_det[1], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", ""])
-            self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", ""])
+            self.assertEqual(reader_det[1], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", "", "", "", "", "", "", "", "", "", ""])
+            self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", "", "", "", "", "", "", "", "", "", ""])
 
     @patch("benchmarks.rag.run_pipeline.subprocess.run")
     @patch("benchmarks.rag.run_pipeline.run_command_with_progress")
@@ -486,6 +491,8 @@ class TestRagBenchmark(unittest.TestCase):
         mock_rag.graph_repo = MagicMock()
         mock_rag._reranker = MagicMock()
         mock_rag.llm_engine = MagicMock()
+        mock_rag.build_context.return_value = ("", "")
+        mock_rag.trim_context.return_value = ("", "", [])
 
         mock_rag.retrieve_relevant_chunks.return_value = []
         mock_get_rag_service.return_value = mock_rag
@@ -513,8 +520,7 @@ class TestRagBenchmark(unittest.TestCase):
                 "run_retrieve.py",
                 "--dataset", str(dataset_yaml),
                 "--output", str(output_yaml),
-                "--baselines", "B1",
-                "--no-unique-dir"
+                "--baselines", "B1"
             ]
 
             with patch.object(sys, "argv", test_args):

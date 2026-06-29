@@ -782,11 +782,13 @@ class TestIndexerPipeline(unittest.TestCase):
         self.indexer._extractor.extract_async = AsyncMock(return_value=MagicMock(concepts=[], tags=[], authors=[]))
         self.indexer._extractor.generate_summary_async = AsyncMock(return_value="Summary")
         self.indexer._duplicate_detector.detect_duplicate = MagicMock(return_value=None)
+        self.indexer._enricher.enrich_async = AsyncMock(return_value=None)
         
         self.emb_engine.get_embeddings = MagicMock(return_value=[[0.1, 0.2, 0.3]] * 3)
 
         mock_paper = Paper(id="dummy_id", title="Title", authors=["Author"])
         with patch("src.parsers.pdf_parser.PDFParser.parse", return_value=(mock_paper, [], "PDF Body")), \
+             patch("src.parsers.marker_parser.MarkerPDFParser.parse", return_value=(mock_paper, [], "PDF Body")), \
              patch("src.parsers.epub_parser.EPUBParser.parse", return_value=(mock_paper, [], "EPUB Body")), \
              patch("src.parsers.md_parser.MarkdownParser.parse", return_value=(mock_paper, [], "Markdown Body")), \
              patch("src.parsers.url_parser.UrlParser.parse", return_value=(mock_paper, [], "URL Body")):

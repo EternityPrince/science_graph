@@ -801,10 +801,10 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res1, "Statement [1].")
         
         res2 = self.service._validate_and_repair_citations("Statement [3].", chunks)
-        self.assertEqual(res2, "Statement .")
+        self.assertEqual(res2, "Statement.")
         
         res3 = self.service._validate_and_repair_citations("Statement [1] and [3].", chunks)
-        self.assertEqual(res3, "Statement [1] and .")
+        self.assertEqual(res3, "Statement [1] and.")
 
     def test_trim_context_sentence_pruning(self):
         chunk1 = MagicMock(spec=Chunk)

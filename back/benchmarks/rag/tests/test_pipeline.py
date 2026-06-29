@@ -456,3 +456,189 @@ async def test_pipelined_stage_execution(mock_get_rag_service, mock_call_llm, tm
     assert "avg_answer_relevance" in metrics_data["summary"]["B0"]
     assert metrics_data["summary"]["B0"]["avg_answer_relevance"] == 0.9
 
+
+@pytest.mark.asyncio
+async def test_run_evaluation_checkpoint_resumption_and_judge_reports(tmp_path):
+    import json
+    import yaml
+    import hashlib
+    from unittest.mock import MagicMock, patch, AsyncMock
+    from core.evaluator import run_evaluation
+    from src.config import Config
+
+    # 1. Prepare temp paths
+    input_yaml = tmp_path / "evaluation_results.yaml"
+    output_yaml = tmp_path / "result_metrics.yaml"
+    judge_yaml = tmp_path / "result_metrics_judge.yaml"
+
+    # 2. Create dummy evaluation_results.yaml (input_data)
+    input_data = {
+        "metadata": {
+            "llm": {"model_max_context": 4096}
+        },
+        "results": [
+            {
+                "id": "Q01",
+                "category": "general",
+                "query": "Query 1",
+                "golden_answer": "Golden 1",
+                "expected_papers": ["paper1"],
+                "baselines": {
+                    "B1": {
+                        "status": "success",
+                        "latency_sec": 1.5,
+                        "generated_answer": "Answer 1",
+                        "retrieved_chunks": [
+                            {"id": "c1", "paper_id": "paper1", "page_number": 1, "text_content": "Content 1"}
+                        ]
+                    }
+                }
+            },
+            {
+                "id": "Q02",
+                "category": "general",
+                "query": "Query 2",
+                "golden_answer": "Golden 2",
+                "expected_papers": ["paper2"],
+                "baselines": {
+                    "B1": {
+                        "status": "success",
+                        "latency_sec": 2.5,
+                        "generated_answer": "Answer 2",
+                        "retrieved_chunks": [
+                            {"id": "c2", "paper_id": "paper2", "page_number": 2, "text_content": "Content 2"}
+                        ]
+                    }
+                }
+            }
+        ]
+    }
+    with open(input_yaml, "w", encoding="utf-8") as f:
+        yaml.dump(input_data, f)
+
+    # 3. Generate the payload hash for Q01 to place it in the checkpoint
+    hash_payload = {
+        "generated_answer": "Answer 1",
+        "retrieved_chunks": [
+            {"id": "c1", "paper_id": "paper1", "page_number": 1, "text_content": "Content 1"}
+        ],
+        "golden_answer": "Golden 1",
+        "query": "Query 1"
+    }
+    payload_str = json.dumps(hash_payload, sort_keys=True, ensure_ascii=False)
+    payload_hash = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:12]
+    q01_checkpoint_key = f"Q01_B1_{payload_hash}"
+
+    # Write checkpoint file
+    checkpoint_path = tmp_path / ".eval_checkpoint.json"
+    checkpoint_data = {
+        q01_checkpoint_key: {
+            "metrics": {
+                "retrieval_recall": 1.0,
+                "context_precision": 1.0,
+                "faithfulness": 0.99,
+                "answer_relevance": 0.98,
+                "citation_fidelity": 0.97,
+                "semantic_accuracy": 0.96,
+                "context_fillness": 0.05,
+                "token_output": 100,
+                "token_answer": 80,
+                "token_reasoning": 20
+            },
+            "details": {
+                "faithfulness": {"reason": "Perfect alignment"},
+                "answer_relevance": {"reason": "Highly relevant"}
+            }
+        }
+    }
+    with open(checkpoint_path, "w", encoding="utf-8") as f:
+        json.dump(checkpoint_data, f)
+
+    # 4. Run run_evaluation with mock evaluator
+    mock_evaluator = MagicMock()
+
+    class DummyArgs:
+        def __init__(self):
+            self.input = str(input_yaml)
+            self.output = str(output_yaml)
+            self.baselines = "all"
+            self.limit = None
+            self.concurrency = 2
+            self.rpm = 60
+            self.retries = 3
+            self.clear_checkpoint = False
+
+    args = DummyArgs()
+
+    mock_config = MagicMock(spec=Config)
+    mock_config.llm_evaluation_concurrency = 2
+    mock_config.llm_evaluation_rpm = 60
+    mock_config.llm_evaluation_retries = 3
+    mock_config.data = {
+        "llm": {
+            "cloud": {
+                "api_key": "dummy",
+                "base_url": "dummy",
+                "model_name": "dummy"
+            }
+        }
+    }
+
+    mock_con = MagicMock()
+
+    with patch("core.evaluator.get_cloud_credentials", return_value=("key", "url", "model")), \
+         patch("core.evaluator.CloudEvaluator", return_value=mock_evaluator):
+
+        # Mock evaluate_all_metrics on mock_evaluator
+        mock_evaluator.evaluate_all_metrics = AsyncMock(return_value={
+            "faithfulness": {"score": 0.9, "reason": "Good"},
+            "answer_relevance": {"score": 0.8, "reason": "Ok"},
+            "citation_fidelity": {"score": 0.7, "reason": "Reasonable"},
+            "semantic_accuracy": {"score": 0.6, "reason": "Acceptable"}
+        })
+
+        await run_evaluation(args, mock_config, mock_con)
+
+        # Verify that mock_evaluator was called ONLY once (for Q02), since Q01 was loaded from checkpoint
+        assert mock_evaluator.evaluate_all_metrics.call_count == 1
+
+    # Verify outputs
+    assert output_yaml.exists()
+    with open(output_yaml, "r", encoding="utf-8") as f:
+        metrics_data = yaml.safe_load(f)
+
+    # The checkpoint should be unlinked/deleted upon completion
+    assert not checkpoint_path.exists()
+
+    # Check results in metrics_data
+    results = metrics_data["results"]
+    assert len(results) == 2
+
+    # Q01 should have cached metrics
+    q01_res = next(r for r in results if r["id"] == "Q01")
+    q01_metrics = q01_res["baselines"]["B1"]["eval_metrics"]
+    q01_details = q01_res["baselines"]["B1"]["eval_details"]
+    assert q01_metrics["faithfulness"] == 0.99
+    assert q01_metrics["answer_relevance"] == 0.98
+    assert q01_details["faithfulness"] == {"reason": "Perfect alignment"}
+
+    # Q02 should have evaluated metrics
+    q02_res = next(r for r in results if r["id"] == "Q02")
+    q02_metrics = q02_res["baselines"]["B1"]["eval_metrics"]
+    q02_details = q02_res["baselines"]["B1"]["eval_details"]
+    assert q02_metrics["faithfulness"] == 0.9
+    assert q02_metrics["answer_relevance"] == 0.8
+    assert q02_details["faithfulness"] == {"score": 0.9, "reason": "Good"}
+
+    # Check judge_yaml results
+    assert judge_yaml.exists()
+    with open(judge_yaml, "r", encoding="utf-8") as f:
+        judge_data = yaml.safe_load(f)
+
+    judge_results = judge_data["results"]
+    assert len(judge_results) == 2
+
+    q01_judge = next(r for r in judge_results if r["id"] == "Q01")
+    assert q01_judge["baselines"]["B1"]["eval_metrics"]["faithfulness"] == 0.99
+    assert q01_judge["baselines"]["B1"]["eval_details"]["faithfulness"] == {"reason": "Perfect alignment"}
+
