@@ -50,10 +50,21 @@ def run_rm_metric(metric_name: str, output_path_str: str):
             sys.exit(1)
             
         cleared_checkpoints_count = 0
-        for key, metrics in checkpoint_data.items():
-            if metric_name in metrics:
-                metrics.pop(metric_name)
-                cleared_checkpoints_count += 1
+        for key, cached in checkpoint_data.items():
+            if not isinstance(cached, dict):
+                continue
+            if "metrics" in cached:
+                metrics_dict = cached["metrics"]
+                details_dict = cached.get("details", {})
+                if metric_name in metrics_dict:
+                    metrics_dict.pop(metric_name)
+                    cleared_checkpoints_count += 1
+                if metric_name in details_dict:
+                    details_dict.pop(metric_name)
+            else:
+                if metric_name in cached:
+                    cached.pop(metric_name)
+                    cleared_checkpoints_count += 1
                 
         if cleared_checkpoints_count > 0:
             try:
