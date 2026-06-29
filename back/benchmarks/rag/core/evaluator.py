@@ -716,7 +716,8 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                 "retrieved_chunks": baseline_data.get("retrieved_chunks", []),
                 "context_token": baseline_data.get("context_token"),
                 "max_input_token": baseline_data.get("max_input_token"),
-                "context_fillness": baseline_data.get("context_fillness")
+                "context_fillness": baseline_data.get("context_fillness"),
+                "trace": baseline_data.get("trace")
             }
 
         final_results.append(case_output)

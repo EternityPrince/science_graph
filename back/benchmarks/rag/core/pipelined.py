@@ -109,7 +109,8 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
             "retrieved_chunks": baseline_data.get("retrieved_chunks", []),
             "context_token": baseline_data.get("context_token"),
             "max_input_token": baseline_data.get("max_input_token"),
-            "context_fillness": baseline_data.get("context_fillness")
+            "context_fillness": baseline_data.get("context_fillness"),
+            "trace": baseline_data.get("trace")
         }
         existing_data["results"] = results
         
@@ -172,6 +173,7 @@ def generate_baseline_case(
     from core.metrics import calculate_retrieval_recall, calculate_context_precision
     
     query = case.get("query")
+    trace = None
     if pre_contexts:
         pre_case = pre_contexts.get(case_id, {})
         pre_baseline = pre_case.get("baselines", {}).get(baseline, {}) if pre_case else {}
@@ -194,13 +196,16 @@ def generate_baseline_case(
             elapsed = 0.0
             raw_response = ""
         else:
-            retrieved = pre_baseline.get("retrieved_papers", [])
+            retrieved = pre_baseline.get("retrieved_papers", []),
+            retrieved = retrieved[0] if isinstance(retrieved, tuple) else retrieved
             chunks = pre_baseline.get("retrieved_chunks", [])
             trimmed_text = pre_baseline.get("trimmed_text", "")
             trimmed_graph = pre_baseline.get("trimmed_graph", "")
             enrichment_block = pre_baseline.get("enrichment_block", "")
             pre_metrics = pre_baseline.get("metrics", {})
             pre_latency = pre_baseline.get("latency_sec", 0.0)
+            trace = pre_baseline.get("trace")
+            rag_service.current_trace = trace
 
             baseline_config = get_baseline_config(baseline, config.rag_components)
             
@@ -264,6 +269,12 @@ def generate_baseline_case(
                 metrics["total_io_calls"] = metrics.get("total_io_calls", 0) + 1
                 metrics["prompt_tokens"] = prompt_tokens
 
+                if trace:
+                    tokens = rag_service.llm_engine.count_tokens(answer)
+                    if not isinstance(tokens, (int, float)):
+                        tokens = len(answer) // 4
+                    trace["answer_token_count"] = tokens
+
                 elapsed = sum(comp["time_sec"] for comp in metrics["components"].values())
             except Exception as e:
                 answer = f"Error occurred during generation: {e}"
@@ -273,11 +284,31 @@ def generate_baseline_case(
                 raw_response = ""
     else:
         try:
+            trace = {
+                "query_id": case_id,
+                "category": case.get("category", "general"),
+                "seed_chunks_from_lexical_dense": {"lexical": [], "dense": []},
+                "seed_paper_id_list": [],
+                "graph_neighbor_paper_id_list": [],
+                "candidate_count_before_reranker": 0,
+                "candidate_count_after_reranker": 0,
+                "final_context_paper_id_list": [],
+                "final_context_token_count": 0,
+                "whether_graph_neighbor_chunk_survived_into_final_context": False,
+                "answer_token_count": 0
+            }
+            rag_service.current_trace = trace
+
             answer, retrieved, metrics, chunks = run_query_on_baseline(
                 rag_service, query, baseline, use_cloud=args.cloud, config=config
             )
             raw_response = answer
             status = "success"
+            if trace:
+                tokens = rag_service.llm_engine.count_tokens(answer)
+                if not isinstance(tokens, (int, float)):
+                    tokens = len(answer) // 4
+                trace["answer_token_count"] = tokens
         except Exception as e:
             answer = f"Error occurred during generation: {e}"
             retrieved = []
@@ -326,7 +357,8 @@ def generate_baseline_case(
         "retrieval_recall": recall_val,
         "context_precision": precision_val,
         "generated_answer": raw_response.strip() if raw_response else answer.strip(),
-        "retrieved_chunks": chunks
+        "retrieved_chunks": chunks,
+        "trace": trace
     }
 
 

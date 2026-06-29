@@ -51,6 +51,7 @@ class BaselineOutput(BaseModel):
     baseline_config: Optional[Dict[str, Any]] = None
     metrics: Optional[StageMetrics] = None
     eval_metrics: Optional[Dict[str, Any]] = None
+    trace: Optional[Dict[str, Any]] = None
 
 
 class TestCaseOutput(BaseModel):

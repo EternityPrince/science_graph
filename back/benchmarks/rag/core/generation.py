@@ -281,6 +281,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             
             t0 = time.perf_counter()
             raw_response = ""
+            trace = None
             if args.consume_contexts:
                 pre_case = pre_contexts.get(case_id, {})
                 pre_baseline = pre_case.get("baselines", {}).get(baseline, {}) if pre_case else {}
@@ -309,6 +310,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                     enrichment_block = pre_baseline.get("enrichment_block", "")
                     pre_metrics = pre_baseline.get("metrics", {})
                     pre_latency = pre_baseline.get("latency_sec", 0.0)
+                    trace = pre_baseline.get("trace")
+                    rag_service.current_trace = trace
 
                     baseline_config = get_baseline_config(baseline, config.rag_components)
                     
@@ -374,6 +377,12 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                         metrics["total_io_calls"] = metrics.get("total_io_calls", 0) + 1
                         metrics["prompt_tokens"] = prompt_tokens
 
+                        if trace:
+                            tokens = rag_service.llm_engine.count_tokens(answer)
+                            if not isinstance(tokens, (int, float)):
+                                tokens = len(answer) // 4
+                            trace["answer_token_count"] = tokens
+
                         elapsed = sum(comp["time_sec"] for comp in metrics["components"].values())
                     except Exception as e:
                         answer = f"Error occurred during generation: {e}"
@@ -383,11 +392,31 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                         con.error(f"    Baseline {baseline} failed: {e}")
             else:
                 try:
+                    trace = {
+                        "query_id": case_id,
+                        "category": case.get("category", "general"),
+                        "seed_chunks_from_lexical_dense": {"lexical": [], "dense": []},
+                        "seed_paper_id_list": [],
+                        "graph_neighbor_paper_id_list": [],
+                        "candidate_count_before_reranker": 0,
+                        "candidate_count_after_reranker": 0,
+                        "final_context_paper_id_list": [],
+                        "final_context_token_count": 0,
+                        "whether_graph_neighbor_chunk_survived_into_final_context": False,
+                        "answer_token_count": 0
+                    }
+                    rag_service.current_trace = trace
+
                     answer, retrieved, metrics, chunks = run_query_on_baseline(
                         rag_service, query, baseline, use_cloud=args.cloud, config=config
                     )
                     raw_response = answer
                     status = "success"
+                    if trace:
+                        tokens = rag_service.llm_engine.count_tokens(answer)
+                        if not isinstance(tokens, (int, float)):
+                            tokens = len(answer) // 4
+                        trace["answer_token_count"] = tokens
                 except Exception as e:
                     answer = f"Error occurred during generation: {e}"
                     retrieved = []
@@ -436,7 +465,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 "retrieval_recall": recall_val,
                 "context_precision": precision_val,
                 "generated_answer": raw_response.strip() if raw_response else answer.strip(),
-                "retrieved_chunks": chunks
+                "retrieved_chunks": chunks,
+                "trace": trace
             }
             
         results.append(case_result)

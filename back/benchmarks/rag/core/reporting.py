@@ -418,7 +418,12 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
             "query_id", "category", "baseline", "status", "latency_sec",
             "retrieval_recall", "context_precision", "faithfulness",
             "answer_relevance", "citation_fidelity", "semantic_accuracy",
-            "token_output", "token_answer", "token_reasoning"
+            "token_output", "token_answer", "token_reasoning",
+            "seed_chunks_from_lexical_dense", "seed_paper_id_list",
+            "graph_neighbor_paper_id_list", "candidate_count_before_reranker",
+            "candidate_count_after_reranker", "final_context_paper_id_list",
+            "final_context_token_count", "whether_graph_neighbor_chunk_survived_into_final_context",
+            "answer_token_count"
         ])
         
         for r in results:
@@ -440,6 +445,34 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                     val = eval_metrics.get(m_name)
                     return val if val is not None else ""
                 
+                trace = b_data.get("trace", {}) if b_data else {}
+                seed_chunks = trace.get("seed_chunks_from_lexical_dense") if isinstance(trace, dict) else None
+                if isinstance(seed_chunks, dict):
+                    lex_chunks = seed_chunks.get("lexical", [])
+                    dense_chunks = seed_chunks.get("dense", [])
+                    seed_chunks_str = f"lexical:{','.join(map(str, lex_chunks))}|dense:{','.join(map(str, dense_chunks))}"
+                else:
+                    seed_chunks_str = ""
+                    
+                if isinstance(trace, dict):
+                    seed_papers = ", ".join(map(str, trace.get("seed_paper_id_list", [])))
+                    neighbor_papers = ", ".join(map(str, trace.get("graph_neighbor_paper_id_list", [])))
+                    cand_before = trace.get("candidate_count_before_reranker", "")
+                    cand_after = trace.get("candidate_count_after_reranker", "")
+                    final_papers = ", ".join(map(str, trace.get("final_context_paper_id_list", [])))
+                    final_tokens = trace.get("final_context_token_count", "")
+                    neighbor_survived = trace.get("whether_graph_neighbor_chunk_survived_into_final_context", "")
+                    ans_tokens = trace.get("answer_token_count", "")
+                else:
+                    seed_papers = ""
+                    neighbor_papers = ""
+                    cand_before = ""
+                    cand_after = ""
+                    final_papers = ""
+                    final_tokens = ""
+                    neighbor_survived = ""
+                    ans_tokens = ""
+
                 writer.writerow([
                     q_id,
                     category,
@@ -454,7 +487,16 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                     get_metric("semantic_accuracy"),
                     get_metric("token_output"),
                     get_metric("token_answer"),
-                    get_metric("token_reasoning")
+                    get_metric("token_reasoning"),
+                    seed_chunks_str,
+                    seed_papers,
+                    neighbor_papers,
+                    cand_before,
+                    cand_after,
+                    final_papers,
+                    final_tokens,
+                    neighbor_survived,
+                    ans_tokens
                 ])
 
 

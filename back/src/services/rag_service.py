@@ -754,6 +754,22 @@ class RAGService:
         else:
             fts5_results = []
 
+        if hasattr(self, "current_trace") and self.current_trace is not None:
+            dense_chunk_ids = list(all_dense_results.keys())
+            lexical_chunk_ids = [c.id for c, _ in fts5_results]
+            self.current_trace["seed_chunks_from_lexical_dense"] = {
+                "lexical": lexical_chunk_ids,
+                "dense": dense_chunk_ids
+            }
+            seed_papers = set()
+            for chunk, _ in all_dense_results.values():
+                if chunk.paper_id:
+                    seed_papers.add(chunk.paper_id)
+            for chunk, _ in fts5_results:
+                if chunk.paper_id:
+                    seed_papers.add(chunk.paper_id)
+            self.current_trace["seed_paper_id_list"] = list(seed_papers)
+
         if config.rag_components.get("graph_neighbors_in_rrf", False):
             # Collect paper IDs
             paper_ids = set()
@@ -776,6 +792,9 @@ class RAGService:
                         neighbor_paper_ids.add(src_id)
                     if tgt_label in ("Paper", "UserNote") and tgt_id not in paper_ids:
                         neighbor_paper_ids.add(tgt_id)
+
+            if hasattr(self, "current_trace") and self.current_trace is not None:
+                self.current_trace["graph_neighbor_paper_id_list"] = list(neighbor_paper_ids)
             
             # Load chunks and score them
             if neighbor_paper_ids:
@@ -863,6 +882,7 @@ class RAGService:
         if not candidates:
             return []
             
+        returned_chunks = []
         if config.rag_components.get("reranker", True):
             try:
                 reranker = self._get_reranker()
@@ -890,18 +910,24 @@ class RAGService:
                     scored_candidates.append((c, blended_score, float(scores[idx])))
                     
                 scored_candidates.sort(key=lambda x: x[1], reverse=True)
-                return [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:limit]]
+                returned_chunks = [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:limit]]
             except Exception as e:
                 con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
                 if config.rag_components.get("rrf", True):
-                    return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
+                    returned_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
                 else:
-                    return [(c, 1.0) for c in candidates[:limit]]
+                    returned_chunks = [(c, 1.0) for c in candidates[:limit]]
         else:
             if config.rag_components.get("rrf", True):
-                return [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
+                returned_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
             else:
-                return [(c, 1.0) for c in candidates[:limit]]
+                returned_chunks = [(c, 1.0) for c in candidates[:limit]]
+
+        if hasattr(self, "current_trace") and self.current_trace is not None:
+            self.current_trace["candidate_count_before_reranker"] = len(candidates) if 'candidates' in locals() else 0
+            self.current_trace["candidate_count_after_reranker"] = len(returned_chunks)
+
+        return returned_chunks
 
     def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> str:
         final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)
@@ -935,6 +961,18 @@ class RAGService:
         else:
             trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
 
+        if hasattr(self, "current_trace") and self.current_trace is not None:
+            final_pids = list(set(c[0].paper_id if isinstance(c, tuple) else c.paper_id for c in trimmed_chunks))
+            self.current_trace["final_context_paper_id_list"] = final_pids
+            tokens = self.llm_engine.count_tokens(trimmed_text + trimmed_graph)
+            if not isinstance(tokens, (int, float)):
+                tokens = (len(trimmed_text) + len(trimmed_graph)) // 4
+            self.current_trace["final_context_token_count"] = tokens
+            graph_neighbors = self.current_trace.get("graph_neighbor_paper_id_list", [])
+            self.current_trace["whether_graph_neighbor_chunk_survived_into_final_context"] = any(
+                (c[0].paper_id if isinstance(c, tuple) else c.paper_id) in graph_neighbors for c in trimmed_chunks
+            )
+
         if self.expander and config.rag_components.get("graph_expansion", True):
             if self.expander.reranker is None:
                 self.expander.reranker = self._get_reranker()
@@ -956,13 +994,21 @@ class RAGService:
 
         if config.rag_components.get("citation_repair", True):
             try:
-                return self._validate_and_repair_citations(parsed_answer, trimmed_chunks)
+                final_answer = self._validate_and_repair_citations(parsed_answer, trimmed_chunks)
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
-                return parsed_answer
+                final_answer = parsed_answer
         else:
-            return parsed_answer
+            final_answer = parsed_answer
+
+        if hasattr(self, "current_trace") and self.current_trace is not None:
+            tokens = self.llm_engine.count_tokens(final_answer)
+            if not isinstance(tokens, (int, float)):
+                tokens = len(final_answer) // 4
+            self.current_trace["answer_token_count"] = tokens
+
+        return final_answer
 
     async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None, hyde_responses: Optional[int] = None) -> AsyncGenerator[dict, None]:
         import queue

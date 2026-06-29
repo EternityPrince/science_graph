@@ -167,6 +167,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     # =========================================================================
     con.info("=== STAGE 3: DB Retrieval Stage (SQLite FTS5 & Vector Search) ===")
     stage3_results = {}
+    traces_map = {}
 
     orig_expand_query = rag_service._expand_query
     orig_generate_response = rag_service.llm_engine.generate_response
@@ -211,6 +212,23 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
             case_id = case.get("id", "Q")
             con.info(f"[{case_id}] Query: '{query[:60]}...' ({baseline})")
+
+            trace = {
+                "query_id": case_id,
+                "category": case.get("category", "general"),
+                "seed_chunks_from_lexical_dense": {"lexical": [], "dense": []},
+                "seed_paper_id_list": [],
+                "graph_neighbor_paper_id_list": [],
+                "candidate_count_before_reranker": 0,
+                "candidate_count_after_reranker": 0,
+                "final_context_paper_id_list": [],
+                "final_context_token_count": 0,
+                "whether_graph_neighbor_chunk_survived_into_final_context": False,
+                "answer_token_count": 0
+            }
+            rag_service.current_trace = trace
+            traces_map[(query, baseline)] = trace
+
             collector = BenchmarkStatsCollector(rag_service)
             collector.start()
 
@@ -304,6 +322,10 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
             rrf_scores = res["rrf_scores"]
             components_settings = get_baseline_config(baseline, config.rag_components)
 
+            trace = traces_map.get((query, baseline))
+            if trace:
+                trace["candidate_count_before_reranker"] = len(candidates)
+
             if components_settings.get("reranker", False) and candidates:
                 c_scores = [reranker_scores_map.get((query, baseline, c.id), 0.0) for c in candidates]
                 min_r = min(c_scores)
@@ -335,6 +357,9 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 }
             else:
                 final_chunks_map[(query, baseline)] = [(c, rrf_scores.get(c.id, 1.0)) for c in candidates[:5]]
+
+            if trace:
+                trace["candidate_count_after_reranker"] = len(final_chunks_map.get((query, baseline), []))
 
     # =========================================================================
     # STAGE 5: Graph & Trimming Stage
@@ -462,6 +487,19 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
                 retrieved_papers = list({c.paper_id for c, _ in final_chunks})
 
+                trace = traces_map.get((query, baseline))
+                if trace:
+                    final_pids = list(set(c[0].paper_id if isinstance(c, tuple) else c.paper_id for c in trimmed_chunks))
+                    trace["final_context_paper_id_list"] = final_pids
+                    tokens = rag_service.llm_engine.count_tokens(trimmed_text + trimmed_graph)
+                    if not isinstance(tokens, (int, float)):
+                        tokens = (len(trimmed_text) + len(trimmed_graph)) // 4
+                    trace["final_context_token_count"] = tokens
+                    graph_neighbors = trace.get("graph_neighbor_paper_id_list", [])
+                    trace["whether_graph_neighbor_chunk_survived_into_final_context"] = any(
+                        (c[0].paper_id if isinstance(c, tuple) else c.paper_id) in graph_neighbors for c in trimmed_chunks
+                    )
+
                 contexts_to_save[case_id]["baselines"][baseline] = {
                     "status": "success",
                     "latency_sec": round(total_latency, 3),
@@ -470,10 +508,12 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                     "trimmed_text": trimmed_text,
                     "trimmed_graph": trimmed_graph,
                     "enrichment_block": enrichment_block,
-                    "metrics": s3_metrics
+                    "metrics": s3_metrics,
+                    "trace": trace
                 }
             except Exception as e:
                 con.error(f"Stage 5 failed for baseline {baseline}, query '{query[:30]}': {e}")
+                trace = traces_map.get((query, baseline))
                 contexts_to_save[case_id]["baselines"][baseline] = {
                     "status": "error",
                     "latency_sec": 0.0,
@@ -482,7 +522,8 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                     "trimmed_text": "",
                     "trimmed_graph": "",
                     "enrichment_block": "",
-                    "metrics": res["metrics"]
+                    "metrics": res["metrics"],
+                    "trace": trace
                 }
             finally:
                 collector.stop()

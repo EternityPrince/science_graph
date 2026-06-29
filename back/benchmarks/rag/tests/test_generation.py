@@ -263,3 +263,75 @@ def test_run_benchmarking_no_pre_retrieved(tmp_path):
     run_benchmarking(args, config, prompts, container, con)
     
     assert output_path.exists()
+
+
+def test_trace_serialization(tmp_path):
+    from core.reporting import export_detailed_csv
+    from core.models import ReportOutput
+    
+    # Create fake report data
+    report_data = {
+        "metadata": {"date": "2026-06-29"},
+        "results": [
+            {
+                "id": "Q1",
+                "category": "deep_learning",
+                "query": "query",
+                "golden_answer": "golden",
+                "expected_papers": ["paper_1"],
+                "baselines": {
+                    "B1": {
+                        "status": "success",
+                        "latency_sec": 1.23,
+                        "retrieved_papers": ["paper_1"],
+                        "eval_metrics": {"answer_relevance": 0.9},
+                        "trace": {
+                            "query_id": "Q1",
+                            "category": "deep_learning",
+                            "seed_chunks_from_lexical_dense": {
+                                "lexical": ["c1"],
+                                "dense": ["c2"]
+                            },
+                            "seed_paper_id_list": ["paper_1"],
+                            "graph_neighbor_paper_id_list": ["paper_2"],
+                            "candidate_count_before_reranker": 10,
+                            "candidate_count_after_reranker": 5,
+                            "final_context_paper_id_list": ["paper_1"],
+                            "final_context_token_count": 200,
+                            "whether_graph_neighbor_chunk_survived_into_final_context": True,
+                            "answer_token_count": 50
+                        }
+                    }
+                }
+            }
+        ]
+    }
+    
+    csv_path = tmp_path / "metrics_details.csv"
+    stats = {
+        "baselines": ["B1"],
+        "total_queries": 1
+    }
+    
+    export_detailed_csv(report_data, stats, csv_path)
+    
+    assert csv_path.exists()
+    import csv
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = list(csv.reader(f))
+    
+    headers = reader[0]
+    row = reader[1]
+    
+    assert "seed_chunks_from_lexical_dense" in headers
+    assert "seed_paper_id_list" in headers
+    
+    # Check that row values are written correctly
+    assert "lexical:c1|dense:c2" in row
+    assert "paper_1" in row
+    assert "paper_2" in row
+    assert "10" in row
+    assert "5" in row
+    assert "200" in row
+    assert "True" in row
+    assert "50" in row
