@@ -638,6 +638,318 @@ class RAGService:
         repaired = re.sub(r"\s+", " ", repaired).strip()
         return repaired
 
+    def _deduplicate_candidates(self, chunks: List[Chunk]) -> List[Chunk]:
+        import hashlib
+        merged_chunks = []
+        seen = {} # key -> index in merged_chunks
+        
+        for chunk in chunks:
+            if getattr(chunk, "id", None):
+                key = chunk.id
+            elif getattr(chunk, "paper_id", None) and hasattr(chunk, "chunk_index"):
+                key = (chunk.paper_id, chunk.chunk_index)
+            else:
+                key = hashlib.md5(chunk.text_content.encode('utf-8')).hexdigest()
+                
+            if not hasattr(chunk, "retrieval_sources"):
+                chunk.retrieval_sources = []
+                
+            if key in seen:
+                existing_chunk = merged_chunks[seen[key]]
+                if not hasattr(existing_chunk, "retrieval_sources"):
+                    existing_chunk.retrieval_sources = []
+                for source in chunk.retrieval_sources:
+                    if not any(s.get("source") == source.get("source") for s in existing_chunk.retrieval_sources):
+                        existing_chunk.retrieval_sources.append(source)
+            else:
+                seen[key] = len(merged_chunks)
+                merged_chunks.append(chunk)
+                
+        source_order = {"dense": 0, "lexical": 1, "graph_concept_retrieval": 2, "graph_bridge_retrieval": 3}
+        for chunk in merged_chunks:
+            if hasattr(chunk, "retrieval_sources"):
+                chunk.retrieval_sources.sort(key=lambda s: source_order.get(s.get("source", ""), 99))
+            
+        return merged_chunks
+
+    def _extract_query_concepts(self, query: str) -> List[str]:
+        if not query or not isinstance(query, str) or not query.strip():
+            return []
+        
+        try:
+            aliases_map = self.graph_repo.get_concept_aliases()
+            concepts = self.graph_repo.get_nodes_by_label("Concept")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to fetch concepts for query concept extraction: {e}")
+            return []
+            
+        name_to_ids = {}
+        for node_id, props in concepts:
+            cid = node_id
+            names = set()
+            names.add(cid.lower())
+            names.add(cid.replace('_', ' ').replace('-', ' ').lower())
+            
+            canonical_name = props.get("name")
+            if canonical_name:
+                names.add(canonical_name.lower().strip())
+                
+            for alias in props.get("aliases", []):
+                if isinstance(alias, str):
+                    names.add(alias.lower().strip())
+                    
+            for name in names:
+                if name:
+                    if name not in name_to_ids:
+                        name_to_ids[name] = set()
+                    name_to_ids[name].add(cid)
+                    
+        for alias, canonical in aliases_map.items():
+            from src.models import slugify
+            cid = slugify(canonical)
+            alias_clean = alias.lower().strip()
+            if alias_clean not in name_to_ids:
+                name_to_ids[alias_clean] = set()
+            name_to_ids[alias_clean].add(cid)
+            
+        from src.services.normalization_pipeline import get_spacy_nlp
+        nlp = get_spacy_nlp()
+        
+        def lemmatize_phrase(text: str) -> str:
+            if not nlp:
+                return text.lower()
+            doc = nlp(text.lower())
+            return " ".join(t.lemma_ for t in doc)
+            
+        lemma_to_ids = {}
+        for phrase, cids in name_to_ids.items():
+            phrase_lemma = lemmatize_phrase(phrase)
+            if phrase_lemma not in lemma_to_ids:
+                lemma_to_ids[phrase_lemma] = set()
+            lemma_to_ids[phrase_lemma].update(cids)
+            
+        query_lower = query.lower()
+        query_lemma = lemmatize_phrase(query)
+        
+        matched_concept_ids = set()
+        import re
+        
+        for phrase, cids in name_to_ids.items():
+            pattern = r'\b' + re.escape(phrase) + r'\b'
+            if re.search(pattern, query_lower):
+                matched_concept_ids.update(cids)
+                
+        for phrase_lemma, cids in lemma_to_ids.items():
+            pattern = r'\b' + re.escape(phrase_lemma) + r'\b'
+            if re.search(pattern, query_lemma):
+                matched_concept_ids.update(cids)
+                
+        return sorted(list(matched_concept_ids))
+
+    def _build_selected_sources_card(self, trimmed_chunks: List[Any], query_concepts: List[str]) -> Optional[str]:
+        paper_to_indexes = {}
+        for idx, item in enumerate(trimmed_chunks, start=1):
+            c = item[0] if isinstance(item, tuple) else item
+            if getattr(c, "paper_id", None):
+                if c.paper_id not in paper_to_indexes:
+                    paper_to_indexes[c.paper_id] = []
+                paper_to_indexes[c.paper_id].append(idx)
+                
+        selected_pids = list(paper_to_indexes.keys())
+        if len(selected_pids) < 2:
+            return None
+            
+        def ref(pid):
+            return f"[{paper_to_indexes[pid][0]}]"
+
+        try:
+            concepts_list = self.graph_repo.get_concepts_for_papers(selected_pids)
+        except Exception:
+            concepts_list = []
+            
+        paper_concepts = {pid: {} for pid in selected_pids}
+        for paper_id, concept_id, concept_name in concepts_list:
+            if paper_id in paper_concepts:
+                paper_concepts[paper_id][concept_id] = concept_name
+
+        try:
+            citations = self.graph_repo.get_citation_neighbors(selected_pids)
+        except Exception:
+            citations = []
+            
+        facts = []
+        seen_pairs = set()
+        
+        for q_concept in query_concepts:
+            matching_pids = [pid for pid in selected_pids if q_concept in paper_concepts[pid]]
+            matching_pids.sort(key=lambda p: paper_to_indexes[p][0])
+            for i in range(len(matching_pids)):
+                for j in range(i + 1, len(matching_pids)):
+                    p1, p2 = matching_pids[i], matching_pids[j]
+                    pair_key = (min(p1, p2), max(p1, p2), "query", q_concept)
+                    if pair_key not in seen_pairs:
+                        seen_pairs.add(pair_key)
+                        c_name = paper_concepts[p1][q_concept]
+                        facts.append((
+                            1,
+                            0.0,
+                            f"- {ref(p1)} and {ref(p2)} both mention concept \"{c_name}\".",
+                            pair_key
+                        ))
+                        
+        for seed_id, candidate_id, direction, _ in citations:
+            if candidate_id in paper_to_indexes:
+                pair_key = (min(seed_id, candidate_id), max(seed_id, candidate_id), "citation")
+                if pair_key not in seen_pairs:
+                    seen_pairs.add(pair_key)
+                    if direction == "seed_cites_candidate":
+                        fact_text = f"- {ref(seed_id)} cites {ref(candidate_id)}."
+                    else:
+                        fact_text = f"- {ref(candidate_id)} cites {ref(seed_id)}."
+                    facts.append((
+                        2,
+                        0.0,
+                        fact_text,
+                        pair_key
+                    ))
+                    
+        shared_concepts_map = {}
+        for pid in selected_pids:
+            for cid, cname in paper_concepts[pid].items():
+                if cid not in query_concepts:
+                    if cid not in shared_concepts_map:
+                        shared_concepts_map[cid] = (cname, set())
+                    shared_concepts_map[cid][1].add(pid)
+                    
+        shared_cids = [cid for cid, (cname, pids) in shared_concepts_map.items() if len(pids) >= 2]
+        idfs = {}
+        if shared_cids:
+            try:
+                doc_freqs = self.graph_repo.get_concept_document_frequencies(shared_cids)
+                total_papers = self.graph_repo.get_total_paper_count()
+                import math
+                for cid in shared_cids:
+                    df = doc_freqs.get(cid, 0)
+                    idfs[cid] = math.log((1 + total_papers) / (1 + df))
+            except Exception:
+                idfs = {cid: 0.0 for cid in shared_cids}
+                
+        for cid in shared_cids:
+            cname, pids = shared_concepts_map[cid]
+            pids_list = list(pids)
+            pids_list.sort(key=lambda p: paper_to_indexes[p][0])
+            for i in range(len(pids_list)):
+                for j in range(i + 1, len(pids_list)):
+                    p1, p2 = pids_list[i], pids_list[j]
+                    pair_key = (min(p1, p2), max(p1, p2), "shared", cid)
+                    if pair_key not in seen_pairs:
+                        seen_pairs.add(pair_key)
+                        idf_val = idfs.get(cid, 0.0)
+                        facts.append((
+                            3,
+                            -idf_val,
+                            f"- {ref(p1)} and {ref(p2)} are connected through concept \"{cname}\".",
+                            pair_key
+                        ))
+                        
+        facts.sort(key=lambda x: (x[0], x[1], x[2]))
+        selected_facts = [f[2] for f in facts[:5]]
+        if not selected_facts:
+            return None
+            
+        card_content = "Graph links among selected sources:\n" + "\n".join(selected_facts)
+        return card_content
+
+    def _write_graph_retrieval_trace(self, query: str, final_chunks: List[Any], trimmed_chunks: Optional[List[Any]] = None) -> None:
+        if not getattr(config, "graph_retrieval_trace_enabled", False):
+            return
+            
+        last_trace = getattr(self, "_last_graph_trace", None)
+        if not last_trace:
+            return
+            
+        import json
+        from pathlib import Path
+        
+        query_id = "Q"
+        if hasattr(self, "current_trace") and self.current_trace is not None:
+            query_id = self.current_trace.get("query_id", "Q")
+            
+        rerank_positions = []
+        best_rank = None
+        
+        survived_set = set()
+        if trimmed_chunks is not None:
+            for item in trimmed_chunks:
+                c = item[0] if isinstance(item, tuple) else item
+                survived_set.add(c.id)
+        else:
+            for item in final_chunks:
+                c = item[0] if isinstance(item, tuple) else item
+                survived_set.add(c.id)
+                
+        for idx, item in enumerate(final_chunks, start=1):
+            c = item[0] if isinstance(item, tuple) else item
+            sources = getattr(c, "retrieval_sources", [])
+            graph_sources = [s for s in sources if s.get("source") in ("graph_concept_retrieval", "graph_bridge_retrieval")]
+            
+            if graph_sources:
+                for gs in graph_sources:
+                    rerank_positions.append({
+                        "chunk_id": c.id,
+                        "paper_id": c.paper_id,
+                        "source": gs.get("source"),
+                        "rank_after_rerank": idx,
+                        "survived_final_context": c.id in survived_set
+                    })
+                if best_rank is None or idx < best_rank:
+                    best_rank = idx
+                    
+        graph_survived_ids = []
+        for c_id in last_trace.get("graph_chunks_before_rerank", []):
+            if c_id in survived_set:
+                graph_survived_ids.append(c_id)
+                
+        before_count = last_trace.get("graph_chunks_before_rerank_count", 0)
+        survived_count = len(graph_survived_ids)
+        survival_rate = survived_count / before_count if before_count > 0 else 0.0
+        
+        final_context_chunk_ids = list(survived_set)
+        final_context_paper_ids = list({
+            (item[0].paper_id if isinstance(item, tuple) else item.paper_id)
+            for item in (trimmed_chunks if trimmed_chunks is not None else final_chunks)
+            if getattr(item[0] if isinstance(item, tuple) else item, "paper_id", None)
+        })
+        
+        trace_entry = {
+            "query_id": query_id,
+            "query": query,
+            "query_concepts": last_trace.get("query_concepts", []),
+            "seed_paper_ids": last_trace.get("seed_paper_ids", []),
+            "graph_concept_candidate_papers": last_trace.get("graph_concept_candidate_papers", []),
+            "graph_bridge_candidate_papers": last_trace.get("graph_bridge_candidate_papers", []),
+            "graph_chunks_before_rerank": last_trace.get("graph_chunks_before_rerank", []),
+            "graph_chunks_before_rerank_count": before_count,
+            "graph_candidate_rerank_positions": rerank_positions,
+            "best_graph_candidate_rank_after_rerank": best_rank,
+            "graph_chunks_survived_final_context": graph_survived_ids,
+            "graph_chunks_survived_final_context_count": survived_count,
+            "graph_survival_rate": survival_rate,
+            "final_context_paper_ids": sorted(final_context_paper_ids),
+            "final_context_chunk_ids": sorted(final_context_chunk_ids),
+            "distinct_papers_in_final_context": len(final_context_paper_ids),
+            "graph_candidate_source_breakdown": last_trace.get("graph_candidate_source_breakdown", {"graph_concept_retrieval": 0, "graph_bridge_retrieval": 0})
+        }
+        
+        trace_file = Path("graph_retrieval_trace.jsonl")
+        try:
+            with open(trace_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(trace_entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to write graph retrieval trace: {e}")
+
     def retrieve_relevant_chunks(self, query: str, limit: int = 5, paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> List[tuple[Chunk, float]]:
         # Focused document RAG: cosine similarity search directly over document chunks in Python
         if not query or not isinstance(query, str) or not query.strip():
@@ -690,6 +1002,10 @@ class RAGService:
                 else:
                     dense_res = self.vector_repo.search_similar_chunks(variant_emb, limit=dense_limit)
                 for chunk, score in dense_res:
+                    if not hasattr(chunk, "retrieval_sources"):
+                        chunk.retrieval_sources = []
+                    if not any(s["source"] == "dense" for s in chunk.retrieval_sources):
+                        chunk.retrieval_sources.append({"source": "dense"})
                     if chunk.id not in all_dense_results:
                         all_dense_results[chunk.id] = (chunk, score)
                     else:
@@ -699,9 +1015,7 @@ class RAGService:
 
             # 2. Run HyDE (Hypothetical Document Embeddings) if enabled
             if config.hyde_enabled and config.rag_components.get("hyde", True):
-                # Resolve hyde_responses parameter
                 if hyde_responses is None:
-                    # Check sys.argv for --hyde
                     import sys
                     argv_hyde = None
                     for idx, arg in enumerate(sys.argv):
@@ -715,7 +1029,7 @@ class RAGService:
                             try:
                                 argv_hyde = int(arg.split("=", 1)[1])
                             except ValueError:
-                                pass
+                                    pass
                     if argv_hyde is not None:
                         hyde_responses = argv_hyde
                     else:
@@ -736,6 +1050,10 @@ class RAGService:
                             hyde_res = self.vector_repo.search_similar_chunks(hyp_emb, limit=limit * 2)
                             
                         for chunk, score in hyde_res:
+                            if not hasattr(chunk, "retrieval_sources"):
+                                chunk.retrieval_sources = []
+                            if not any(s["source"] == "dense" for s in chunk.retrieval_sources):
+                                chunk.retrieval_sources.append({"source": "dense"})
                             if chunk.id not in all_dense_results:
                                 all_dense_results[chunk.id] = (chunk, score)
                             else:
@@ -751,6 +1069,11 @@ class RAGService:
                 fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2, filters=filters)
             else:
                 fts5_results = self.vector_repo.search_text_fts5(query, limit=limit * 2)
+            for chunk, _ in fts5_results:
+                if not hasattr(chunk, "retrieval_sources"):
+                    chunk.retrieval_sources = []
+                if not any(s["source"] == "lexical" for s in chunk.retrieval_sources):
+                    chunk.retrieval_sources.append({"source": "lexical"})
         else:
             fts5_results = []
 
@@ -771,7 +1094,6 @@ class RAGService:
             self.current_trace["seed_paper_id_list"] = list(seed_papers)
 
         if config.rag_components.get("graph_neighbors_in_rrf", False):
-            # Collect paper IDs
             paper_ids = set()
             for chunk, _ in all_dense_results.values():
                 pid = getattr(chunk, "paper_id", None)
@@ -782,7 +1104,6 @@ class RAGService:
                 if pid:
                     paper_ids.add(pid)
             
-            # Find neighbors
             neighbor_paper_ids = set()
             order = _safe_int(getattr(config, "b6_graph_neighbors_order", 2), 2)
             for pid in paper_ids:
@@ -796,7 +1117,6 @@ class RAGService:
             if hasattr(self, "current_trace") and self.current_trace is not None:
                 self.current_trace["graph_neighbor_paper_id_list"] = list(neighbor_paper_ids)
             
-            # Load chunks and score them
             if neighbor_paper_ids:
                 import numpy as np
                 expanded_embs = []
@@ -809,6 +1129,10 @@ class RAGService:
                     for chunk in neighbor_chunks:
                         cid = getattr(chunk, "id", None)
                         if cid and cid not in all_dense_results:
+                            if not hasattr(chunk, "retrieval_sources"):
+                                chunk.retrieval_sources = []
+                            if not any(s["source"] == "graph_neighbors_in_rrf" for s in chunk.retrieval_sources):
+                                chunk.retrieval_sources.append({"source": "graph_neighbors_in_rrf"})
                             max_sim = -1.0
                             c_emb = getattr(chunk, "embedding", None)
                             if c_emb:
@@ -823,7 +1147,6 @@ class RAGService:
                             all_dense_results[cid] = (chunk, max_sim)
 
         dense_results = list(all_dense_results.values())
-        # Sort dense results by score descending to assign proper ranks for RRF
         dense_results.sort(key=lambda x: x[1], reverse=True)
         
         if not dense_results and not fts5_results:
@@ -835,12 +1158,11 @@ class RAGService:
         for chunk, _ in fts5_results:
             id_to_chunk[chunk.id] = chunk
 
-        # Dynamic alpha blending based on FTS5 match strength
         if config.rag_components.get("dynamic_alpha_blending", True):
             fts_weight = _safe_float(config.dynamic_alpha_val_high, 1.0)
             if fts5_results:
                 max_bm25 = max(score for _, score in fts5_results)
-                if max_bm25 < _safe_float(config.dynamic_alpha_threshold_low, 1.0): # Very weak keyword matches
+                if max_bm25 < _safe_float(config.dynamic_alpha_threshold_low, 1.0):
                     fts_weight = _safe_float(config.dynamic_alpha_val_low, 0.2)
                 elif max_bm25 < _safe_float(config.dynamic_alpha_threshold_mid, 3.0):
                     fts_weight = _safe_float(config.dynamic_alpha_val_mid, 0.5)
@@ -863,8 +1185,6 @@ class RAGService:
             candidate_ids = sorted_ids[:limit * 2]
             candidates = [id_to_chunk[cid] for cid in candidate_ids if cid in id_to_chunk]
         else:
-            # Fallback when RRF is disabled: just concatenate dense and fts5 results, removing duplicates,
-            # using their relative order.
             seen_ids = set()
             candidates = []
             for chunk, _ in dense_results:
@@ -879,6 +1199,120 @@ class RAGService:
             rrf_scores = {c.id: 1.0 for c in candidates}
             sorted_ids = [c.id for c in candidates]
         
+        # === DET DETERMINISTIC GRAPH RETRIEVAL ===
+        graph_concept_retrieval_enabled = config.graph_concept_retrieval_enabled
+        graph_bridge_retrieval_enabled = config.graph_bridge_retrieval_enabled
+        
+        graph_candidates = []
+        concept_papers = []
+        bridge_papers = []
+        
+        seed_paper_ids = list({c.paper_id for c in candidates if getattr(c, "paper_id", None)})
+        query_concepts = self._extract_query_concepts(query)
+        
+        max_graph_papers = config.graph_retrieval_max_graph_candidate_papers
+        resolved_limit = len(seed_paper_ids) if max_graph_papers == "auto" else max_graph_papers
+        try:
+            resolved_limit = int(resolved_limit)
+        except Exception:
+            resolved_limit = 0
+            
+        if graph_concept_retrieval_enabled and query_concepts and resolved_limit > 0:
+            from src.services.graph_retrievers import GraphConceptRetriever
+            concept_retriever = GraphConceptRetriever(self.graph_repo)
+            concept_papers = concept_retriever.retrieve(
+                query=query,
+                query_concepts=query_concepts,
+                exclude_paper_ids=seed_paper_ids,
+                max_candidate_papers=resolved_limit
+            )
+            
+            concept_paper_ids = [p["paper_id"] for p in concept_papers]
+            chunks_per_paper = config.graph_retrieval_chunks_per_graph_paper
+            concept_chunks_with_scores = self.graph_repo.search_chunks_within_papers(
+                query_embedding=self.emb_engine.get_embedding(query),
+                paper_ids=concept_paper_ids,
+                limit_per_paper=chunks_per_paper
+            )
+            
+            concept_papers_map = {p["paper_id"]: p for p in concept_papers}
+            for chunk, sim in concept_chunks_with_scores:
+                paper_meta = concept_papers_map.get(chunk.paper_id)
+                if paper_meta:
+                    chunk.retrieval_sources = [{
+                        "source": "graph_concept_retrieval",
+                        "paper_id": paper_meta["paper_id"],
+                        "matched_concepts": paper_meta["matched_concepts"],
+                        "concept_idf_sum": paper_meta["concept_idf_sum"],
+                        "reason": paper_meta["reason"]
+                    }]
+                else:
+                    chunk.retrieval_sources = [{"source": "graph_concept_retrieval"}]
+                graph_candidates.append(chunk)
+
+        if graph_bridge_retrieval_enabled and seed_paper_ids and query_concepts and resolved_limit > 0:
+            from src.services.graph_retrievers import GraphBridgeRetriever
+            bridge_retriever = GraphBridgeRetriever(self.graph_repo)
+            bridge_papers = bridge_retriever.retrieve(
+                query=query,
+                seed_paper_ids=seed_paper_ids,
+                query_concepts=query_concepts,
+                exclude_paper_ids=seed_paper_ids,
+                max_candidate_papers=resolved_limit
+            )
+            
+            bridge_paper_ids = [p["paper_id"] for p in bridge_papers]
+            chunks_per_paper = config.graph_retrieval_chunks_per_graph_paper
+            bridge_chunks_with_scores = self.graph_repo.search_chunks_within_papers(
+                query_embedding=self.emb_engine.get_embedding(query),
+                paper_ids=bridge_paper_ids,
+                limit_per_paper=chunks_per_paper
+            )
+            
+            bridge_papers_map = {p["paper_id"]: p for p in bridge_papers}
+            for chunk, sim in bridge_chunks_with_scores:
+                paper_meta = bridge_papers_map.get(chunk.paper_id)
+                if paper_meta:
+                    chunk.retrieval_sources = [{
+                        "source": "graph_bridge_retrieval",
+                        "paper_id": paper_meta["paper_id"],
+                        "connected_seed_papers": paper_meta["connected_seed_papers"],
+                        "matched_concepts": paper_meta["matched_concepts"],
+                        "concept_idf_sum": paper_meta["concept_idf_sum"],
+                        "min_graph_distance": paper_meta["min_graph_distance"],
+                        "paths": paper_meta["paths"]
+                    }]
+                else:
+                    chunk.retrieval_sources = [{"source": "graph_bridge_retrieval"}]
+                graph_candidates.append(chunk)
+
+        all_pool = candidates + graph_candidates
+        for chunk in all_pool:
+            if not hasattr(chunk, "retrieval_sources"):
+                chunk.retrieval_sources = []
+                
+        candidates = self._deduplicate_candidates(all_pool)
+        
+        if config.graph_retrieval_trace_enabled:
+            graph_chunk_ids = [c.id for c in graph_candidates]
+            breakdown = {"graph_concept_retrieval": 0, "graph_bridge_retrieval": 0}
+            for chunk in graph_candidates:
+                for s in getattr(chunk, "retrieval_sources", []):
+                    src = s.get("source")
+                    if src in breakdown:
+                        breakdown[src] += 1
+                        
+            self._last_graph_trace = {
+                "query_concepts": query_concepts,
+                "seed_paper_ids": seed_paper_ids,
+                "graph_concept_candidate_papers": [p["paper_id"] for p in concept_papers],
+                "graph_bridge_candidate_papers": [p["paper_id"] for p in bridge_papers],
+                "graph_chunks_before_rerank": graph_chunk_ids,
+                "graph_chunks_before_rerank_count": len(graph_chunk_ids),
+                "graph_candidate_source_breakdown": breakdown
+            }
+        # === END DETERMINISTIC GRAPH RETRIEVAL ===
+
         if not candidates:
             return []
             
@@ -889,17 +1323,16 @@ class RAGService:
                 pairs = [(query, c.text_content) for c in candidates]
                 scores = reranker.predict(pairs)
                 
-                # Blend normalized Reranker score + normalized RRF score to prevent dense-only bias
                 min_r = min(scores)
                 max_r = max(scores)
                 range_r = max_r - min_r if max_r > min_r else 1.0
                 norm_r = [(s - min_r) / range_r for s in scores]
                 
-                rrf_vals = [rrf_scores[c.id] for c in candidates]
+                rrf_vals = [rrf_scores.get(c.id, 0.0) for c in candidates]
                 min_rrf = min(rrf_vals)
                 max_rrf = max(rrf_vals)
                 range_rrf = max_rrf - min_rrf if max_rrf > min_rrf else 1.0
-                norm_rrf = [(rrf_scores[c.id] - min_rrf) / range_rrf for c in candidates]
+                norm_rrf = [(rrf_scores.get(c.id, 0.0) - min_rrf) / range_rrf for c in candidates]
                 
                 scored_candidates = []
                 for idx, c in enumerate(candidates):
@@ -913,15 +1346,20 @@ class RAGService:
                 returned_chunks = [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:limit]]
             except Exception as e:
                 con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
-                if config.rag_components.get("rrf", True):
-                    returned_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
-                else:
-                    returned_chunks = [(c, 1.0) for c in candidates[:limit]]
+                for c in candidates:
+                    if c.id not in rrf_scores:
+                        rrf_scores[c.id] = 0.0
+                sorted_candidates = sorted(candidates, key=lambda x: rrf_scores.get(x.id, 0.0), reverse=True)
+                returned_chunks = [(c, rrf_scores.get(c.id, 0.0)) for c in sorted_candidates[:limit]]
         else:
-            if config.rag_components.get("rrf", True):
-                returned_chunks = [(id_to_chunk[cid], rrf_scores[cid]) for cid in sorted_ids[:limit] if cid in id_to_chunk]
-            else:
-                returned_chunks = [(c, 1.0) for c in candidates[:limit]]
+            for c in candidates:
+                if c.id not in rrf_scores:
+                    rrf_scores[c.id] = 0.0
+            sorted_candidates = sorted(candidates, key=lambda x: rrf_scores.get(x.id, 0.0), reverse=True)
+            returned_chunks = [(c, rrf_scores.get(c.id, 0.0)) for c in sorted_candidates[:limit]]
+
+        if not getattr(self, "_in_ask", False):
+            self._write_graph_retrieval_trace(query, returned_chunks, None)
 
         if hasattr(self, "current_trace") and self.current_trace is not None:
             self.current_trace["candidate_count_before_reranker"] = len(candidates) if 'candidates' in locals() else 0
@@ -930,85 +1368,99 @@ class RAGService:
         return returned_chunks
 
     def ask(self, query: str, limit: int = 5, history_str: str = "", paper_id: Optional[str] = None, filters: Optional[dict] = None, hyde_responses: Optional[int] = None) -> str:
-        final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)
-        if not final_chunks:
-            return "No relevant article chunks found in the database. Please index documents first."  # noqa: E501
+        self._in_ask = True
+        final_chunks = []
+        trimmed_chunks = []
+        try:
+            final_chunks = self.retrieve_relevant_chunks(query, limit, paper_id=paper_id, filters=filters, hyde_responses=hyde_responses)
+            if not final_chunks:
+                return "No relevant article chunks found in the database. Please index documents first."  # noqa: E501
 
-        # Build initial context
-        context_text, context_graph = self.build_context(final_chunks, limit=limit)
+            # Build initial context
+            context_text, context_graph = self.build_context(final_chunks, limit=limit)
 
-        wrapped_query = f"<|query_start|>{query}<|query_end|>"
+            wrapped_query = f"<|query_start|>{query}<|query_end|>"
 
-        # Get system prompt for token counting
-        if self.expander and config.rag_components.get("graph_expansion", True):
-            system_prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block="", history_str=history_str, query=wrapped_query)
-        else:
-            system_prompt = prompts.get_prompt("rag", "ask_no_expander", context_text="", context_graph="", history_str=history_str, query=wrapped_query)
-
-        model_max_context = getattr(config, "llm_model_max_context", 4096)
-
-        if config.rag_components.get("context_trimming", True):
-            trimmed_text, trimmed_graph, trimmed_chunks = self.trim_context(
-                context_text=context_text,
-                context_graph=context_graph,
-                final_chunks=final_chunks,
-                query=wrapped_query,
-                history_str=history_str,
-                system_prompt=system_prompt,
-                model_max_context=model_max_context,
-                reserved_tokens=500
-            )
-        else:
-            trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
-
-        if hasattr(self, "current_trace") and self.current_trace is not None:
-            final_pids = list(set(c[0].paper_id if isinstance(c, tuple) else c.paper_id for c in trimmed_chunks))
-            self.current_trace["final_context_paper_id_list"] = final_pids
-            tokens = self.llm_engine.count_tokens(trimmed_text + trimmed_graph)
-            if not isinstance(tokens, (int, float)):
-                tokens = (len(trimmed_text) + len(trimmed_graph)) // 4
-            self.current_trace["final_context_token_count"] = tokens
-            graph_neighbors = self.current_trace.get("graph_neighbor_paper_id_list", [])
-            self.current_trace["whether_graph_neighbor_chunk_survived_into_final_context"] = any(
-                (c[0].paper_id if isinstance(c, tuple) else c.paper_id) in graph_neighbors for c in trimmed_chunks
-            )
-
-        if self.expander and config.rag_components.get("graph_expansion", True):
-            if self.expander.reranker is None:
-                self.expander.reranker = self._get_reranker()
-            enrichment_block = self.expander.expand(query, trimmed_chunks)
-            if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
-                con.warning("Graph expander found no essential facts. Falling back to raw retrieved context.")
-                prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=wrapped_query)
+            # Get system prompt for token counting
+            if self.expander and config.rag_components.get("graph_expansion", True):
+                system_prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block="", history_str=history_str, query=wrapped_query)
             else:
-                prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str=history_str, query=wrapped_query)
-        else:
-            prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=wrapped_query)
+                system_prompt = prompts.get_prompt("rag", "ask_no_expander", context_text="", context_graph="", history_str=history_str, query=wrapped_query)
 
-        con.search_msg("Generating answer …")
-        raw_response = self.llm_engine.generate_response(prompt)
-        self.last_raw_response = raw_response
-        
-        status, parsed_answer = parse_reasoning_response(raw_response)
-        con.success(f"Reasoning Status: {status}")
+            model_max_context = getattr(config, "llm_model_max_context", 4096)
 
-        if config.rag_components.get("citation_repair", True):
-            try:
-                final_answer = self._validate_and_repair_citations(parsed_answer, trimmed_chunks)
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
+            if config.rag_components.get("context_trimming", True):
+                trimmed_text, trimmed_graph, trimmed_chunks = self.trim_context(
+                    context_text=context_text,
+                    context_graph=context_graph,
+                    final_chunks=final_chunks,
+                    query=wrapped_query,
+                    history_str=history_str,
+                    system_prompt=system_prompt,
+                    model_max_context=model_max_context,
+                    reserved_tokens=500
+                )
+            else:
+                trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
+
+            if hasattr(self, "current_trace") and self.current_trace is not None:
+                final_pids = list(set(c[0].paper_id if isinstance(c, tuple) else c.paper_id for c in trimmed_chunks))
+                self.current_trace["final_context_paper_id_list"] = final_pids
+                tokens = self.llm_engine.count_tokens(trimmed_text + trimmed_graph)
+                if not isinstance(tokens, (int, float)):
+                    tokens = (len(trimmed_text) + len(trimmed_graph)) // 4
+                self.current_trace["final_context_token_count"] = tokens
+                graph_neighbors = self.current_trace.get("graph_neighbor_paper_id_list", [])
+                self.current_trace["whether_graph_neighbor_chunk_survived_into_final_context"] = any(
+                    (c[0].paper_id if isinstance(c, tuple) else c.paper_id) in graph_neighbors for c in trimmed_chunks
+                )
+
+            if self.expander and config.rag_components.get("graph_expansion", True):
+                if self.expander.reranker is None:
+                    self.expander.reranker = self._get_reranker()
+                enrichment_block = self.expander.expand(query, trimmed_chunks)
+                if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
+                    con.warning("Graph expander found no essential facts. Falling back to raw retrieved context.")
+                    prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=wrapped_query)
+                else:
+                    con.warning("Using graph expansion block.")
+                    prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str=history_str, query=wrapped_query)
+            else:
+                prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str=history_str, query=wrapped_query)
+
+            con.search_msg("Generating answer …")
+            raw_response = self.llm_engine.generate_response(prompt)
+            self.last_raw_response = raw_response
+            
+            status, parsed_answer = parse_reasoning_response(raw_response)
+            con.success(f"Reasoning Status: {status}")
+
+            if config.rag_components.get("citation_repair", True):
+                try:
+                    final_answer = self._validate_and_repair_citations(parsed_answer, trimmed_chunks)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
+                    final_answer = parsed_answer
+            else:
                 final_answer = parsed_answer
-        else:
-            final_answer = parsed_answer
 
-        if hasattr(self, "current_trace") and self.current_trace is not None:
-            tokens = self.llm_engine.count_tokens(final_answer)
-            if not isinstance(tokens, (int, float)):
-                tokens = len(final_answer) // 4
-            self.current_trace["answer_token_count"] = tokens
+            if hasattr(self, "current_trace") and self.current_trace is not None:
+                tokens = self.llm_engine.count_tokens(final_answer)
+                if not isinstance(tokens, (int, float)):
+                    tokens = len(final_answer) // 4
+                self.current_trace["answer_token_count"] = tokens
 
-        return final_answer
+            if config.graph_selected_sources_card_enabled:
+                query_concepts = self._extract_query_concepts(query)
+                card = self._build_selected_sources_card(trimmed_chunks, query_concepts)
+                if card:
+                    final_answer = f"{final_answer.strip()}\n\n{card}"
+
+            self._write_graph_retrieval_trace(query, final_chunks, trimmed_chunks)
+            return final_answer
+        finally:
+            self._in_ask = False
 
     async def generate_stream(self, question: str, limit: int = 5, paper_id: Optional[str] = None, hyde_responses: Optional[int] = None) -> AsyncGenerator[dict, None]:
         import queue
@@ -1084,6 +1536,12 @@ class RAGService:
             if not cleaned_item and item:
                 continue
             yield {"type": "token", "text": cleaned_item}
+
+        if config.graph_selected_sources_card_enabled:
+            query_concepts = self._extract_query_concepts(question)
+            card = self._build_selected_sources_card(final_chunks, query_concepts)
+            if card:
+                yield {"type": "token", "text": f"\n\n{card}"}
 
         yield {"type": "done"}
 

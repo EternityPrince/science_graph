@@ -1,9 +1,39 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from contextlib import contextmanager
 from src.models import Paper, Author, Concept, Chunk
 
 class GraphRepository(ABC):
+    @abstractmethod
+    def get_papers_mentioning_concepts(self, concept_ids: List[str]) -> List[Tuple[str, str]]:
+        """Retrieves papers that mention one or more of the given concepts as (paper_id, title) tuples."""
+        pass
+
+    @abstractmethod
+    def get_concepts_for_papers(self, paper_ids: List[str]) -> List[Tuple[str, str, str]]:
+        """Retrieves concepts associated with papers as (paper_id, concept_id, concept_name) tuples."""
+        pass
+
+    @abstractmethod
+    def get_concept_document_frequencies(self, concept_ids: List[str]) -> Dict[str, int]:
+        """Retrieves document frequency of concepts (i.e. number of distinct papers mentioning each concept)."""
+        pass
+
+    @abstractmethod
+    def get_total_paper_count(self) -> int:
+        """Retrieves total count of paper nodes in the database."""
+        pass
+
+    @abstractmethod
+    def get_citation_neighbors(self, paper_ids: List[str]) -> List[Tuple[str, str, str, str]]:
+        """Retrieves citation neighbors for given papers as (seed_id, candidate_id, direction, candidate_title) tuples."""
+        pass
+
+    @abstractmethod
+    def search_chunks_within_papers(self, query_embedding: List[float], paper_ids: List[str], limit_per_paper: int = 1) -> List[Tuple[Chunk, float]]:
+        """Performs scoped vector search within selected paper IDs and returns the best chunks for each paper."""
+        pass
+
     @abstractmethod
     def save_paper(self, paper: Paper) -> None:
         """Saves a paper node to the database."""

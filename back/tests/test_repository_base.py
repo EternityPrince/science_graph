@@ -42,6 +42,13 @@ class DummyGraphRepository(GraphRepository):
     def get_nodes_by_label(self, label): pass
     def get_node_properties(self, node_id): pass
 
+    def get_papers_mentioning_concepts(self, concept_ids): return []
+    def get_concepts_for_papers(self, paper_ids): return []
+    def get_concept_document_frequencies(self, concept_ids): return {}
+    def get_total_paper_count(self): return 0
+    def get_citation_neighbors(self, paper_ids): return []
+    def search_chunks_within_papers(self, query_embedding, paper_ids, limit_per_paper=3): return []
+
     def add_edge(self, source_id, target_id, edge_type, properties=None):
         self.added_edges.append((source_id, target_id, edge_type, properties))
 

@@ -48,7 +48,7 @@ class TestRagBenchmark(unittest.TestCase):
         b6_cfg = get_baseline_config("B6")
         self.assertFalse(b6_cfg["hyde"])
         self.assertFalse(b6_cfg["intent_classifier"])
-        self.assertTrue(all(v for k, v in b6_cfg.items() if k not in ("hyde", "intent_classifier")))
+        self.assertTrue(all(v for k, v in b6_cfg.items() if k not in ("hyde", "intent_classifier", "graph_concept_retrieval", "graph_bridge_retrieval", "graph_selected_sources_card", "graph_retrieval_trace")))
 
     def test_example_golden_dataset_structure(self):
         """Validates that the example golden dataset YAML file has a correct schema."""

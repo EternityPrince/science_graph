@@ -917,6 +917,144 @@ class SQLiteGraphRepository(GraphRepository):
                 return json.loads(row["properties"])
             return None
 
+    def get_papers_mentioning_concepts(self, concept_ids: List[str]) -> List[Tuple[str, str]]:
+        if not concept_ids:
+            return []
+        placeholders = ",".join("?" for _ in concept_ids)
+        query = f"""
+            SELECT DISTINCT n.id, n.title
+            FROM nodes n
+            JOIN edges e ON n.id = e.source_id
+            WHERE e.target_id IN ({placeholders}) AND e.type = 'MENTIONS_CONCEPT' AND n.label = 'Paper'
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(query, concept_ids).fetchall()
+            return [(r["id"], r["title"] or "") for r in rows]
+
+    def get_concepts_for_papers(self, paper_ids: List[str]) -> List[Tuple[str, str, str]]:
+        if not paper_ids:
+            return []
+        placeholders = ",".join("?" for _ in paper_ids)
+        query = f"""
+            SELECT e.source_id AS paper_id, e.target_id AS concept_id, n.title AS concept_name
+            FROM edges e
+            JOIN nodes n ON e.target_id = n.id
+            WHERE e.source_id IN ({placeholders}) AND e.type = 'MENTIONS_CONCEPT' AND n.label = 'Concept'
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(query, paper_ids).fetchall()
+            return [(r["paper_id"], r["concept_id"], r["concept_name"] or "") for r in rows]
+
+    def get_concept_document_frequencies(self, concept_ids: List[str]) -> Dict[str, int]:
+        if not concept_ids:
+            return {}
+        freqs = {cid: 0 for cid in concept_ids}
+        placeholders = ",".join("?" for _ in concept_ids)
+        query = f"""
+            SELECT e.target_id AS concept_id, COUNT(DISTINCT e.source_id) AS doc_freq
+            FROM edges e
+            JOIN nodes n ON e.source_id = n.id
+            WHERE e.target_id IN ({placeholders}) AND e.type = 'MENTIONS_CONCEPT' AND n.label = 'Paper'
+            GROUP BY e.target_id
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(query, concept_ids).fetchall()
+            for r in rows:
+                freqs[r["concept_id"]] = r["doc_freq"]
+        return freqs
+
+    def get_total_paper_count(self) -> int:
+        query = "SELECT COUNT(*) FROM nodes WHERE label = 'Paper'"
+        with self._get_connection() as conn:
+            row = conn.execute(query).fetchone()
+            return row[0] if row else 0
+
+    def get_citation_neighbors(self, paper_ids: List[str]) -> List[Tuple[str, str, str, str]]:
+        if not paper_ids:
+            return []
+        placeholders = ",".join("?" for _ in paper_ids)
+        query = f"""
+            SELECT 
+                e.source_id AS seed_id, 
+                e.target_id AS candidate_id, 
+                'seed_cites_candidate' AS direction,
+                n.title AS candidate_title
+            FROM edges e
+            JOIN nodes n ON e.target_id = n.id
+            WHERE e.source_id IN ({placeholders}) AND e.type = 'CITES' AND n.label = 'Paper'
+            
+            UNION ALL
+            
+            SELECT 
+                e.target_id AS seed_id, 
+                e.source_id AS candidate_id, 
+                'candidate_cites_seed' AS direction,
+                n.title AS candidate_title
+            FROM edges e
+            JOIN nodes n ON e.source_id = n.id
+            WHERE e.target_id IN ({placeholders}) AND e.type = 'CITES' AND n.label = 'Paper'
+        """
+        params = paper_ids + paper_ids
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [(r["seed_id"], r["candidate_id"], r["direction"], r["candidate_title"] or "") for r in rows]
+
+    def search_chunks_within_papers(self, query_embedding: List[float], paper_ids: List[str], limit_per_paper: int = 1) -> List[Tuple[Chunk, float]]:
+        if not paper_ids or not query_embedding:
+            return []
+        
+        placeholders = ",".join("?" for _ in paper_ids)
+        query = f"""
+            SELECT c.id, c.paper_id, c.text_content, c.page_number, c.embedding, c.id_hash, c.parent_id, p.text_content AS parent_text
+            FROM chunks c
+            LEFT JOIN parent_chunks p ON c.parent_id = p.id
+            WHERE c.paper_id IN ({placeholders})
+        """
+        
+        with self._get_connection() as conn:
+            rows = conn.execute(query, paper_ids).fetchall()
+            
+        import numpy as np
+        q_vec = np.array(query_embedding, dtype=np.float32)
+        q_norm = np.linalg.norm(q_vec)
+        if q_norm == 0:
+            return []
+            
+        chunks_by_paper = {}
+        for r in rows:
+            paper_id = r["paper_id"]
+            emb_blob = r["embedding"]
+            if not emb_blob:
+                continue
+            emb_array = np.frombuffer(emb_blob, dtype=np.float32)
+            emb_norm = np.linalg.norm(emb_array)
+            if emb_norm == 0:
+                similarity = 0.0
+            else:
+                similarity = float(np.dot(q_vec, emb_array) / (q_norm * emb_norm))
+                
+            chunk = Chunk(
+                id=r["id"],
+                paper_id=paper_id,
+                text_content=r["text_content"],
+                page_number=r["page_number"],
+                embedding=emb_array.tolist(),
+                parent_id=r["parent_id"],
+                parent_text=r["parent_text"]
+            )
+            
+            if paper_id not in chunks_by_paper:
+                chunks_by_paper[paper_id] = []
+            chunks_by_paper[paper_id].append((chunk, similarity))
+            
+        results = []
+        for paper_id, chunk_sims in chunks_by_paper.items():
+            chunk_sims.sort(key=lambda x: x[1], reverse=True)
+            results.extend(chunk_sims[:limit_per_paper])
+            
+        return results
+
+
 
 class SQLiteVectorRepository(VectorRepository):
     def __init__(self, db_path: str):

@@ -91,6 +91,18 @@ DEFAULT_CONFIG = {
         "context_trimming": True,
         "citation_repair": True,
         "graph_neighbors_in_rrf": False,
+        "graph_concept_retrieval": False,
+        "graph_bridge_retrieval": False,
+        "graph_selected_sources_card": False,
+        "graph_retrieval_trace": False,
+    },
+    "graph_retrieval": {
+        "concept_retrieval_enabled": False,
+        "bridge_retrieval_enabled": False,
+        "selected_sources_card_enabled": False,
+        "trace_enabled": False,
+        "chunks_per_graph_paper": 1,
+        "max_graph_candidate_papers": "auto"
     },
     "hyperparameters": {
         "rag": {
@@ -740,6 +752,35 @@ hyperparameters:
     @property
     def pdf_compression_quality(self) -> int:
         return self.data.get("pdf_compression", {}).get("quality", 75)
+
+    @property
+    def graph_concept_retrieval_enabled(self) -> bool:
+        return self.is_component_enabled("graph_concept_retrieval") or self.data.get("graph_retrieval", {}).get("concept_retrieval_enabled", False)
+
+    @property
+    def graph_bridge_retrieval_enabled(self) -> bool:
+        return self.is_component_enabled("graph_bridge_retrieval") or self.data.get("graph_retrieval", {}).get("bridge_retrieval_enabled", False)
+
+    @property
+    def graph_selected_sources_card_enabled(self) -> bool:
+        return self.is_component_enabled("graph_selected_sources_card") or self.data.get("graph_retrieval", {}).get("selected_sources_card_enabled", False)
+
+    @property
+    def graph_retrieval_trace_enabled(self) -> bool:
+        return self.is_component_enabled("graph_retrieval_trace") or self.data.get("graph_retrieval", {}).get("trace_enabled", False)
+
+    @property
+    def graph_retrieval_chunks_per_graph_paper(self) -> int:
+        return int(self.data.get("graph_retrieval", {}).get("chunks_per_graph_paper", 1))
+
+    @property
+    def graph_retrieval_max_graph_candidate_papers(self):
+        val = self.data.get("graph_retrieval", {}).get("max_graph_candidate_papers", "auto")
+        if isinstance(val, int):
+            return val
+        if isinstance(val, str) and val.isdigit():
+            return int(val)
+        return "auto"
 
     def is_component_enabled(self, name: str) -> bool:
         if name == "intent_classifier":
