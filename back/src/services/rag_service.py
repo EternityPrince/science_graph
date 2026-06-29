@@ -608,17 +608,33 @@ class RAGService:
         """
         import re
         max_idx = len(retrieved_chunks)
-        citation_regex = re.compile(r"\[(?:Block\s+)?(\d+)\]|Block\s+(\d+)", re.IGNORECASE)
         
-        def replace_citation(match):
-            val = match.group(1) or match.group(2)
-            cit_idx = int(val)
-            if 1 <= cit_idx <= max_idx:
-                return match.group(0)
+        # 1. Parse bracket groups to support multi-citations like [1, 2, 99] or [Block 1; 2]
+        bracket_regex = re.compile(r"\[([^\]]+)\]")
+        
+        def process_bracket(match):
+            content = match.group(1)
+            # Extract all digits (e.g., "Block 1, 2" -> ["1", "2"])
+            nums = re.findall(r"\d+", content)
+            valid_nums = []
+            for n in nums:
+                val = int(n)
+                if 1 <= val <= max_idx:
+                    valid_nums.append(str(val))
+            
+            # Reconstruct bracket if there are valid citation numbers
+            if valid_nums:
+                return f"[{', '.join(valid_nums)}]"
             return ""
             
-        repaired = citation_regex.sub(replace_citation, response)
-        repaired = re.sub(r"\[\s*\]", "", repaired)
+        repaired = bracket_regex.sub(process_bracket, response)
+        
+        # 2. Parse standalone "Block X" mentions outside brackets
+        block_regex = re.compile(r"\bBlock\s+(\d+)\b", re.IGNORECASE)
+        repaired = block_regex.sub(lambda m: m.group(0) if 1 <= int(m.group(1)) <= max_idx else "", repaired)
+        
+        # 3. Clean up punctuation spacing and double spaces after deletions
+        repaired = re.sub(r"\s+([.,;!?])", r"\1", repaired)  # e.g., "fact ." -> "fact."
         repaired = re.sub(r"\s+", " ", repaired).strip()
         return repaired
 
