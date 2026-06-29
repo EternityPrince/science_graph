@@ -104,3 +104,38 @@ In the default state of the workspace (with no custom overrides in `config.yaml`
   * `score_blend_rrf_weight` = `0.25` (instead of `0.3`)
   * `graph.p_base` = `0.0` and `graph.gamma` = `0.0` (effectively blocks graph traversal).
   * Align graph edge heuristic weights to `1.0`.
+
+---
+
+## 5. Deterministic Graph Retrieval Extension
+
+The pipeline includes a **Deterministic Graph Retrieval** extension designed to expand candidate generation using the structure of the knowledge graph without invoking LLM calls. It consists of the following components:
+
+1. **Query Concept Extraction**:
+   * Uses the graph ontology to map terms in the query to canonical concept IDs using exact names, aliases, or lemmatized forms (via spaCy).
+
+2. **GraphConceptRetriever**:
+   * Identifies candidate papers that mention the query concepts.
+   * Ranks them using a deterministic sorting tuple: `(-matched_concepts_count, -concept_idf_sum, paper_id)`.
+   * Limits candidates to `graph_retrieval_max_graph_candidate_papers`.
+
+3. **GraphBridgeRetriever**:
+   * Finds papers that form semantic bridges between seed papers (from base retrieval) and query concepts/other seed papers.
+   * Leverages three distinct bridge conditions:
+     * `seed_shared_query_concept`: Candidate shares a query concept with a seed paper.
+     * `seed_citation_neighbor_with_query_concept`: Candidate is a citation neighbor of a seed paper and mentions a query concept.
+     * `seed_shared_concept`: Candidate bridges two distinct seed papers through a shared concept.
+   * Ranks them using a deterministic sorting tuple: `(-len(covered_query_concepts), -len(connected_seed_papers), min_graph_distance, -concept_idf_sum, paper_id)`.
+
+4. **Scoped Chunk Retrieval**:
+   * For the selected graph candidate papers, retrieves their best chunks based on similarity search matching the query (limited to `graph_retrieval_chunks_per_graph_paper` per paper).
+
+5. **Deduplication and Metadata Merge**:
+   * Merges duplicate chunks retrieved via dense/lexical/graph searches, preserving all source metadata in `retrieval_sources` and establishing a strict priority order.
+
+6. **Graph Selected Sources Card**:
+   * Post-selection explanation card appended to the LLM response showing links and citations between selected papers.
+
+7. **Graph Retrieval Trace**:
+   * Logs query diagnostics to `graph_retrieval_trace.jsonl` containing statistics like before/after rerank candidate counts and graph survival rate.
+
