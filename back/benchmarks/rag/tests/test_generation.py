@@ -869,3 +869,45 @@ def test_run_benchmarking_unload_model_error(tmp_path):
         run_benchmarking(args, config, MagicMock(), container, MagicMock())
     
     assert (tmp_path / "output.yaml").exists()
+
+
+def test_merge_evaluation_data_type_fallbacks():
+    existing = {
+        "metadata": {
+            "baselines_evaluated": "not_a_list"
+        },
+        "results": "not_a_list"
+    }
+    new_data = {
+        "metadata": {
+            "baselines_evaluated": "not_a_list"
+        },
+        "results": [
+            {
+                "id": "Q1",
+                "baselines": "not_a_dict"
+            }
+        ]
+    }
+    
+    res = merge_evaluation_data(existing, new_data)
+    assert res["metadata"]["baselines_evaluated"] == []
+    assert len(res["results"]) == 1
+
+
+def test_merge_evaluation_data_sort_exception():
+    existing = {
+        "metadata": {},
+        "results": [
+            {"id": 1},
+            {"id": "string_id"}
+        ]
+    }
+    new_data = {
+        "metadata": {},
+        "results": []
+    }
+    res = merge_evaluation_data(existing, new_data)
+    assert len(res["results"]) == 2
+
+

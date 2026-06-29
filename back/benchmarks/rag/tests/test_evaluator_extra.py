@@ -371,3 +371,69 @@ def test_fallback_clean_reasoning_text():
     # 2. Section clean up
     text = "1. _analysis... 5. _answer... My Actual Answer"
     assert _fallback_clean_reasoning_text(text) == "My Actual Answer"
+
+
+@pytest.mark.asyncio
+@patch("core.evaluator.asyncio.sleep")
+async def test_call_llm_rate_limit_relative_reset(mock_sleep):
+    with patch("openai.AsyncOpenAI") as mock_client_cls:
+        mock_client = mock_client_cls.return_value
+        evaluator = CloudEvaluator(api_key="key", base_url="url", model_name="model", concurrency=1, rpm=0, max_retries=2)
+        evaluator.client = mock_client
+        
+        # Reset is a small relative value (e.g. 5 seconds)
+        import openai
+        response_mock = MagicMock()
+        response_mock.headers = {"x-ratelimit-reset": "5"}
+        err = openai.RateLimitError("429 error", response=response_mock, body=None)
+        
+        mock_client.chat.completions.create = AsyncMock(side_effect=[err, MagicMock()])
+        await evaluator.call_llm("sys", "user")
+        mock_sleep.assert_called_once()
+        # wait_time should be sleep_seconds + 1.0 = 5 + 1.0 = 6.0
+        # wait_time is the arg passed to sleep
+        mock_sleep.assert_called_with(6.0)
+
+
+@pytest.mark.asyncio
+@patch("core.evaluator.asyncio.sleep")
+async def test_call_llm_rate_limit_fallback_parse_regex(mock_sleep):
+    with patch("openai.AsyncOpenAI") as mock_client_cls:
+        mock_client = mock_client_cls.return_value
+        evaluator = CloudEvaluator(api_key="key", base_url="url", model_name="model", concurrency=1, rpm=0, max_retries=2)
+        evaluator.client = mock_client
+        
+        # Raise generic exception containing rate limit (429) and reset info in its message
+        err = Exception("429 error: X-RateLimit-Reset: '15'")
+        
+        mock_client.chat.completions.create = AsyncMock(side_effect=[err, MagicMock()])
+        await evaluator.call_llm("sys", "user")
+        mock_sleep.assert_called_once()
+        # wait_time should be 15 + 1.0 = 16.0
+        mock_sleep.assert_called_with(16.0)
+
+
+
+@pytest.mark.asyncio
+@patch("core.evaluator.asyncio.sleep")
+async def test_evaluate_all_metrics_fallback_with_context(mock_sleep):
+    with patch("openai.AsyncOpenAI") as mock_client_cls:
+        mock_client = mock_client_cls.return_value
+        evaluator = CloudEvaluator(api_key="key", base_url="url", model_name="model", concurrency=1, rpm=0, max_retries=1)
+        evaluator.client = mock_client
+        
+        # Make call_llm return invalid JSON to force JSON parse error and fallback
+        evaluator.call_llm = AsyncMock(return_value="invalid json")
+        
+        # With has_context=True, it should include faithfulness and citation_fidelity in fallback
+        res = await evaluator.evaluate_all_metrics(
+            {"system_prompt": "sys", "user_prompt_template": "user"},
+            has_context=True
+        )
+        assert "faithfulness" in res
+        assert "citation_fidelity" in res
+        assert res["faithfulness"]["score"] == 0.0
+        assert res["citation_fidelity"]["score"] == 0.0
+        assert res["answer_relevance"]["score"] == 0.0
+        assert res["semantic_accuracy"]["score"] == 0.0
+
