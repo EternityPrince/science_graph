@@ -103,3 +103,32 @@ def test_get_embedding_engine_error():
                 get_embedding_engine()
     finally:
         core.metrics._embedding_engine = old_engine
+
+def test_get_embedding_engine_success():
+    import core.metrics
+    old_engine = core.metrics._embedding_engine
+    core.metrics._embedding_engine = None
+    try:
+        with patch("src.vector_search.EmbeddingEngine") as mock_engine_cls:
+            engine = get_embedding_engine()
+            assert engine == mock_engine_cls.return_value
+            mock_engine_cls.assert_called_once()
+            
+            # Cached return
+            engine2 = get_embedding_engine()
+            assert engine2 == engine
+            mock_engine_cls.assert_called_once()
+    finally:
+        core.metrics._embedding_engine = old_engine
+
+def test_tiktoken_import_error():
+    import importlib
+    import core.metrics
+    # Hide tiktoken to simulate ImportError on load
+    with patch.dict(sys.modules, {"tiktoken": None}):
+        importlib.reload(core.metrics)
+        assert core.metrics.tiktoken is None
+        
+    # Reload again to restore the environment
+    importlib.reload(core.metrics)
+

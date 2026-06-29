@@ -193,3 +193,42 @@ def test_get_metrics_summary_no_rich_logging(tmp_path):
         assert res == "global fallback"
     finally:
         core.clipboard.HAS_RICH = old_rich
+
+def test_get_metrics_summary_auto_generate_no_rich(tmp_path):
+    run_dir = tmp_path / "run_1"
+    run_dir.mkdir()
+    result_metrics = run_dir / "result_metrics.yaml"
+    result_metrics.write_text("metrics content")
+    
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    parse_script = script_dir / "parse_metrics.py"
+    parse_script.write_text("# parse script")
+    
+    summary_file = run_dir / "metrics_summary.md"
+    
+    def mock_subprocess_run(cmd, **kwargs):
+        summary_file.write_text("generated summary")
+        return MagicMock()
+        
+    import core.clipboard
+    old_rich = core.clipboard.HAS_RICH
+    core.clipboard.HAS_RICH = False
+    try:
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            res = get_metrics_summary(run_dir, tmp_path, script_dir)
+            assert res == "generated summary"
+    finally:
+        core.clipboard.HAS_RICH = old_rich
+
+def test_clipboard_import_no_rich():
+    import sys
+    import importlib
+    with patch.dict(sys.modules, {"rich": None, "rich.console": None, "rich.table": None, "rich.panel": None}):
+        import core.clipboard
+        importlib.reload(core.clipboard)
+        assert core.clipboard.HAS_RICH is False
+        
+    # restore
+    importlib.reload(core.clipboard)
+

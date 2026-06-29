@@ -1,0 +1,59 @@
+- id: Q1
+  query: Query
+  category: general
+  golden_answer: ''
+  expected_papers: []
+  baselines:
+    B1:
+      status: error
+      latency_sec: 0.0
+      retrieved_papers: []
+      retrieved_chunks: []
+      trimmed_text: ''
+      trimmed_graph: ''
+      enrichment_block: ''
+      metrics:
+        components:
+          embedding:
+            calls: 0
+            time_sec: 0.0
+          dense_retrieval:
+            calls: 0
+            time_sec: 0.0
+          lexical_retrieval:
+            calls: 0
+            time_sec: 0.0
+          graph_neighbors:
+            calls: 0
+            time_sec: 0.0
+          db_lookups:
+            calls: 0
+            time_sec: 0.0
+          reranking:
+            calls: 0
+            time_sec: 0.0
+          graph_expansion:
+            calls: 0
+            time_sec: 0.0
+          llm_generation:
+            calls: 0
+            time_sec: 0.0
+          citation_repair:
+            calls: 0
+            time_sec: 0.0
+        total_io_calls: 0
+        prompt_tokens: 0
+      trace:
+        query_id: Q1
+        category: general
+        seed_chunks_from_lexical_dense:
+          lexical: []
+          dense: []
+        seed_paper_id_list: []
+        graph_neighbor_paper_id_list: []
+        candidate_count_before_reranker: 0
+        candidate_count_after_reranker: 0
+        final_context_paper_id_list: []
+        final_context_token_count: 0
+        whether_graph_neighbor_chunk_survived_into_final_context: false
+        answer_token_count: 0

@@ -125,7 +125,7 @@ def test_load_benchmark_dataset(tmp_path):
     sorting_fail_data = [
         {"id": 1, "query": "Q1"},
         {"id": "two", "query": "Q2"},
-        {"id": 3.0, "query": "Q3"}
+        {"id": [3.0], "query": "Q3"}
     ]
     sorting_fail_file = tmp_path / "sorting_fail.yaml"
     with open(sorting_fail_file, "w", encoding="utf-8") as f:
