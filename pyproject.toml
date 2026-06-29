@@ -21,6 +21,9 @@ override-dependencies = [
 testpaths = ["back/tests"]
 pythonpath = ["back"]
 asyncio_mode = "strict"
+markers = [
+    "llm: tests that require heavy LLM models, external LLM APIs, or slow model initialization",
+]
 
 [build-system]
 requires = ["setuptools"]

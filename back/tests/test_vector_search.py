@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.llm
+
 import os
 import tempfile
 from unittest.mock import patch

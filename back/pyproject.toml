@@ -71,6 +71,9 @@ packages = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "strict"
+markers = [
+    "llm: tests that require heavy LLM models, external LLM APIs, or slow model initialization",
+]
 
 [dependency-groups]
 dev = [

@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.llm
+
 import unittest
 from unittest.mock import MagicMock, patch
 import gc

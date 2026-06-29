@@ -19,8 +19,15 @@ class TestDoctor(unittest.TestCase):
         self.graph_repo = SQLiteGraphRepository(self.tmp.name)
         self.vector_repo = SQLiteVectorRepository(self.tmp.name)
         self.doctor_service = DoctorService(self.graph_repo, self.vector_repo)
+        
+        self.ner_patcher = None
+        if self._testMethodName != "test_doctor_ner_author_enrichment":
+            self.ner_patcher = patch("src.services.doctor_service.extract_persons_from_text", return_value=[])
+            self.ner_patcher.start()
 
     def tearDown(self):
+        if self.ner_patcher:
+            self.ner_patcher.stop()
         os.unlink(self.tmp.name)
 
     def test_clean_text(self):
