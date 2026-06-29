@@ -471,9 +471,14 @@ def save_judge_report(human_data: dict, judge_output_path: Path) -> None:
         }
         for baseline, data in case.get("baselines", {}).items():
             raw_ans = data.get("generated_answer", "")
-            judge_case["baselines"][baseline] = {
+            baseline_entry = {
                 "generated_answer": get_clean_judge_answer(raw_ans)
             }
+            if "eval_metrics" in data:
+                baseline_entry["eval_metrics"] = data["eval_metrics"]
+            if "eval_details" in data:
+                baseline_entry["eval_details"] = data["eval_details"]
+            judge_case["baselines"][baseline] = baseline_entry
         judge_results.append(judge_case)
         
     judge_data = {
@@ -501,14 +506,19 @@ def save_individual_judge_reports(human_data: dict, output_dir: Path, output_ste
             baseline_data = case.get("baselines", {}).get(baseline)
             if baseline_data:
                 raw_ans = baseline_data.get("generated_answer", "")
+                baseline_entry = {
+                    "generated_answer": get_clean_judge_answer(raw_ans)
+                }
+                if "eval_metrics" in baseline_data:
+                    baseline_entry["eval_metrics"] = baseline_data["eval_metrics"]
+                if "eval_details" in baseline_data:
+                    baseline_entry["eval_details"] = baseline_data["eval_details"]
                 judge_case = {
                     "id": case.get("id"),
                     "query": case.get("query"),
                     "golden_answer": case.get("golden_answer"),
                     "baselines": {
-                        baseline: {
-                            "generated_answer": get_clean_judge_answer(raw_ans)
-                        }
+                        baseline: baseline_entry
                     }
                 }
                 judge_results.append(judge_case)

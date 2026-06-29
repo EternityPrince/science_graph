@@ -76,7 +76,10 @@ def save_generation_baseline_result(file_path: Path, case_id: str, case_info: di
     safe_read_modify_write_yaml(file_path, modify_fn)
 
 
-def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: dict, baseline_name: str, baseline_data: dict, eval_metrics: dict, metadata: dict):
+def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: dict, baseline_name: str, baseline_data: dict, eval_metrics_raw: dict, metadata: dict):
+    eval_metrics = {k: v for k, v in eval_metrics_raw.items() if k != "eval_details"}
+    eval_details = eval_metrics_raw.get("eval_details", {})
+
     def modify_fn(existing_data):
         if not existing_data or not isinstance(existing_data, dict):
             existing_data = {"metadata": metadata, "results": []}
@@ -101,6 +104,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
             "latency_sec": baseline_data.get("latency_sec"),
             "retrieved_papers": baseline_data.get("retrieved_papers", []),
             "eval_metrics": eval_metrics,
+            "eval_details": eval_details,
             "generated_answer": baseline_data.get("generated_answer", ""),
             "retrieved_chunks": baseline_data.get("retrieved_chunks", []),
             "context_token": baseline_data.get("context_token"),

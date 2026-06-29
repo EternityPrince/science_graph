@@ -308,38 +308,63 @@ async def evaluate_baseline_case(
     if baseline_name != "B0" and retrieved_chunks:
         required.extend(["context_precision", "faithfulness", "citation_fidelity"])
     
-    if checkpoint_key in checkpoint_data and all(r in cached for r in required):
-        if "token_output" not in cached:
+    cached_metrics = {}
+    cached_details = {}
+    has_all_required = False
+    if isinstance(cached, dict):
+        if "metrics" in cached:
+            cached_metrics = cached["metrics"]
+            cached_details = cached.get("details", {})
+        else:
+            cached_metrics = cached
+            cached_details = cached.get("eval_details", {})
+        has_all_required = all(cached_metrics.get(r) is not None for r in required)
+    
+    if checkpoint_key in checkpoint_data and has_all_required:
+        if "token_output" not in cached_metrics:
             from core.metrics import count_text_tokens
             generated_answer = baseline_data.get("generated_answer", "")
             judge_answer = get_clean_judge_answer(generated_answer)
             token_output = count_text_tokens(generated_answer)
             token_answer = count_text_tokens(judge_answer)
             token_reasoning = max(0, token_output - token_answer)
-            cached["token_output"] = token_output
-            cached["token_answer"] = token_answer
-            cached["token_reasoning"] = token_reasoning
-            checkpoint_data[checkpoint_key] = cached
+            cached_metrics["token_output"] = token_output
+            cached_metrics["token_answer"] = token_answer
+            cached_metrics["token_reasoning"] = token_reasoning
+            checkpoint_data[checkpoint_key] = {
+                "metrics": cached_metrics,
+                "details": cached_details
+            }
             save_checkpoint(checkpoint_path, checkpoint_data)
-        return cached
+        
+        res = dict(cached_metrics)
+        res["eval_details"] = cached_details
+        return res
 
     eval_metrics = {
-        "retrieval_recall": cached.get("retrieval_recall", 0.0),
-        "context_precision": cached.get("context_precision", 0.0),
-        "faithfulness": cached.get("faithfulness", 0.0),
-        "answer_relevance": cached.get("answer_relevance", 0.0),
-        "citation_fidelity": cached.get("citation_fidelity", 0.0),
-        "semantic_accuracy": cached.get("semantic_accuracy", 0.0),
-        "context_fillness": cached.get("context_fillness", 0.0),
-        "token_output": cached.get("token_output", 0),
-        "token_answer": cached.get("token_answer", 0),
-        "token_reasoning": cached.get("token_reasoning", 0),
+        "retrieval_recall": cached_metrics.get("retrieval_recall", 0.0),
+        "context_precision": cached_metrics.get("context_precision", 0.0),
+        "faithfulness": cached_metrics.get("faithfulness", 0.0),
+        "answer_relevance": cached_metrics.get("answer_relevance", 0.0),
+        "citation_fidelity": cached_metrics.get("citation_fidelity", 0.0),
+        "semantic_accuracy": cached_metrics.get("semantic_accuracy", 0.0),
+        "context_fillness": cached_metrics.get("context_fillness", 0.0),
+        "token_output": cached_metrics.get("token_output", 0),
+        "token_answer": cached_metrics.get("token_answer", 0),
+        "token_reasoning": cached_metrics.get("token_reasoning", 0),
     }
+    import copy
+    eval_details = copy.deepcopy(cached_details)
 
     if baseline_data.get("status") == "error":
-        checkpoint_data[checkpoint_key] = eval_metrics
+        checkpoint_data[checkpoint_key] = {
+            "metrics": eval_metrics,
+            "details": eval_details
+        }
         save_checkpoint(checkpoint_path, checkpoint_data)
-        return eval_metrics
+        res = dict(eval_metrics)
+        res["eval_details"] = eval_details
+        return res
 
     generated_answer = baseline_data.get("generated_answer", "")
     
@@ -349,22 +374,22 @@ async def evaluate_baseline_case(
     retrieved_papers = baseline_data.get("retrieved_papers", [])
 
     # Calculate traditional retrieval metrics
-    if "retrieval_recall" not in cached or cached["retrieval_recall"] is None:
+    if "retrieval_recall" not in cached_metrics or cached_metrics["retrieval_recall"] is None:
         eval_metrics["retrieval_recall"] = baseline_data.get("retrieval_recall")
         if eval_metrics["retrieval_recall"] is None:
             eval_metrics["retrieval_recall"] = calculate_retrieval_recall(expected_papers, retrieved_papers)
     else:
-        eval_metrics["retrieval_recall"] = cached["retrieval_recall"]
+        eval_metrics["retrieval_recall"] = cached_metrics["retrieval_recall"]
 
-    if "context_precision" not in cached or cached["context_precision"] is None:
+    if "context_precision" not in cached_metrics or cached_metrics["context_precision"] is None:
         eval_metrics["context_precision"] = baseline_data.get("context_precision")
         if eval_metrics["context_precision"] is None:
             eval_metrics["context_precision"] = calculate_context_precision(expected_papers, retrieved_chunks)
     else:
-        eval_metrics["context_precision"] = cached["context_precision"]
+        eval_metrics["context_precision"] = cached_metrics["context_precision"]
 
     # Calculate context fillness
-    if "context_fillness" not in cached or cached["context_fillness"] is None:
+    if "context_fillness" not in cached_metrics or cached_metrics["context_fillness"] is None:
         context_fillness = baseline_data.get("context_fillness")
         if context_fillness is None:
             context_token = baseline_data.get("context_token")
@@ -377,10 +402,10 @@ async def evaluate_baseline_case(
             context_fillness = min(max(context_fillness, 0.0), 1.0)
         eval_metrics["context_fillness"] = context_fillness
     else:
-        eval_metrics["context_fillness"] = cached["context_fillness"]
+        eval_metrics["context_fillness"] = cached_metrics["context_fillness"]
 
     # Calculate output token metrics if they were not populated from cached/checkpoint
-    if "token_output" not in cached or cached["token_output"] is None:
+    if "token_output" not in cached_metrics or cached_metrics["token_output"] is None:
         from core.metrics import count_text_tokens
         token_output = count_text_tokens(generated_answer)
         token_answer = count_text_tokens(judge_answer)
@@ -391,9 +416,14 @@ async def evaluate_baseline_case(
 
     # If clean answer is missing, skip LLM calls
     if not judge_answer.strip():
-        checkpoint_data[checkpoint_key] = eval_metrics
+        checkpoint_data[checkpoint_key] = {
+            "metrics": eval_metrics,
+            "details": eval_details
+        }
         save_checkpoint(checkpoint_path, checkpoint_data)
-        return eval_metrics
+        res = dict(eval_metrics)
+        res["eval_details"] = eval_details
+        return res
 
     # Prepare LLM evaluator inputs
     context_str = build_context_string(retrieved_chunks)
@@ -411,7 +441,7 @@ async def evaluate_baseline_case(
         )
 
     # Check if we need to call LLM:
-    need_llm_call = any(cached.get(m) is None for m in llm_metrics_needed)
+    need_llm_call = any(cached_metrics.get(m) is None for m in llm_metrics_needed)
 
     if need_llm_call:
         prompt_key = "unified_with_context_evaluator" if has_context else "unified_without_context_evaluator"
@@ -437,6 +467,7 @@ async def evaluate_baseline_case(
             )
             for m in llm_metrics_needed:
                 metric_data = eval_results.get(m, {})
+                eval_details[m] = metric_data
                 if isinstance(metric_data, dict):
                     score_val = metric_data.get("score")
                 elif isinstance(metric_data, (int, float)):
@@ -455,12 +486,17 @@ async def evaluate_baseline_case(
             con.error(f"Failed executing unified LLM evaluator for {checkpoint_key}: {e}")
             for m in llm_metrics_needed:
                 eval_metrics[m] = 0.0
+                eval_details[m] = {"score": 0.0, "error": str(e)}
     else:
         for m in llm_metrics_needed:
-            eval_metrics[m] = cached.get(m, 0.0)
+            eval_metrics[m] = cached_metrics.get(m, 0.0)
+            eval_details[m] = cached_details.get(m, {})
 
     # Save to checkpoint
-    checkpoint_data[checkpoint_key] = eval_metrics
+    checkpoint_data[checkpoint_key] = {
+        "metrics": eval_metrics,
+        "details": eval_details
+    }
     save_checkpoint(checkpoint_path, checkpoint_data)
     
     con.info(
@@ -471,7 +507,9 @@ async def evaluate_baseline_case(
         f"Semantic={eval_metrics['semantic_accuracy']:.2f}"
     )
 
-    return eval_metrics
+    res = dict(eval_metrics)
+    res["eval_details"] = eval_details
+    return res
 
 
 def load_checkpoint(path: Path) -> Dict[str, Any]:
@@ -638,7 +676,9 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                 continue
 
             key = f"{case_id}_{baseline_name}"
-            eval_metrics = results_map[key].result()
+            eval_res = results_map[key].result()
+            eval_metrics = {k: v for k, v in eval_res.items() if k != "eval_details"}
+            eval_details = eval_res.get("eval_details", {})
 
             if baseline_name not in summary_stats:
                 summary_stats[baseline_name] = {
@@ -671,6 +711,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                 "latency_sec": latency,
                 "retrieved_papers": baseline_data.get("retrieved_papers", []),
                 "eval_metrics": eval_metrics,
+                "eval_details": eval_details,
                 "generated_answer": baseline_data.get("generated_answer", ""),
                 "retrieved_chunks": baseline_data.get("retrieved_chunks", []),
                 "context_token": baseline_data.get("context_token"),
@@ -712,6 +753,16 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
         checkpoint_path.unlink()
 
     con.success(f"Evaluation finished successfully! Report saved to: {output_path}")
+
+    # Save simplified LLM-judge reports with evaluated metrics
+    try:
+        from core.reporting import save_judge_report, save_individual_judge_reports
+        judge_output_path = output_path.with_name(output_path.stem + "_judge" + output_path.suffix)
+        save_judge_report(output_report, judge_output_path)
+        save_individual_judge_reports(output_report, output_path.parent, output_path.stem, output_path.suffix)
+        con.success(f"Judge reports updated and saved to: {judge_output_path} and {output_path.parent / 'baselines'}/")
+    except Exception as e:
+        con.warning(f"Could not save judge reports: {e}")
 
     # Rich summary table
     if HAS_RICH:
