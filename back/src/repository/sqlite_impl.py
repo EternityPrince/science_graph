@@ -1261,6 +1261,7 @@ class SQLiteGraphRepository(GraphRepository):
                         )
         return None
 
+
     def find_paper_by_url(self, url: str) -> Optional[Paper]:
         if not url:
             return None

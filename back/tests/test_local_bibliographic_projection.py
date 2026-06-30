@@ -5,12 +5,15 @@ from unittest.mock import MagicMock
 import os
 import math
 import sqlite3
+import shutil
 import socket
 import pytest
-from src.models import Paper
+from src.models import Paper, Chunk
 from src.repository.sqlite_impl import SQLiteGraphRepository
 from src.services.bibliographic import (
     canonicalize_reference,
+    resolve_reference_target,
+    find_citation_context_in_text,
     BibliographicProjectionService
 )
 from pathlib import Path
@@ -521,8 +524,8 @@ def test_schema_parity(temp_db):
     assert success is True
     
     # Instantiate SQLiteGraphRepository on both databases to ensure they are initialized
-    SQLiteGraphRepository(temp_db)
-    SQLiteGraphRepository(migrated_db)
+    repo_fresh = SQLiteGraphRepository(temp_db)
+    repo_migrated = SQLiteGraphRepository(migrated_db)
     
     # Get schemas of fresh DB (which is temp_db, auto-initialized by GraphRepository/VectorRepository in conftest)
     conn_fresh = sqlite3.connect(temp_db)
