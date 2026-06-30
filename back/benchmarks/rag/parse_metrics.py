@@ -26,11 +26,54 @@ from core.reporting import (
 from core.models import load_report_file
 
 
+def load_graph_retrieval_trace(trace_path: Path) -> dict[tuple[str, str], dict]:
+    """
+    Robustly loads graph_retrieval_trace.jsonl.
+    Returns a dictionary mapping (baseline, query_id) -> trace_entry.
+    Falls back to (baseline, query) if query_id is missing.
+    In case of duplicate keys, keeps the latest entry.
+    """
+    trace_map = {}
+    if not trace_path.exists():
+        return trace_map
+        
+    try:
+        with open(trace_path, "r", encoding="utf-8") as f:
+            for line_idx, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception as e:
+                    print(f"Warning: Invalid JSON in {trace_path} at line {line_idx}: {e}")
+                    continue
+                
+                baseline = entry.get("baseline", "B6")
+                query_id = entry.get("query_id")
+                query = entry.get("query")
+                
+                if query_id:
+                    key = (baseline, str(query_id))
+                elif query:
+                    key = (baseline, str(query))
+                else:
+                    continue
+                
+                trace_map[key] = entry
+    except Exception as e:
+        print(f"Error loading graph retrieval trace: {e}")
+        
+    return trace_map
+
+
 def parse_graph_retrieval_trace(traces_dir: Path, parsed_dir: Path):
     """Parses graph_retrieval_trace.jsonl to CSV and summary JSON."""
     trace_file = traces_dir / "graph_retrieval_trace.jsonl"
     if not trace_file.exists():
-        print(f"Warning: graph_retrieval_trace.jsonl not found in {traces_dir}")
+        trace_file = traces_dir.parent / "graph_retrieval_trace.jsonl"
+    if not trace_file.exists():
+        print(f"Warning: graph_retrieval_trace.jsonl not found in {traces_dir} or {traces_dir.parent}")
         return None, None
 
     rows = []
@@ -160,7 +203,9 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     """Parses eval_trace.jsonl to CSV and summary JSON."""
     trace_file = traces_dir / "eval_trace.jsonl"
     if not trace_file.exists():
-        print(f"Warning: eval_trace.jsonl not found in {traces_dir}")
+        trace_file = traces_dir.parent / "eval_trace.jsonl"
+    if not trace_file.exists():
+        print(f"Warning: eval_trace.jsonl not found in {traces_dir} or {traces_dir.parent}")
         return None, None
 
     rows = []
@@ -312,6 +357,12 @@ def main():
     csv_summary_path = Path(args.csv_summary) if args.csv_summary else run_dir / "metrics_summary.csv"
     csv_details_path = Path(args.csv_details) if args.csv_details else run_dir / "metrics_details.csv"
 
+    # Load trace map first for merging
+    trace_path = run_dir / "graph_retrieval_trace.jsonl"
+    if not trace_path.exists():
+        trace_path = run_dir / "traces" / "graph_retrieval_trace.jsonl"
+    trace_map = load_graph_retrieval_trace(trace_path)
+
     # 2. Parse result_metrics.yaml
     input_path = Path(args.file) if args.file else run_dir / "result_metrics.yaml"
     if not input_path.is_absolute():
@@ -324,7 +375,7 @@ def main():
         try:
             report = load_report_file(input_path)
             data = report.model_dump()
-            stats = analyze_metrics(data)
+            stats = analyze_metrics(data, trace_map)
             
             # Print tables to stdout
             print_rich_tables(stats)
@@ -347,7 +398,8 @@ def main():
     # 3. Parse Traces
     graph_rows = None
     eval_rows = None
-    if traces_dir.exists():
+    has_traces = traces_dir.exists() or (run_dir / "graph_retrieval_trace.jsonl").exists() or (run_dir / "eval_trace.jsonl").exists()
+    if has_traces:
         graph_rows, graph_summary = parse_graph_retrieval_trace(traces_dir, parsed_dir)
         eval_rows, eval_summary = parse_eval_trace(traces_dir, parsed_dir)
 

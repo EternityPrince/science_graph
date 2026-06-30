@@ -372,15 +372,15 @@ class TestRagBenchmark(unittest.TestCase):
                 reader = list(csv.reader(f))
                 
             self.assertEqual(len(reader), 3) # Header + 2 baselines
-            self.assertEqual(reader[0], [
+            self.assertEqual(reader[0][:12], [
                 "Baseline", "Success Rate", "Recall", "Precision", 
                 "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)",
                 "Token Output", "Token Answer", "Token Reasoning"
             ])
             # B0 check (N/A for context metrics and token metrics)
-            self.assertEqual(reader[1], ["B0", "100.0%", "N/A", "N/A", "N/A", "0.8000", "N/A", "0.7500", "5.43", "N/A", "N/A", "N/A"])
+            self.assertEqual(reader[1][:12], ["B0", "100.0%", "N/A", "N/A", "N/A", "0.8000", "N/A", "0.7500", "5.43", "N/A", "N/A", "N/A"])
             # B1 check
-            self.assertEqual(reader[2], ["B1", "50.0%", "0.9000", "0.8500", "0.9500", "0.9000", "1.0000", "0.8800", "12.35", "N/A", "N/A", "N/A"])
+            self.assertEqual(reader[2][:12], ["B1", "50.0%", "0.9000", "0.8500", "0.9500", "0.9000", "1.0000", "0.8800", "12.35", "N/A", "N/A", "N/A"])
             
             # Export detailed
             export_detailed_csv(data, stats, details_csv)
@@ -390,7 +390,7 @@ class TestRagBenchmark(unittest.TestCase):
                 reader_det = list(csv.reader(f))
                 
             self.assertEqual(len(reader_det), 3) # Header + Q01_B0 + Q01_B1
-            self.assertEqual(reader_det[0], [
+            self.assertEqual(reader_det[0][:23], [
                 "query_id", "category", "baseline", "status", "latency_sec",
                 "retrieval_recall", "context_precision", "faithfulness",
                 "answer_relevance", "citation_fidelity", "semantic_accuracy",
@@ -401,8 +401,8 @@ class TestRagBenchmark(unittest.TestCase):
                 "final_context_token_count", "whether_graph_neighbor_chunk_survived_into_final_context",
                 "answer_token_count"
             ])
-            self.assertEqual(reader_det[1], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", "", "", "", "", "", "", "", "", "", ""])
-            self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", "", "", "", "", "", "", "", "", "", ""])
+            self.assertEqual(reader_det[1][:23], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", "", "", "", "", "", "", "", "", "", ""])
+            self.assertEqual(reader_det[2][:23], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", "", "", "", "", "", "", "", "", "", ""])
 
     @patch("benchmarks.rag.run_pipeline.subprocess.check_output")
     @patch("benchmarks.rag.run_pipeline.subprocess.run")

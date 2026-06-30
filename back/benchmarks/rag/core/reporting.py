@@ -1,5 +1,6 @@
 import csv
 import yaml
+import json
 from pathlib import Path
 from typing import Dict, List, Any
 from core.models import parse_report, ReportOutput
@@ -16,6 +17,71 @@ except ImportError:
 
 from core.config import BASELINES_INFO
 from core.analytics import ALL_METRICS, QUALITY_METRICS, METRIC_LABELS
+
+
+NEW_CSV_FIELDS = [
+    "graph_retrieval_enabled",
+    "graph_retrieval_skip_reason",
+    "query_concepts_all_count",
+    "query_concepts_strong_count",
+    "query_concepts_dropped_count",
+    "query_concepts_all",
+    "query_concepts_strong",
+    "query_concepts_dropped",
+    "graph_neighbor_nodes_total",
+    "graph_neighbor_paper_nodes_count",
+    "graph_neighbor_local_papers_count",
+    "graph_neighbor_papers_with_chunks_count",
+    "graph_neighbor_placeholder_or_external_count",
+    "graph_neighbor_non_paper_nodes_count",
+    "graph_neighbor_chunks_retrieved_count",
+    "graph_concept_candidate_papers_count",
+    "graph_bridge_candidate_papers_count",
+    "graph_chunks_before_rerank_count",
+    "graph_chunk_candidates_count",
+    "graph_candidate_source_breakdown",
+    "base_candidates_count",
+    "merged_candidates_count_before_reranker",
+    "reranker_input_count_before_limit",
+    "reranker_input_count_after_limit",
+    "candidate_count_after_reranker",
+    "graph_candidate_rerank_positions",
+    "best_graph_candidate_rank_after_rerank",
+    "graph_chunks_survived_final_context_count",
+    "graph_survival_rate",
+    "graph_chunks_survived_final_context",
+    "distinct_papers_in_final_context",
+    "graph_neighbor_resolution_sample",
+    "graph_concept_candidate_papers",
+    "graph_bridge_candidate_papers",
+    "graph_chunks_before_rerank"
+]
+
+NEW_SUMMARY_HEADERS = [
+    "Graph Retrieval Enabled Rate",
+    "Graph Retrieval Skipped Rate",
+    "Avg Query Concepts",
+    "Avg Strong Query Concepts",
+    "Avg Dropped Query Concepts",
+    "Avg Graph Neighbor Nodes",
+    "Avg Graph Neighbor Paper Nodes",
+    "Avg Graph Neighbor Local Papers",
+    "Avg Graph Neighbor Papers With Chunks",
+    "Avg Graph Neighbor Chunks Retrieved",
+    "Avg Base Candidates",
+    "Avg Graph Chunk Candidates",
+    "Avg Merged Candidates Before Reranker",
+    "Avg Reranker Input Before Limit",
+    "Avg Reranker Input After Limit",
+    "Avg Candidates After Reranker",
+    "Graph Survival Rate",
+    "Queries With Graph Chunks",
+    "Queries With Graph Chunks Survived",
+    "Avg Best Graph Candidate Rank",
+    "Avg Graph Neighbor Candidates",
+    "Avg Graph Concept Candidates",
+    "Avg Graph Bridge Candidates"
+]
 
 
 def print_rich_tables(stats: dict) -> None:
@@ -57,6 +123,38 @@ def print_rich_tables(stats: dict) -> None:
     console.print(table)
     console.print()
     
+    # 1.5. Graph Retrieval Diagnostics Table (if trace exists)
+    if stats.get("has_graph_trace"):
+        table_graph = Table(title="[bold]Диагностика Graph Retrieval (Graph Retrieval Diagnostics)[/bold]", box=ROUNDED, header_style="bold green")
+        table_graph.add_column("Baseline", style="cyan", no_wrap=True)
+        table_graph.add_column("Enabled", justify="right")
+        table_graph.add_column("Skipped", justify="right")
+        table_graph.add_column("Avg Graph Chunks", justify="right")
+        table_graph.add_column("Survival", justify="right")
+        table_graph.add_column("Queries Survived", justify="right")
+        table_graph.add_column("Avg Best Rank", justify="right")
+        
+        for b in stats["baselines"]:
+            gd = stats["summary"][b].get("graph_diagnostics", {})
+            enabled_pct = f"{gd.get('enabled_rate', 0.0) * 100:.1f}%"
+            skipped_pct = f"{gd.get('skipped_rate', 0.0) * 100:.1f}%"
+            avg_chunks = f"{gd.get('avg_graph_chunk_candidates', 0.0):.2f}"
+            survival_pct = f"{gd.get('survival_rate', 0.0) * 100:.1f}%"
+            queries_survived_pct = f"{gd.get('queries_with_chunks_survived', 0.0) * 100:.1f}%"
+            avg_best_rank = f"{gd.get('avg_best_rank'):.2f}" if gd.get("avg_best_rank") is not None else "—"
+            
+            table_graph.add_row(
+                b,
+                enabled_pct,
+                skipped_pct,
+                avg_chunks,
+                survival_pct,
+                queries_survived_pct,
+                avg_best_rank
+            )
+        console.print(table_graph)
+        console.print()
+
     # 2. Detailed statistics per baseline with Min/Max/Stdev
     for b in stats["baselines"]:
         desc = BASELINES_INFO.get(b, "")
@@ -175,6 +273,22 @@ def print_plain_tables(stats: dict) -> None:
                 row.append(f"{val:.3f}")
         print("\t".join(row))
     print()
+
+    if stats.get("has_graph_trace"):
+        print("--- Диагностика Graph Retrieval (Graph Retrieval Diagnostics) ---")
+        print("\t".join(["Baseline", "Enabled", "Skipped", "Avg Chunks", "Survival", "Queries Survived", "Avg Best Rank"]))
+        for b in stats["baselines"]:
+            gd = stats["summary"][b].get("graph_diagnostics", {})
+            enabled_pct = f"{gd.get('enabled_rate', 0.0) * 100:.1f}%"
+            skipped_pct = f"{gd.get('skipped_rate', 0.0) * 100:.1f}%"
+            avg_chunks = f"{gd.get('avg_graph_chunk_candidates', 0.0):.2f}"
+            survival_pct = f"{gd.get('survival_rate', 0.0) * 100:.1f}%"
+            queries_survived_pct = f"{gd.get('queries_with_chunks_survived', 0.0) * 100:.1f}%"
+            avg_best_rank = f"{gd.get('avg_best_rank'):.2f}" if gd.get("avg_best_rank") is not None else "—"
+            print("\t".join([
+                b, enabled_pct, skipped_pct, avg_chunks, survival_pct, queries_survived_pct, avg_best_rank
+            ]))
+        print()
 
 
 def generate_markdown_report(stats: dict, output_path: Path) -> None:
@@ -325,8 +439,122 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
     for q in stats["query_difficulty"][:10]:
         lines.append(f"| `{q['id']}` | `{q['category']}` | {q['query']} | **{q['avg_score']:.3f}** |")
     lines.append("")
+
+    # Graph Retrieval Diagnostics Section
+    if stats.get("has_graph_trace"):
+        lines.append("## 📊 Graph Retrieval Diagnostics")
+        lines.append("")
+        
+        def format_pct(val):
+            if val is None:
+                return "—"
+            return f"{val * 100:.1f}%"
+
+        def format_avg(val):
+            if val is None:
+                return "—"
+            return f"{val:.2f}"
+
+        # Table 1: Core diagnostics
+        lines.append("| Baseline | Enabled Rate | Skipped Rate | Avg Neighbor Nodes | Avg Local Papers | Avg Papers w/ Chunks | Avg Graph Chunks | Graph Survival Rate | Queries w/ Survived Graph Chunks | Avg Best Graph Rank |")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for b in stats["baselines"]:
+            gd = stats["summary"][b].get("graph_diagnostics", {})
+            row = [
+                f"**{b}**",
+                format_pct(gd.get("enabled_rate")),
+                format_pct(gd.get("skipped_rate")),
+                format_avg(gd.get("avg_neighbor_nodes")),
+                format_avg(gd.get("avg_neighbor_local_papers")),
+                format_avg(gd.get("avg_neighbor_papers_with_chunks")),
+                format_avg(gd.get("avg_graph_chunk_candidates")),
+                format_pct(gd.get("survival_rate")),
+                format_pct(gd.get("queries_with_chunks_survived")),
+                format_avg(gd.get("avg_best_rank"))
+            ]
+            lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
+
+        # Table 2: Source Breakdown
+        lines.append("### Graph Candidate Source Breakdown")
+        lines.append("")
+        lines.append("| Baseline | Avg Neighbor Candidates | Avg Concept Candidates | Avg Bridge Candidates |")
+        lines.append("|---|---:|---:|---:|")
+        for b in stats["baselines"]:
+            gd = stats["summary"][b].get("graph_diagnostics", {})
+            row = [
+                f"**{b}**",
+                format_avg(gd.get("avg_neighbor_cand")),
+                format_avg(gd.get("avg_concept_cand")),
+                format_avg(gd.get("avg_bridge_cand"))
+            ]
+            lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
+
+        # Table 3: Query Concept Filtering
+        lines.append("### Query Concept Filtering")
+        lines.append("")
+        lines.append("| Baseline | Avg Query Concepts | Avg Strong Concepts | Avg Dropped Concepts |")
+        lines.append("|---|---:|---:|---:|")
+        for b in stats["baselines"]:
+            gd = stats["summary"][b].get("graph_diagnostics", {})
+            row = [
+                f"**{b}**",
+                format_avg(gd.get("avg_concepts")),
+                format_avg(gd.get("avg_strong")),
+                format_avg(gd.get("avg_dropped"))
+            ]
+            lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
+
+        # Table 4: Category Breakdown
+        if stats.get("category_graph_stats"):
+            lines.append("### Graph Retrieval by Category")
+            lines.append("")
+            lines.append("| Category | Baseline | Avg Graph Chunks | Graph Survival Rate | Queries w/ Survived Graph Chunks | Avg Distinct Papers |")
+            lines.append("|---|---|---:|---:|---:|---:|")
+            cat_stats = stats["category_graph_stats"]
+            for cat in sorted(cat_stats.keys()):
+                for b in stats["baselines"]:
+                    b_cat = cat_stats[cat].get(b, {})
+                    row = [
+                        f"`{cat}`",
+                        f"**{b}**",
+                        format_avg(b_cat.get("avg_graph_chunk_candidates")),
+                        format_pct(b_cat.get("graph_survival_rate")),
+                        format_pct(b_cat.get("queries_with_graph_chunks_survived")),
+                        format_avg(b_cat.get("avg_distinct_papers_in_final_context"))
+                    ]
+                    lines.append("| " + " | ".join(row) + " |")
+            lines.append("")
+
+        # Table 5: Failure examples
+        if stats.get("top_failures"):
+            lines.append("### Graph Retrieval Failure Examples")
+            lines.append("")
+            lines.append("| Query ID | Baseline | Category | Skip Reason | Neighbor Nodes | Papers w/ Chunks | Graph Chunks | Survived |")
+            lines.append("|---|---|---|---|---:|---:|---:|---:|")
+            for item in stats["top_failures"]:
+                row = [
+                    f"`{item['query_id']}`",
+                    f"**{item['baseline']}**",
+                    f"`{item['category']}`",
+                    item["skip_reason"] if item["skip_reason"] else "—",
+                    str(item["neighbor_nodes"]),
+                    str(item["papers_with_chunks"]),
+                    str(item["chunks_before"]),
+                    str(item["chunks_survived"])
+                ]
+                lines.append("| " + " | ".join(row) + " |")
+            lines.append("")
+    else:
+        lines.append("## Graph Retrieval Diagnostics")
+        lines.append("")
+        lines.append("Graph retrieval trace was not found for this run.")
+        lines.append("")
     
     lines.append("## 🏆 Главные выводы (Research Summary)")
+    lines.append("")
     
     best_accuracy_b = best_per_metric["semantic_accuracy"]
     best_recall_b = best_per_metric["retrieval_recall"]
@@ -362,7 +590,7 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
             "Baseline", "Success Rate", "Recall", "Precision", 
             "Faithfulness", "Relevance", "Citations", "Semantic Accuracy", "Latency (sec)",
             "Token Output", "Token Answer", "Token Reasoning"
-        ])
+        ] + NEW_SUMMARY_HEADERS)
         for b in stats["baselines"]:
             sr = f"{stats['summary'][b]['success_rate']:.1f}%"
             
@@ -381,7 +609,7 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
                 else:
                     return f"{val:.4f}"
             
-            writer.writerow([
+            row_vals = [
                 b,
                 sr,
                 get_val("retrieval_recall"),
@@ -394,7 +622,43 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
                 get_val("token_output"),
                 get_val("token_answer"),
                 get_val("token_reasoning")
-            ])
+            ]
+
+            gd = stats["summary"][b].get("graph_diagnostics", {})
+            
+            def get_gd_val(key, default=0.0):
+                val = gd.get(key)
+                if val is None:
+                    return default
+                return val
+
+            row_vals += [
+                get_gd_val("enabled_rate"),
+                get_gd_val("skipped_rate"),
+                get_gd_val("avg_concepts"),
+                get_gd_val("avg_strong"),
+                get_gd_val("avg_dropped"),
+                get_gd_val("avg_neighbor_nodes"),
+                get_gd_val("avg_neighbor_paper_nodes"),
+                get_gd_val("avg_neighbor_local_papers"),
+                get_gd_val("avg_neighbor_papers_with_chunks"),
+                get_gd_val("avg_neighbor_chunks_retrieved"),
+                get_gd_val("avg_base_candidates"),
+                get_gd_val("avg_graph_chunk_candidates"),
+                get_gd_val("avg_merged_before"),
+                get_gd_val("avg_reranker_before"),
+                get_gd_val("avg_reranker_after"),
+                get_gd_val("avg_candidates_after"),
+                get_gd_val("survival_rate"),
+                get_gd_val("queries_with_chunks"),
+                get_gd_val("queries_with_chunks_survived"),
+                gd.get("avg_best_rank") if gd.get("avg_best_rank") is not None else "",
+                get_gd_val("avg_neighbor_cand"),
+                get_gd_val("avg_concept_cand"),
+                get_gd_val("avg_bridge_cand")
+            ]
+            
+            writer.writerow(row_vals)
 
 
 def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
@@ -424,7 +688,7 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
             "candidate_count_after_reranker", "final_context_paper_id_list",
             "final_context_token_count", "whether_graph_neighbor_chunk_survived_into_final_context",
             "answer_token_count"
-        ])
+        ] + NEW_CSV_FIELDS)
         
         for r in results:
             q_id = r.get("id", "UNKNOWN")
@@ -473,7 +737,16 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                     neighbor_survived = ""
                     ans_tokens = ""
 
-                writer.writerow([
+                def format_csv_cell(val):
+                    if val is None:
+                        return ""
+                    if isinstance(val, bool):
+                        return str(val)
+                    if isinstance(val, (list, dict)):
+                        return json.dumps(val, ensure_ascii=False)
+                    return str(val)
+
+                row_vals = [
                     q_id,
                     category,
                     b,
@@ -497,7 +770,14 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                     final_tokens,
                     neighbor_survived,
                     ans_tokens
-                ])
+                ]
+
+                # Append new graph retrieval diagnostic fields
+                for field in NEW_CSV_FIELDS:
+                    val = b_data.get(field)
+                    row_vals.append(format_csv_cell(val))
+
+                writer.writerow(row_vals)
 
 
 def save_judge_report(human_data: dict, judge_output_path: Path) -> None:

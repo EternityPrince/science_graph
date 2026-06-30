@@ -36,7 +36,60 @@ METRIC_LABELS = {
 }
 
 
-def analyze_metrics(data: Any) -> dict:
+DETAIL_GRAPH_FIELDS = {
+    "graph_retrieval_enabled": (False, bool),
+    "graph_retrieval_skip_reason": ("", str),
+    
+    # Concept diagnostics
+    "query_concepts_all_count": (0, int),
+    "query_concepts_strong_count": (0, int),
+    "query_concepts_dropped_count": (0, int),
+    "query_concepts_all": ([], list),
+    "query_concepts_strong": ([], list),
+    "query_concepts_dropped": ([], list),
+    
+    # Graph neighbor resolution
+    "graph_neighbor_nodes_total": (0, int),
+    "graph_neighbor_paper_nodes_count": (0, int),
+    "graph_neighbor_local_papers_count": (0, int),
+    "graph_neighbor_papers_with_chunks_count": (0, int),
+    "graph_neighbor_placeholder_or_external_count": (0, int),
+    "graph_neighbor_non_paper_nodes_count": (0, int),
+    "graph_neighbor_chunks_retrieved_count": (0, int),
+    
+    # Graph candidate counts
+    "graph_concept_candidate_papers_count": (0, int),
+    "graph_bridge_candidate_papers_count": (0, int),
+    "graph_chunks_before_rerank_count": (0, int),
+    "graph_chunk_candidates_count": (0, int),
+    "graph_candidate_source_breakdown": ({}, dict),
+    
+    # Reranker integration
+    "base_candidates_count": (0, int),
+    "merged_candidates_count_before_reranker": (0, int),
+    "reranker_input_count_before_limit": (0, int),
+    "reranker_input_count_after_limit": (0, int),
+    "candidate_count_after_reranker": (0, int),
+    
+    # Graph survival
+    "graph_candidate_rerank_positions": ([], list),
+    "best_graph_candidate_rank_after_rerank": (None, int),
+    "graph_chunks_survived_final_context_count": (0, int),
+    "graph_survival_rate": (0.0, float),
+    "graph_chunks_survived_final_context": ([], list),
+    
+    # Final context diversity
+    "distinct_papers_in_final_context": (0, int),
+    
+    # Optional samples/debug lists
+    "graph_neighbor_resolution_sample": ([], list),
+    "graph_concept_candidate_papers": ([], list),
+    "graph_bridge_candidate_papers": ([], list),
+    "graph_chunks_before_rerank": ([], list),
+}
+
+
+def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
     """Computes all summary statistics, wins, breakdowns, and difficulties from YAML data."""
     # Parsed with Pydantic for strict validation and format unification
     if isinstance(data, ReportOutput):
@@ -59,6 +112,44 @@ def analyze_metrics(data: Any) -> dict:
                 baselines = list(r["baselines"].keys())
                 break
     baselines = sorted(baselines)
+
+    # 0. Merge trace entries if trace_map is provided (or fallback to defaults)
+    for r in results:
+        q_id = r.get("id")
+        query = r.get("query")
+        for b in baselines:
+            b_data = r.setdefault("baselines", {}).setdefault(b, {})
+            
+            trace_entry = None
+            if trace_map:
+                if q_id:
+                    trace_entry = trace_map.get((b, str(q_id)))
+                if not trace_entry and query:
+                    trace_entry = trace_map.get((b, str(query)))
+            
+            for field, (default_val, _) in DETAIL_GRAPH_FIELDS.items():
+                val = None
+                if trace_entry:
+                    if field == "query_concepts_all_count":
+                        val = len(trace_entry.get("query_concepts_all", []))
+                    elif field == "query_concepts_strong_count":
+                        val = len(trace_entry.get("query_concepts_strong", []))
+                    elif field == "query_concepts_dropped_count":
+                        val = len(trace_entry.get("query_concepts_dropped", []))
+                    else:
+                        val = trace_entry.get(field)
+                
+                if val is None:
+                    if field == "query_concepts_all_count" and trace_entry:
+                        val = len(trace_entry.get("query_concepts_all", []))
+                    elif field == "query_concepts_strong_count" and trace_entry:
+                        val = len(trace_entry.get("query_concepts_strong", []))
+                    elif field == "query_concepts_dropped_count" and trace_entry:
+                        val = len(trace_entry.get("query_concepts_dropped", []))
+                    else:
+                        val = default_val
+                        
+                b_data[field] = val
     
     # Pre-calculate missing semantic accuracies for all results/baselines
     missing_semantics = []
@@ -185,6 +276,37 @@ def analyze_metrics(data: Any) -> dict:
     categories = set()
     category_values = {}
     query_scores = []
+
+    # Dictionary to collect raw values for graph diagnostics per baseline
+    graph_raw = {
+        b: {
+            "enabled": [],
+            "skipped": [],
+            "concepts_all": [],
+            "concepts_strong": [],
+            "concepts_dropped": [],
+            "neighbor_nodes": [],
+            "neighbor_paper_nodes": [],
+            "neighbor_local_papers": [],
+            "neighbor_papers_with_chunks": [],
+            "neighbor_chunks_retrieved": [],
+            "base_candidates": [],
+            "graph_chunk_candidates": [],
+            "merged_before": [],
+            "reranker_before": [],
+            "reranker_after": [],
+            "candidates_after": [],
+            "chunks_before_rerank": [],
+            "chunks_survived": [],
+            "best_rank": [],
+            "neighbor_candidates": [],
+            "concept_candidates": [],
+            "bridge_candidates": [],
+            "distinct_papers_final": []
+        }
+        for b in baselines
+    }
+    category_graph_raw = {}
     
     for r in results:
         q_id = r.get("id", "UNKNOWN")
@@ -194,6 +316,18 @@ def analyze_metrics(data: Any) -> dict:
         
         if category not in category_values:
             category_values[category] = {b: {m: [] for m in ALL_METRICS} for b in baselines}
+
+        if category not in category_graph_raw:
+            category_graph_raw[category] = {
+                b: {
+                    "graph_chunk_candidates": [],
+                    "chunks_before_rerank": [],
+                    "chunks_survived": [],
+                    "concepts_strong": [],
+                    "distinct_papers_final": []
+                }
+                for b in baselines
+            }
             
         q_quality_sum = 0.0
         q_quality_count = 0
@@ -228,6 +362,54 @@ def analyze_metrics(data: Any) -> dict:
                 if val is not None:
                     raw_values[b][m].append(val)
                     category_values[category][b][m].append(val)
+
+            # Collect graph retrieval diagnostics
+            enabled = b_data.get("graph_retrieval_enabled", False)
+            graph_raw[b]["enabled"].append(enabled)
+            
+            skip_reason = b_data.get("graph_retrieval_skip_reason", "")
+            graph_raw[b]["skipped"].append(bool(skip_reason))
+            
+            graph_raw[b]["concepts_all"].append(b_data.get("query_concepts_all_count", 0))
+            graph_raw[b]["concepts_strong"].append(b_data.get("query_concepts_strong_count", 0))
+            graph_raw[b]["concepts_dropped"].append(b_data.get("query_concepts_dropped_count", 0))
+            
+            graph_raw[b]["neighbor_nodes"].append(b_data.get("graph_neighbor_nodes_total", 0))
+            graph_raw[b]["neighbor_paper_nodes"].append(b_data.get("graph_neighbor_paper_nodes_count", 0))
+            graph_raw[b]["neighbor_local_papers"].append(b_data.get("graph_neighbor_local_papers_count", 0))
+            graph_raw[b]["neighbor_papers_with_chunks"].append(b_data.get("graph_neighbor_papers_with_chunks_count", 0))
+            graph_raw[b]["neighbor_chunks_retrieved"].append(b_data.get("graph_neighbor_chunks_retrieved_count", 0))
+            
+            graph_raw[b]["base_candidates"].append(b_data.get("base_candidates_count", 0))
+            graph_raw[b]["graph_chunk_candidates"].append(b_data.get("graph_chunk_candidates_count", 0))
+            graph_raw[b]["merged_before"].append(b_data.get("merged_candidates_count_before_reranker", 0))
+            graph_raw[b]["reranker_before"].append(b_data.get("reranker_input_count_before_limit", 0))
+            graph_raw[b]["reranker_after"].append(b_data.get("reranker_input_count_after_limit", 0))
+            graph_raw[b]["candidates_after"].append(b_data.get("candidate_count_after_reranker", 0))
+            
+            graph_raw[b]["chunks_before_rerank"].append(b_data.get("graph_chunks_before_rerank_count", 0))
+            graph_raw[b]["chunks_survived"].append(b_data.get("graph_chunks_survived_final_context_count", 0))
+            
+            best_rank = b_data.get("best_graph_candidate_rank_after_rerank")
+            if best_rank is not None:
+                try:
+                    graph_raw[b]["best_rank"].append(float(best_rank))
+                except (ValueError, TypeError):
+                    pass
+            
+            breakdown = b_data.get("graph_candidate_source_breakdown") or {}
+            graph_raw[b]["neighbor_candidates"].append(breakdown.get("graph_neighbor", b_data.get("graph_neighbor_chunks_retrieved_count", 0)))
+            graph_raw[b]["concept_candidates"].append(breakdown.get("graph_concept_retrieval", b_data.get("graph_concept_candidate_papers_count", 0)))
+            graph_raw[b]["bridge_candidates"].append(breakdown.get("graph_bridge_retrieval", b_data.get("graph_bridge_candidate_papers_count", 0)))
+            
+            graph_raw[b]["distinct_papers_final"].append(b_data.get("distinct_papers_in_final_context", 0))
+
+            # Category raw graph collection
+            category_graph_raw[category][b]["graph_chunk_candidates"].append(b_data.get("graph_chunk_candidates_count", 0))
+            category_graph_raw[category][b]["chunks_before_rerank"].append(b_data.get("graph_chunks_before_rerank_count", 0))
+            category_graph_raw[category][b]["chunks_survived"].append(b_data.get("graph_chunks_survived_final_context_count", 0))
+            category_graph_raw[category][b]["concepts_strong"].append(b_data.get("query_concepts_strong_count", 0))
+            category_graph_raw[category][b]["distinct_papers_final"].append(b_data.get("distinct_papers_in_final_context", 0))
                     
         # Compute query average quality score to determine difficulty
         if q_quality_count > 0:
@@ -272,6 +454,70 @@ def analyze_metrics(data: Any) -> dict:
                 "stdev": std_val,
                 "count": len(vals)
             }
+
+        # Calculate graph retrieval aggregates
+        total_q = len(results)
+        enabled_rate = sum(1 for e in graph_raw[b]["enabled"] if e) / total_q if total_q > 0 else 0.0
+        skipped_rate = sum(1 for s in graph_raw[b]["skipped"] if s) / total_q if total_q > 0 else 0.0
+        
+        avg_concepts = statistics.mean(graph_raw[b]["concepts_all"]) if graph_raw[b]["concepts_all"] else 0.0
+        avg_strong = statistics.mean(graph_raw[b]["concepts_strong"]) if graph_raw[b]["concepts_strong"] else 0.0
+        avg_dropped = statistics.mean(graph_raw[b]["concepts_dropped"]) if graph_raw[b]["concepts_dropped"] else 0.0
+        
+        avg_neighbor_nodes = statistics.mean(graph_raw[b]["neighbor_nodes"]) if graph_raw[b]["neighbor_nodes"] else 0.0
+        avg_neighbor_paper_nodes = statistics.mean(graph_raw[b]["neighbor_paper_nodes"]) if graph_raw[b]["neighbor_paper_nodes"] else 0.0
+        avg_neighbor_local_papers = statistics.mean(graph_raw[b]["neighbor_local_papers"]) if graph_raw[b]["neighbor_local_papers"] else 0.0
+        avg_neighbor_papers_with_chunks = statistics.mean(graph_raw[b]["neighbor_papers_with_chunks"]) if graph_raw[b]["neighbor_papers_with_chunks"] else 0.0
+        avg_neighbor_chunks_retrieved = statistics.mean(graph_raw[b]["neighbor_chunks_retrieved"]) if graph_raw[b]["neighbor_chunks_retrieved"] else 0.0
+        
+        avg_base_candidates = statistics.mean(graph_raw[b]["base_candidates"]) if graph_raw[b]["base_candidates"] else 0.0
+        avg_graph_chunk_candidates = statistics.mean(graph_raw[b]["graph_chunk_candidates"]) if graph_raw[b]["graph_chunk_candidates"] else 0.0
+        avg_merged_before = statistics.mean(graph_raw[b]["merged_before"]) if graph_raw[b]["merged_before"] else 0.0
+        avg_reranker_before = statistics.mean(graph_raw[b]["reranker_before"]) if graph_raw[b]["reranker_before"] else 0.0
+        avg_reranker_after = statistics.mean(graph_raw[b]["reranker_after"]) if graph_raw[b]["reranker_after"] else 0.0
+        avg_candidates_after = statistics.mean(graph_raw[b]["candidates_after"]) if graph_raw[b]["candidates_after"] else 0.0
+        
+        sum_before = sum(graph_raw[b]["chunks_before_rerank"])
+        sum_survived = sum(graph_raw[b]["chunks_survived"])
+        survival_rate = sum_survived / sum_before if sum_before > 0 else 0.0
+        
+        queries_with_chunks = sum(1 for c in graph_raw[b]["chunks_before_rerank"] if c > 0) / total_q if total_q > 0 else 0.0
+        queries_with_chunks_survived = sum(1 for c in graph_raw[b]["chunks_survived"] if c > 0) / total_q if total_q > 0 else 0.0
+        
+        avg_best_rank = statistics.mean(graph_raw[b]["best_rank"]) if graph_raw[b]["best_rank"] else None
+        
+        avg_neighbor_cand = statistics.mean(graph_raw[b]["neighbor_candidates"]) if graph_raw[b]["neighbor_candidates"] else 0.0
+        avg_concept_cand = statistics.mean(graph_raw[b]["concept_candidates"]) if graph_raw[b]["concept_candidates"] else 0.0
+        avg_bridge_cand = statistics.mean(graph_raw[b]["bridge_candidates"]) if graph_raw[b]["bridge_candidates"] else 0.0
+        
+        avg_distinct_papers = statistics.mean(graph_raw[b]["distinct_papers_final"]) if graph_raw[b]["distinct_papers_final"] else 0.0
+        
+        summary_stats[b]["graph_diagnostics"] = {
+            "enabled_rate": enabled_rate,
+            "skipped_rate": skipped_rate,
+            "avg_concepts": avg_concepts,
+            "avg_strong": avg_strong,
+            "avg_dropped": avg_dropped,
+            "avg_neighbor_nodes": avg_neighbor_nodes,
+            "avg_neighbor_paper_nodes": avg_neighbor_paper_nodes,
+            "avg_neighbor_local_papers": avg_neighbor_local_papers,
+            "avg_neighbor_papers_with_chunks": avg_neighbor_papers_with_chunks,
+            "avg_neighbor_chunks_retrieved": avg_neighbor_chunks_retrieved,
+            "avg_base_candidates": avg_base_candidates,
+            "avg_graph_chunk_candidates": avg_graph_chunk_candidates,
+            "avg_merged_before": avg_merged_before,
+            "avg_reranker_before": avg_reranker_before,
+            "avg_reranker_after": avg_reranker_after,
+            "avg_candidates_after": avg_candidates_after,
+            "survival_rate": survival_rate,
+            "queries_with_chunks": queries_with_chunks,
+            "queries_with_chunks_survived": queries_with_chunks_survived,
+            "avg_best_rank": avg_best_rank,
+            "avg_neighbor_cand": avg_neighbor_cand,
+            "avg_concept_cand": avg_concept_cand,
+            "avg_bridge_cand": avg_bridge_cand,
+            "avg_distinct_papers": avg_distinct_papers
+        }
             
     # Compute category statistics
     category_stats = {}
@@ -285,6 +531,31 @@ def analyze_metrics(data: Any) -> dict:
                     category_stats[cat][b][m] = statistics.mean(vals)
                 else:
                     category_stats[cat][b][m] = 0.0
+
+    # Compute category graph statistics
+    category_graph_stats = {}
+    for cat in sorted(categories):
+        category_graph_stats[cat] = {}
+        for b in baselines:
+            raw_c = category_graph_raw[cat][b]
+            avg_chunk_cand = statistics.mean(raw_c["graph_chunk_candidates"]) if raw_c["graph_chunk_candidates"] else 0.0
+            
+            sum_before_c = sum(raw_c["chunks_before_rerank"])
+            sum_survived_c = sum(raw_c["chunks_survived"])
+            survival_rate_c = sum_survived_c / sum_before_c if sum_before_c > 0 else 0.0
+            
+            queries_survived_c = sum(1 for x in raw_c["chunks_survived"] if x > 0) / len(raw_c["chunks_survived"]) if raw_c["chunks_survived"] else 0.0
+            
+            avg_strong_c = statistics.mean(raw_c["concepts_strong"]) if raw_c["concepts_strong"] else 0.0
+            avg_distinct_c = statistics.mean(raw_c["distinct_papers_final"]) if raw_c["distinct_papers_final"] else 0.0
+            
+            category_graph_stats[cat][b] = {
+                "avg_graph_chunk_candidates": avg_chunk_cand,
+                "graph_survival_rate": survival_rate_c,
+                "queries_with_graph_chunks_survived": queries_survived_c,
+                "avg_strong_query_concepts": avg_strong_c,
+                "avg_distinct_papers_in_final_context": avg_distinct_c
+            }
                     
     # Pairwise Win Rate (how often baseline X > baseline Y for a given metric)
     pairwise_win_rates = {}
@@ -312,6 +583,54 @@ def analyze_metrics(data: Any) -> dict:
                 
                 pairwise_win_rates[metric][b1][b2] = (wins / total * 100) if total > 0 else 0.0
 
+    # Collect failure cases
+    failure_cases = []
+    for r in results:
+        q_id = r.get("id", "UNKNOWN")
+        q_text = r.get("query", "")
+        category = r.get("category", "default")
+        
+        for b in baselines:
+            b_data = r.get("baselines", {}).get(b, {})
+            if not b_data:
+                continue
+            
+            skip_reason = b_data.get("graph_retrieval_skip_reason", "")
+            neighbor_nodes = b_data.get("graph_neighbor_nodes_total", 0)
+            papers_with_chunks = b_data.get("graph_neighbor_papers_with_chunks_count", 0)
+            chunks_before = b_data.get("graph_chunks_before_rerank_count", 0)
+            chunks_survived = b_data.get("graph_chunks_survived_final_context_count", 0)
+            
+            cond1 = (neighbor_nodes > 0 and papers_with_chunks == 0)
+            cond2 = (chunks_before > 0 and chunks_survived == 0)
+            cond3 = bool(skip_reason)
+            
+            if cond1 or cond2 or cond3:
+                failure_cases.append({
+                    "query_id": q_id,
+                    "query": q_text,
+                    "baseline": b,
+                    "category": category,
+                    "skip_reason": skip_reason,
+                    "neighbor_nodes": neighbor_nodes,
+                    "papers_with_chunks": papers_with_chunks,
+                    "chunks_before": chunks_before,
+                    "chunks_survived": chunks_survived
+                })
+                
+    def failure_sort_key(item):
+        severity = 0
+        if item["chunks_before"] > 0 and item["chunks_survived"] == 0:
+            severity = 2
+        elif item["neighbor_nodes"] > 0 and item["papers_with_chunks"] == 0:
+            severity = 1
+        return (severity, item["chunks_before"], item["neighbor_nodes"], item["query_id"])
+
+    failure_cases.sort(key=failure_sort_key, reverse=True)
+    top_failures = failure_cases[:5]
+
+    has_graph_trace = bool(trace_map)
+
     return {
         "baselines": baselines,
         "summary": summary_stats,
@@ -319,5 +638,8 @@ def analyze_metrics(data: Any) -> dict:
         "category_stats": category_stats,
         "query_difficulty": query_scores,
         "pairwise_win_rates": pairwise_win_rates,
-        "total_queries": len(results)
+        "total_queries": len(results),
+        "has_graph_trace": has_graph_trace,
+        "category_graph_stats": category_graph_stats,
+        "top_failures": top_failures
     }

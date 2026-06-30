@@ -223,3 +223,194 @@ def test_parse_old_reports_directory_still_supported(tmp_path, monkeypatch):
     
     parsed_details = legacy_dir / "parsed" / "metrics_details.parsed.csv"
     assert parsed_details.exists()
+
+
+def test_load_graph_retrieval_trace(tmp_path):
+    from benchmarks.rag.parse_metrics import load_graph_retrieval_trace
+    trace_file = tmp_path / "graph_retrieval_trace.jsonl"
+    content = """
+    {"query_id": "Q01", "baseline": "B6", "category": "multi-hop", "query": "q1", "graph_retrieval_enabled": true}
+    
+    {"query": "q2", "baseline": "B6", "category": "single-document", "graph_retrieval_enabled": false}
+    {"query_id": "Q03", "baseline": "B4", "category": "multi-hop", "graph_retrieval_enabled": true}
+    invalid json here
+    {"query_id": "Q01", "baseline": "B6", "category": "multi-hop", "query": "q1_updated", "graph_retrieval_enabled": false}
+    """
+    with open(trace_file, "w", encoding="utf-8") as f:
+        f.write(content)
+        
+    trace_map = load_graph_retrieval_trace(trace_file)
+    
+    assert ("B6", "Q01") in trace_map
+    assert trace_map[("B6", "Q01")]["graph_retrieval_enabled"] is False
+    assert ("B6", "q2") in trace_map
+    assert ("B4", "Q03") in trace_map
+
+
+def test_details_merge_and_summary_aggregation():
+    from benchmarks.rag.core.analytics import analyze_metrics
+    data = {
+        "results": [
+            {
+                "id": "Q01",
+                "category": "multi-hop",
+                "query": "q1",
+                "baselines": {
+                    "B6": {"status": "success", "latency_sec": 1.0, "eval_metrics": {"semantic_accuracy": 0.8}}
+                }
+            },
+            {
+                "id": "Q02",
+                "category": "single-document",
+                "query": "q2",
+                "baselines": {
+                    "B6": {"status": "success", "latency_sec": 1.5, "eval_metrics": {"semantic_accuracy": 0.9}}
+                }
+            }
+        ]
+    }
+    
+    trace_map = {
+        ("B6", "Q01"): {
+            "query_id": "Q01",
+            "baseline": "B6",
+            "category": "multi-hop",
+            "graph_retrieval_enabled": True,
+            "query_concepts_all": ["a", "b"],
+            "query_concepts_strong": ["a"],
+            "query_concepts_dropped": [{"concept": "b", "reason": "test"}],
+            "graph_neighbor_nodes_total": 10,
+            "graph_chunks_before_rerank_count": 5,
+            "graph_chunks_survived_final_context_count": 2,
+            "best_graph_candidate_rank_after_rerank": 3
+        }
+    }
+    
+    stats = analyze_metrics(data, trace_map)
+    
+    results = data["results"]
+    b6_q01 = results[0]["baselines"]["B6"]
+    assert b6_q01["graph_retrieval_enabled"] is True
+    assert b6_q01["query_concepts_all_count"] == 2
+    assert b6_q01["query_concepts_strong_count"] == 1
+    assert b6_q01["query_concepts_dropped_count"] == 1
+    assert b6_q01["graph_neighbor_nodes_total"] == 10
+    
+    b6_q02 = results[1]["baselines"]["B6"]
+    assert b6_q02["graph_retrieval_enabled"] is False
+    assert b6_q02["query_concepts_all_count"] == 0
+    assert b6_q02["graph_neighbor_nodes_total"] == 0
+    assert b6_q02["graph_survival_rate"] == 0.0
+    
+    gd = stats["summary"]["B6"]["graph_diagnostics"]
+    assert gd["enabled_rate"] == 0.5
+    assert gd["skipped_rate"] == 0.0
+    assert gd["survival_rate"] == 0.4
+    assert gd["queries_with_chunks"] == 0.5
+    assert gd["avg_best_rank"] == 3.0
+    
+    assert "category_graph_stats" in stats
+    cat_stats = stats["category_graph_stats"]
+    assert cat_stats["multi-hop"]["B6"]["graph_survival_rate"] == 0.4
+    assert cat_stats["single-document"]["B6"]["graph_survival_rate"] == 0.0
+
+
+def test_markdown_rendering_and_failure_examples(tmp_path):
+    from benchmarks.rag.core.reporting import generate_markdown_report
+    stats = {
+        "baselines": ["B6"],
+        "summary": {
+            "B6": {
+                "success_rate": 100.0,
+                "semantic_accuracy": {"mean": 0.8, "min": 0.8, "max": 0.8, "median": 0.8, "stdev": 0.0, "count": 1},
+                "latency_sec": {"mean": 1.2, "min": 1.2, "max": 1.2, "median": 1.2, "stdev": 0.0, "count": 1},
+                "retrieval_recall": {"mean": 0.9, "min": 0.9, "max": 0.9, "median": 0.9, "stdev": 0.0, "count": 1},
+                "context_precision": {"mean": 0.8, "min": 0.8, "max": 0.8, "median": 0.8, "stdev": 0.0, "count": 1},
+                "faithfulness": {"mean": 0.9, "min": 0.9, "max": 0.9, "median": 0.9, "stdev": 0.0, "count": 1},
+                "answer_relevance": {"mean": 0.9, "min": 0.9, "max": 0.9, "median": 0.9, "stdev": 0.0, "count": 1},
+                "citation_fidelity": {"mean": 0.9, "min": 0.9, "max": 0.9, "median": 0.9, "stdev": 0.0, "count": 1},
+                "context_fillness": {"mean": 0.5, "min": 0.5, "max": 0.5, "median": 0.5, "stdev": 0.0, "count": 1},
+                "token_output": {"mean": 100.0, "min": 100.0, "max": 100.0, "median": 100.0, "stdev": 0.0, "count": 1},
+                "token_answer": {"mean": 80.0, "min": 80.0, "max": 80.0, "median": 80.0, "stdev": 0.0, "count": 1},
+                "token_reasoning": {"mean": 20.0, "min": 20.0, "max": 20.0, "median": 20.0, "stdev": 0.0, "count": 1},
+                "graph_diagnostics": {
+                    "enabled_rate": 1.0,
+                    "skipped_rate": 0.0,
+                    "avg_concepts": 3.0,
+                    "avg_strong": 2.0,
+                    "avg_dropped": 1.0,
+                    "avg_neighbor_nodes": 50.0,
+                    "avg_neighbor_local_papers": 10.0,
+                    "avg_neighbor_papers_with_chunks": 5.0,
+                    "avg_graph_chunk_candidates": 5.0,
+                    "survival_rate": 0.2,
+                    "queries_with_chunks_survived": 1.0,
+                    "avg_best_rank": 2.0,
+                    "avg_neighbor_cand": 1.0,
+                    "avg_concept_cand": 1.0,
+                    "avg_bridge_cand": 3.0
+                }
+            }
+        },
+        "categories": ["multi-hop"],
+        "category_stats": {
+            "multi-hop": {
+                "B6": {"semantic_accuracy": 0.8}
+            }
+        },
+        "query_difficulty": [
+            {"id": "Q01", "category": "multi-hop", "query": "What is self attention?", "avg_score": 0.8}
+        ],
+        "pairwise_win_rates": {
+            "semantic_accuracy": {"B6": {"B6": 0.0}}
+        },
+        "total_queries": 1,
+        "has_graph_trace": True,
+        "category_graph_stats": {
+            "multi-hop": {
+                "B6": {
+                    "avg_graph_chunk_candidates": 5.0,
+                    "graph_survival_rate": 0.2,
+                    "queries_with_graph_chunks_survived": 1.0,
+                    "avg_strong_query_concepts": 2.0,
+                    "avg_distinct_papers_in_final_context": 3.0
+                }
+            }
+        },
+        "top_failures": [
+            {
+                "query_id": "Q01",
+                "query": "What is self attention?",
+                "baseline": "B6",
+                "category": "multi-hop",
+                "skip_reason": "",
+                "neighbor_nodes": 50,
+                "papers_with_chunks": 0,
+                "chunks_before": 5,
+                "chunks_survived": 0
+            }
+        ]
+    }
+    
+    md_path = tmp_path / "report_with_trace.md"
+    generate_markdown_report(stats, md_path)
+    
+    with open(md_path, "r", encoding="utf-8") as f:
+        md_content = f.read()
+        assert "## 📊 Graph Retrieval Diagnostics" in md_content
+        assert "Graph Candidate Source Breakdown" in md_content
+        assert "Query Concept Filtering" in md_content
+        assert "Graph Retrieval Failure Examples" in md_content
+        assert "Graph Retrieval by Category" in md_content
+        assert "Q01" in md_content
+        
+    stats_no_trace = stats.copy()
+    stats_no_trace["has_graph_trace"] = False
+    
+    md_path_no_trace = tmp_path / "report_no_trace.md"
+    generate_markdown_report(stats_no_trace, md_path_no_trace)
+    
+    with open(md_path_no_trace, "r", encoding="utf-8") as f:
+        md_content_no_trace = f.read()
+        assert "Graph retrieval trace was not found for this run." in md_content_no_trace
+        assert "Graph Candidate Source Breakdown" not in md_content_no_trace
