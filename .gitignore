@@ -169,3 +169,5 @@ graph_retrieval_trace.jsonl
 
 ./test_reports/*
 test_reports/
+
+back/science_graph.db

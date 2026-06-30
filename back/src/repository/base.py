@@ -249,6 +249,76 @@ class GraphRepository(ABC):
         pass
 
     @abstractmethod
+    def find_paper_by_arxiv(self, arxiv_id: str) -> Optional[Paper]:
+        """Finds a paper by its arXiv ID."""
+        pass
+
+    @abstractmethod
+    def find_paper_by_url(self, url: str) -> Optional[Paper]:
+        """Finds a paper by its URL."""
+        pass
+
+    @abstractmethod
+    def get_non_placeholder_papers(self) -> List[Paper]:
+        """Retrieves all non-placeholder papers."""
+        pass
+
+    @abstractmethod
+    def save_reference_corpus_stats(self, stats: List[Tuple[str, int, float, int, str]]) -> None:
+        """Saves reference corpus frequency stats."""
+        pass
+
+    @abstractmethod
+    def save_paper_reference_vectors(self, vectors: List[Tuple[str, str, float]]) -> None:
+        """Saves paper reference vectors."""
+        pass
+
+    @abstractmethod
+    def save_chunk_reference_mentions(self, mentions: List[Tuple[str, str, str, Optional[str], Optional[str], Optional[int], Optional[str], Optional[str]]]) -> None:
+        """Saves chunk-level reference context mentions."""
+        pass
+
+    @abstractmethod
+    def delete_derived_edges_by_types(self, edge_types: List[str]) -> None:
+        """Deletes all edges of the specified types."""
+        pass
+
+    @abstractmethod
+    def delete_derived_edges_for_papers(self, paper_ids: List[str], edge_types: List[str]) -> None:
+        """Deletes derived edges for specific paper IDs."""
+        pass
+
+    @abstractmethod
+    def get_reference_corpus_stats(self) -> Dict[str, Dict[str, Any]]:
+        """Retrieves reference corpus stats mapping work_id -> stats dict."""
+        pass
+
+    @abstractmethod
+    def get_paper_reference_vectors(self) -> Dict[str, Dict[str, float]]:
+        """Retrieves paper reference vectors mapping paper_id -> {work_id -> weight}."""
+        pass
+
+    @abstractmethod
+    def get_chunk_reference_mentions(self) -> List[Dict[str, Any]]:
+        """Retrieves all chunk-level reference mentions."""
+        pass
+
+    @abstractmethod
+    def remap_external_work_to_local_paper(self, ext_work_id: str, local_paper_id: str) -> None:
+        """Remaps all edges and mentions pointing to ext_work_id to point to local_paper_id, and deletes ext_work_id."""
+        pass
+
+    @abstractmethod
+    def delete_chunk_reference_mentions_for_paper(self, paper_id: str) -> None:
+        """Deletes all chunk reference mentions for the given paper ID."""
+        pass
+
+    @abstractmethod
+    def delete_chunk_nodes_for_paper(self, paper_id: str) -> None:
+        """Deletes all nodes with label 'Chunk' that belong to the given paper ID."""
+        pass
+
+    @abstractmethod
     def get_nodes_by_label(self, label: str) -> List[tuple[str, Dict[str, Any]]]:
         """Retrieves all nodes with a given label as list of (node_id, properties)."""
         pass

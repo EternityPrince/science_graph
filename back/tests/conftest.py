@@ -1,7 +1,91 @@
 import os
 import tempfile
+import sys
+import types
 from unittest.mock import MagicMock
 import pytest
+import numpy as np
+
+# ---------------------------------------------------------------------------
+# Functional in-memory usearch.Index shim
+# ---------------------------------------------------------------------------
+# The native usearch compiled extension is broken in this environment
+# (`_nk_capabilities` symbol not found).  We substitute a pure-Python
+# implementation that covers the interface used by SQLiteVectorRepository:
+#   Index(ndim, metric), add(key, vec), key in index, len(index),
+#   search(vec, n) -> Matches(keys, distances), load(path), save(path)
+# ---------------------------------------------------------------------------
+
+class _Matches:
+    """Lightweight container mirroring usearch.index.Matches."""
+    def __init__(self, keys, distances):
+        self.keys = keys
+        self.distances = distances
+
+    def __len__(self):
+        return len(self.keys)
+
+
+class _InMemoryIndex:
+    """Pure-numpy usearch.Index replacement supporting cosine similarity."""
+
+    def __init__(self, ndim: int = 384, metric: str = "cos"):
+        self.ndim = ndim
+        self._metric = metric
+        self._keys: list[int] = []
+        self._vecs: list[np.ndarray] = []
+
+    # --- usearch API ---
+
+    def add(self, key: int, vec: np.ndarray) -> None:
+        key = int(key)
+        if key in self:
+            return
+        self._keys.append(key)
+        self._vecs.append(vec.astype(np.float32))
+
+    def __contains__(self, key) -> bool:
+        return int(key) in self._keys
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+    def search(self, query: np.ndarray, n: int) -> _Matches:
+        if not self._vecs:
+            return _Matches([], [])
+
+        q = query.astype(np.float32)
+        q_norm = q / (np.linalg.norm(q) + 1e-10)
+
+        scores = []
+        for i, v in enumerate(self._vecs):
+            v_norm = v / (np.linalg.norm(v) + 1e-10)
+            cos_sim = float(np.dot(q_norm, v_norm))
+            dist = 1.0 - cos_sim          # cosine distance (usearch convention)
+            scores.append((dist, self._keys[i]))
+
+        scores.sort(key=lambda x: x[0])
+        top = scores[:n]
+        keys = [k for _, k in top]
+        dists = [d for d, _ in top]
+        return _Matches(keys, dists)
+
+    def load(self, path: str) -> None:
+        """No-op: tests use ephemeral databases."""
+        pass
+
+    def save(self, path: str) -> None:
+        """No-op: tests use ephemeral databases."""
+        pass
+
+
+# Register the shim so that `from usearch.index import Index` just works
+_usearch_index_module = types.ModuleType("usearch.index")
+_usearch_index_module.Index = _InMemoryIndex
+_usearch_module = types.ModuleType("usearch")
+sys.modules["usearch"] = _usearch_module
+sys.modules["usearch.index"] = _usearch_index_module
+sys.modules["usearch.compiled"] = MagicMock()
 
 # Monkeypatch huggingface_hub.dataclasses.strict and mock missing transformers module
 # to ensure compatibility between marker-pdf 0.1.3 and transformers v5

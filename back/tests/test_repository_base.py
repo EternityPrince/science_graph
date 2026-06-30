@@ -55,6 +55,22 @@ class DummyGraphRepository(GraphRepository):
     def count_total_local_papers(self): return 0
     def get_concept_idf(self, concept_ids): return {}
 
+    # --- Bibliographic projection abstract methods ---
+    def save_reference_corpus_stats(self, total_papers, doc_frequencies): pass
+    def get_reference_corpus_stats(self): return (0, {})
+    def save_paper_reference_vectors(self, vectors): pass
+    def get_paper_reference_vectors(self, paper_ids=None): return []
+    def save_chunk_reference_mentions(self, mentions): pass
+    def get_chunk_reference_mentions(self, paper_id=None): return []
+    def delete_derived_edges_for_papers(self, paper_ids, edge_types): pass
+    def delete_derived_edges_by_types(self, edge_types): pass
+    def delete_chunk_reference_mentions_for_paper(self, paper_id): pass
+    def delete_chunk_nodes_for_paper(self, paper_id): pass
+    def get_non_placeholder_papers(self): return []
+    def find_paper_by_arxiv(self, arxiv_id): pass
+    def find_paper_by_url(self, url): pass
+    def remap_external_work_to_local_paper(self, external_work_id, local_paper_id): pass
+
     def add_edge(self, source_id, target_id, edge_type, properties=None):
         self.added_edges.append((source_id, target_id, edge_type, properties))
 

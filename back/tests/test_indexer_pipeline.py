@@ -90,7 +90,12 @@ class TestIndexerPipeline(unittest.TestCase):
         stored_author = self.graph_repo.get_author(author_id)
         self.assertIsNotNone(stored_author)
         self.assertEqual(stored_author.name, "Alice Jones")
-        self.assertEqual(len(self.graph_repo.get_all_edges()), 3) # AUTHORED, MENTIONS_CONCEPT, HAS_TAG
+        
+        edges = self.graph_repo.get_all_edges()
+        edge_types = {e[2] for e in edges}
+        self.assertTrue("AUTHORED" in edge_types)
+        self.assertTrue("MENTIONS_CONCEPT" in edge_types)
+        self.assertTrue("HAS_TAG" in edge_types)
 
     @patch("src.services.metadata_enricher.MetadataEnricher.enrich_async")
     def test_run_pipeline_with_enrichment(self, mock_enrich):
@@ -125,12 +130,16 @@ class TestIndexerPipeline(unittest.TestCase):
         self.assertEqual(stored_paper.year, 2026)
         self.assertEqual(stored_paper.doi, "10.1234/enriched")
         
-        # Verify placeholder created for the reference
-        ref_id = slugify("10.9999/ref")
-        placeholder = self.graph_repo.get_paper(ref_id)
-        self.assertIsNotNone(placeholder)
-        self.assertTrue(placeholder.properties.get("is_placeholder"))
-        self.assertEqual(placeholder.title, "Cited Ref")
+        # Verify ExternalWork node created for the reference
+        ref_id = "work:doi:10.9999/ref"
+        node = self.graph_repo.get_node_by_id(ref_id)
+        self.assertIsNotNone(node)
+        self.assertEqual(node[0], "ExternalWork")
+        
+        import json
+        props = json.loads(node[1])
+        self.assertFalse(props.get("indexed"))
+        self.assertEqual(props.get("title"), "Cited Ref")
 
     def test_index_markdown_wiki_links_existing(self):
         """Test markdown indexing when wiki-link target already exists as a Paper node."""

@@ -176,6 +176,51 @@ class SQLiteGraphRepository(GraphRepository):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_source_type ON nodes(source_type);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);")
+            
+            # Create bibliographic tables
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS reference_corpus_stats (
+                work_id TEXT PRIMARY KEY,
+                df INTEGER NOT NULL,
+                idf REAL NOT NULL,
+                n_local_papers INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_reference_vector (
+                paper_id TEXT NOT NULL,
+                work_id TEXT NOT NULL,
+                weight REAL NOT NULL,
+                PRIMARY KEY (paper_id, work_id),
+                FOREIGN KEY (paper_id) REFERENCES nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY (work_id) REFERENCES nodes(id) ON DELETE CASCADE
+            );
+            """)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS chunk_reference_mentions (
+                chunk_id TEXT NOT NULL,
+                paper_id TEXT NOT NULL,
+                work_id TEXT NOT NULL,
+                citation_marker TEXT,
+                context TEXT,
+                page_number INTEGER,
+                section TEXT,
+                raw_reference TEXT,
+                PRIMARY KEY (chunk_id, work_id),
+                FOREIGN KEY (chunk_id) REFERENCES nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY (paper_id) REFERENCES nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY (work_id) REFERENCES nodes(id) ON DELETE CASCADE
+            );
+            """)
+
+            # Create new indexes
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_type_source ON edges(type, source_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_type_target ON edges(type, target_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source_type_target ON edges(source_id, type, target_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_reference_vector_work ON paper_reference_vector(work_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chunk_reference_mentions_work ON chunk_reference_mentions(work_id);")
+            
             conn.commit()
 
     def save_paper(self, paper: Paper) -> None:
@@ -265,7 +310,10 @@ class SQLiteGraphRepository(GraphRepository):
         for source_id, target_id, _, _ in edges:
             for node_id in (source_id, target_id):
                 if node_id not in node_placeholders:
-                    label = "Paper" if ":" in node_id or "/" in node_id else "Concept"
+                    if node_id.startswith("work:"):
+                        label = "ExternalWork"
+                    else:
+                        label = "Paper" if ":" in node_id or "/" in node_id else "Concept"
                     node_placeholders[node_id] = (node_id, label, json.dumps({"title": node_id, "placeholder": True}, ensure_ascii=False))
                     
         with self._get_connection() as conn:
@@ -734,6 +782,8 @@ class SQLiteGraphRepository(GraphRepository):
     def delete_node(self, node_id: str) -> None:
         """Deletes the node and cascades to edges/chunks via foreign keys."""
         with self._get_connection() as conn:
+            # Delete associated Chunk nodes first to trigger cascade on edges table
+            self.delete_chunk_nodes_for_paper(node_id)
             conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
             conn.commit()
 
@@ -1180,6 +1230,210 @@ class SQLiteGraphRepository(GraphRepository):
             df = doc_freqs.get(c, 0)
             idfs[c] = math.log((1 + total_papers) / (1 + df))
         return idfs
+
+    def find_paper_by_arxiv(self, arxiv_id: str) -> Optional[Paper]:
+        if not arxiv_id:
+            return None
+        # Clean arxiv ID prefix
+        arxiv_clean = arxiv_id.lower().strip()
+        if arxiv_clean.startswith("arxiv:"):
+            arxiv_clean = arxiv_clean[6:]
+        # Look in properties JSON for arxiv_id or arxiv
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote')").fetchall()
+            for row in rows:
+                props = json.loads(row["properties"])
+                p_arxiv = props.get("arxiv_id") or props.get("arxiv")
+                if p_arxiv:
+                    p_arxiv_clean = str(p_arxiv).lower().strip()
+                    if p_arxiv_clean.startswith("arxiv:"):
+                        p_arxiv_clean = p_arxiv_clean[6:]
+                    if p_arxiv_clean == arxiv_clean:
+                        return Paper(
+                            id=row["id"],
+                            title=props.get("title", ""),
+                            authors=props.get("authors", []),
+                            year=props.get("year"),
+                            doi=props.get("doi"),
+                            abstract=props.get("abstract"),
+                            file_path=props.get("file_path"),
+                            created_at=props.get("created_at"),
+                            properties=props
+                        )
+        return None
+
+    def find_paper_by_url(self, url: str) -> Optional[Paper]:
+        if not url:
+            return None
+        url_clean = url.lower().strip()
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote')").fetchall()
+            for row in rows:
+                props = json.loads(row["properties"])
+                p_url = props.get("url")
+                if p_url and str(p_url).lower().strip() == url_clean:
+                    return Paper(
+                        id=row["id"],
+                        title=props.get("title", ""),
+                        authors=props.get("authors", []),
+                        year=props.get("year"),
+                        doi=props.get("doi"),
+                        abstract=props.get("abstract"),
+                        file_path=props.get("file_path"),
+                        created_at=props.get("created_at"),
+                        properties=props
+                    )
+        return None
+
+    def get_non_placeholder_papers(self) -> List[Paper]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, properties FROM nodes WHERE label IN ('Paper', 'UserNote') AND is_placeholder = 0").fetchall()
+            papers = []
+            for row in rows:
+                props = json.loads(row["properties"])
+                papers.append(Paper(
+                    id=row["id"],
+                    title=props.get("title", ""),
+                    authors=props.get("authors", []),
+                    year=props.get("year"),
+                    doi=props.get("doi"),
+                    abstract=props.get("abstract"),
+                    file_path=props.get("file_path"),
+                    created_at=props.get("created_at"),
+                    properties=props
+                ))
+            return papers
+
+    def save_reference_corpus_stats(self, stats: List[Tuple[str, int, float, int, str]]) -> None:
+        if not stats:
+            return
+        with self._get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO reference_corpus_stats (work_id, df, idf, n_local_papers, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(work_id) DO UPDATE SET
+                    df = excluded.df,
+                    idf = excluded.idf,
+                    n_local_papers = excluded.n_local_papers,
+                    updated_at = excluded.updated_at
+                """,
+                stats
+            )
+            conn.commit()
+
+    def save_paper_reference_vectors(self, vectors: List[Tuple[str, str, float]]) -> None:
+        if not vectors:
+            return
+        with self._get_connection() as conn:
+            # First delete vectors for the papers we are inserting
+            paper_ids = list({v[0] for v in vectors})
+            placeholders = ",".join("?" for _ in paper_ids)
+            conn.execute(f"DELETE FROM paper_reference_vector WHERE paper_id IN ({placeholders})", paper_ids)
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO paper_reference_vector (paper_id, work_id, weight)
+                VALUES (?, ?, ?)
+                """,
+                vectors
+            )
+            conn.commit()
+
+    def save_chunk_reference_mentions(self, mentions: List[Tuple[str, str, str, Optional[str], Optional[str], Optional[int], Optional[str], Optional[str]]]) -> None:
+        if not mentions:
+            return
+        with self._get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO chunk_reference_mentions (chunk_id, paper_id, work_id, citation_marker, context, page_number, section, raw_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chunk_id, work_id) DO UPDATE SET
+                    citation_marker = excluded.citation_marker,
+                    context = excluded.context,
+                    page_number = excluded.page_number,
+                    section = excluded.section,
+                    raw_reference = excluded.raw_reference
+                """,
+                mentions
+            )
+            conn.commit()
+
+    def delete_derived_edges_by_types(self, edge_types: List[str]) -> None:
+        if not edge_types:
+            return
+        placeholders = ",".join("?" for _ in edge_types)
+        with self._get_connection() as conn:
+            conn.execute(f"DELETE FROM edges WHERE type IN ({placeholders})", edge_types)
+            conn.commit()
+
+    def delete_derived_edges_for_papers(self, paper_ids: List[str], edge_types: List[str]) -> None:
+        if not paper_ids or not edge_types:
+            return
+        placeholders_papers = ",".join("?" for _ in paper_ids)
+        placeholders_types = ",".join("?" for _ in edge_types)
+        with self._get_connection() as conn:
+            conn.execute(f"DELETE FROM edges WHERE type IN ({placeholders_types}) AND (source_id IN ({placeholders_papers}) OR target_id IN ({placeholders_papers}))", edge_types + paper_ids + paper_ids)
+            conn.commit()
+
+    def get_reference_corpus_stats(self) -> Dict[str, Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT work_id, df, idf, n_local_papers, updated_at FROM reference_corpus_stats").fetchall()
+            res = {}
+            for r in rows:
+                res[r["work_id"]] = {
+                    "df": r["df"],
+                    "idf": r["idf"],
+                    "n_local_papers": r["n_local_papers"],
+                    "updated_at": r["updated_at"]
+                }
+            return res
+
+    def get_paper_reference_vectors(self) -> Dict[str, Dict[str, float]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT paper_id, work_id, weight FROM paper_reference_vector").fetchall()
+            res = {}
+            for r in rows:
+                pid = r["paper_id"]
+                if pid not in res:
+                    res[pid] = {}
+                res[pid][r["work_id"]] = r["weight"]
+            return res
+
+    def get_chunk_reference_mentions(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT chunk_id, paper_id, work_id, citation_marker, context, page_number, section, raw_reference FROM chunk_reference_mentions").fetchall()
+            return [dict(r) for r in rows]
+
+    def remap_external_work_to_local_paper(self, ext_work_id: str, local_paper_id: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE edges SET target_id = ? WHERE target_id = ? AND type IN ('CITES', 'CITES_IN_CONTEXT')",
+                (local_paper_id, ext_work_id)
+            )
+            conn.execute(
+                "UPDATE chunk_reference_mentions SET work_id = ? WHERE work_id = ?",
+                (local_paper_id, ext_work_id)
+            )
+            conn.execute(
+                "DELETE FROM nodes WHERE id = ? AND label = 'ExternalWork'",
+                (ext_work_id,)
+            )
+            conn.commit()
+
+    def delete_chunk_reference_mentions_for_paper(self, paper_id: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM chunk_reference_mentions WHERE paper_id = ?", (paper_id,))
+            conn.commit()
+
+    def delete_chunk_nodes_for_paper(self, paper_id: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("""
+                DELETE FROM nodes 
+                WHERE label = 'Chunk' 
+                  AND json_extract(properties, '$.paper_id') = ?
+            """, (paper_id,))
+            conn.commit()
+
 
 
 

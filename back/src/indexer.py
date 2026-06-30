@@ -639,33 +639,73 @@ class Indexer:
                     added_node_ids.add(target_id)
                 edges_to_write.append((paper.id, target_id, "RELATED_TO", {}))
         else:
-            all_refs = api_references if (api_references or api_citations) else []
-            all_cits = api_citations if (api_references or api_citations) else []
+            # Outgoing references
+            ref_sources = []
+            if api_references:
+                for ref in api_references:
+                    raw = ref.get("raw_reference") or ref.get("title") or ""
+                    ref_sources.append((raw, ref))
+            else:
+                for ref_str in refs_or_links:
+                    ref_clean = ref_str.strip()
+                    if len(ref_clean) > 10:
+                        ref_sources.append((ref_clean, None))
+                        
+            from src.services.bibliographic import canonicalize_reference, resolve_reference_target
+            for raw_ref, meta_dict in ref_sources:
+                canonical_ref = canonicalize_reference(raw_ref, meta_dict)
+                target_id, is_local = resolve_reference_target(self.graph_repo, canonical_ref)
+                
+                if not is_local:
+                    if target_id not in added_node_ids:
+                        nodes_to_write.append((target_id, "ExternalWork", {
+                            "indexed": False,
+                            "source_type": "external_work",
+                            "title": canonical_ref.title or "",
+                            "normalized_title": canonical_ref.normalized_title or "",
+                            "doi": canonical_ref.doi or "",
+                            "arxiv_id": canonical_ref.arxiv_id or "",
+                            "url": canonical_ref.url or "",
+                            "year": canonical_ref.year or "",
+                            "authors": canonical_ref.authors or [],
+                            "raw_reference": canonical_ref.raw_reference or "",
+                            "canonicalization_method": canonical_ref.canonicalization_method,
+                            "created_from_paper_id": paper.id,
+                            "has_local_fulltext": False
+                        }))
+                        added_node_ids.add(target_id)
+                
+                # Convert year to int if possible
+                year_val = None
+                if canonical_ref.year:
+                    try:
+                        # Extract the first consecutive digit sequence as year
+                        year_digits = re.search(r'\d+', canonical_ref.year)
+                        if year_digits:
+                            year_val = int(year_digits.group(0))
+                    except Exception:
+                        pass
+                
+                cites_list.append({
+                    "source_id": paper.id,
+                    "target_id": target_id,
+                    "title": canonical_ref.title or "",
+                    "author": canonical_ref.authors[0] if canonical_ref.authors else None,
+                    "year": year_val,
+                    "properties": {
+                        "observed": True,
+                        "source": "api_references" if api_references else "reference_list",
+                        "reference_id": canonical_ref.work_id,
+                        "raw_reference": canonical_ref.raw_reference,
+                        "resolver": "local_paper" if is_local else canonical_ref.canonicalization_method,
+                        "target_indexed": is_local,
+                        "weight": 1.0,
+                        "explanation": "Local paper cites this work."
+                    }
+                })
 
-            for ref in all_refs:
-                ref_title = ref.get("title")
-                ref_doi = ref.get("doi")
-                ref_id = slugify(ref_doi) if ref_doi else (
-                    slugify(ref_title[:120]) if ref_title else None
-                )
-                if ref_id:
-                    if ref_id not in added_node_ids:
-                        nodes_to_write.append((ref_id, "Paper", {"title": ref_title, "doi": ref_doi, "is_placeholder": True}))
-                        added_node_ids.add(ref_id)
-                    
-                    author = None
-                    if ref.get("authors"):
-                        author = ref["authors"][0]
-                    cites_list.append({
-                        "source_id": paper.id,
-                        "target_id": ref_id,
-                        "title": ref_title,
-                        "author": author,
-                        "year": ref.get("year"),
-                        "properties": {"api_sourced": True}
-                    })
-
-            for cit in all_cits:
+            # Incoming references (api_citations)
+            for cit in api_citations:
                 cit_title = cit.get("title")
                 cit_doi = cit.get("doi")
                 cit_id = slugify(cit_doi) if cit_doi else (
@@ -687,23 +727,6 @@ class Indexer:
                         "year": cit.get("year"),
                         "properties": {"api_sourced": True}
                     })
-
-            if not api_references and not api_citations:
-                for ref_str in refs_or_links:
-                    ref_clean = ref_str.strip()
-                    if len(ref_clean) > 10:
-                        ref_id = slugify(ref_clean[:120])
-                        if ref_id not in added_node_ids:
-                            nodes_to_write.append((ref_id, "Paper", {"title": ref_clean[:120], "is_placeholder": True}))
-                            added_node_ids.add(ref_id)
-                        cites_list.append({
-                            "source_id": paper.id,
-                            "target_id": ref_id,
-                            "title": ref_clean[:120],
-                            "author": None,
-                            "year": None,
-                            "properties": {"raw_text": ref_clean}
-                        })
                         
         classified_cites_edges = await self._classify_cites_edges_async(cites_list, full_text)
         edges_to_write.extend(classified_cites_edges)
@@ -889,15 +912,94 @@ class Indexer:
             api_citations=api_citations
         )
 
+        chunk_mentions = []
+        if chunks:
+            for chunk in chunks:
+                nodes_to_write.append((chunk.id, "Chunk", {
+                    "paper_id": chunk.paper_id,
+                    "parent_id": chunk.parent_id,
+                    "page_number": chunk.page_number,
+                    "source_type": "chunk",
+                    "has_text_in_chunks_table": True
+                }))
+                edges_to_write.append((paper.id, chunk.id, "HAS_CHUNK", {}))
+                if chunk.parent_id:
+                    edges_to_write.append((chunk.parent_id, chunk.id, "HAS_CHUNK", {}))
+                
+                if not is_markdown:
+                    from src.services.bibliographic import (
+                        canonicalize_reference,
+                        resolve_reference_target,
+                        find_citation_context_in_text
+                    )
+                    # Unify references
+                    ref_sources = []
+                    if api_references:
+                        for ref in api_references:
+                            raw = ref.get("raw_reference") or ref.get("title") or ""
+                            ref_sources.append((raw, ref))
+                    else:
+                        for ref_str in refs_or_links:
+                            ref_clean = ref_str.strip()
+                            if len(ref_clean) > 10:
+                                ref_sources.append((ref_clean, None))
+                                
+                    for idx, (raw_ref, meta_dict) in enumerate(ref_sources):
+                        canonical_ref = canonicalize_reference(raw_ref, meta_dict)
+                        target_id, is_local = resolve_reference_target(self.graph_repo, canonical_ref)
+                        
+                        marker = f"[{idx + 1}]"
+                        context = find_citation_context_in_text(chunk.text_content, canonical_ref, marker)
+                        if context:
+                            edges_to_write.append((chunk.id, target_id, "CITES_IN_CONTEXT", {
+                                "observed": True,
+                                "paper_id": paper.id,
+                                "chunk_id": chunk.id,
+                                "reference_id": canonical_ref.work_id,
+                                "raw_reference": canonical_ref.raw_reference,
+                                "citation_marker": marker,
+                                "context": context,
+                                "page_number": chunk.page_number,
+                                "section": "",
+                                "target_indexed": is_local,
+                                "weight": 1.0,
+                                "explanation": "This local chunk cites or discusses the target work."
+                            }))
+                            chunk_mentions.append((
+                                chunk.id,
+                                paper.id,
+                                target_id,
+                                marker,
+                                context,
+                                chunk.page_number,
+                                "",
+                                canonical_ref.raw_reference
+                            ))
+
         def _write_bulk_db():
             with self.graph_repo.transaction():
+                # 1. Delete old chunk nodes of this paper (triggers edge cascades)
+                self.graph_repo.delete_chunk_nodes_for_paper(paper.id)
+                # 2. Delete old chunk reference mentions for this paper
+                self.graph_repo.delete_chunk_reference_mentions_for_paper(paper.id)
+                # 3. Delete old outgoing edges of the paper node
+                self.graph_repo.delete_edges_by_source(paper.id, ["CITES", "HAS_CHUNK", "RELATED_TO"])
+                
+                # 4. Save new nodes and edges
                 self.graph_repo.save_nodes_bulk(nodes_to_write)
                 self.graph_repo.save_edges_bulk(edges_to_write)
+                if chunk_mentions:
+                    self.graph_repo.save_chunk_reference_mentions(chunk_mentions)
             self.invalidate_concept_cache()
             if chunks:
                 self.vector_repo.save_chunks_bulk(chunks)
 
         await asyncio.to_thread(_write_bulk_db)
+
+        # Recompute local bibliographic projection
+        from src.services.bibliographic import BibliographicProjectionService
+        bib_service = BibliographicProjectionService(self.graph_repo)
+        await asyncio.to_thread(bib_service.rebuild_projection)
 
         dt = time.perf_counter() - t0
         if trace_info is not None:
