@@ -230,6 +230,7 @@ class PDFParser(BaseParser):
             abstract=abstract,
             file_path=source
         )
+        paper.properties["pdf_parser"] = "fitz"
         
         return paper, references, full_text
 

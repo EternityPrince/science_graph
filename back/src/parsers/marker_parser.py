@@ -17,6 +17,38 @@ try:
     huggingface_hub.dataclasses.strict = lambda cls=None, *args, **kwargs: (lambda c: c) if cls is None else cls
 except ImportError:
     pass
+
+# Patch torchvision functional normalize to accept numpy arrays (resolving torchvision v2 / transformers TypeError)
+try:
+    import torchvision.transforms.v2.functional as tvF2
+    original_normalize2 = tvF2.normalize
+    def patched_normalize2(inpt, *args, **kwargs):
+        import torch
+        import numpy as np
+        if isinstance(inpt, np.ndarray):
+            tensor_inpt = torch.from_numpy(inpt)
+            out_tensor = original_normalize2(tensor_inpt, *args, **kwargs)
+            return out_tensor.numpy()
+        return original_normalize2(inpt, *args, **kwargs)
+    tvF2.normalize = patched_normalize2
+except Exception:
+    pass
+
+try:
+    import torchvision.transforms.functional as tvF
+    original_normalize = tvF.normalize
+    def patched_normalize(inpt, *args, **kwargs):
+        import torch
+        import numpy as np
+        if isinstance(inpt, np.ndarray):
+            tensor_inpt = torch.from_numpy(inpt)
+            out_tensor = original_normalize(tensor_inpt, *args, **kwargs)
+            return out_tensor.numpy()
+        return original_normalize(inpt, *args, **kwargs)
+    tvF.normalize = patched_normalize
+except Exception:
+    pass
+
 from typing import List, Tuple
 
 from src.models import Paper, slugify
@@ -87,10 +119,15 @@ class MarkerPDFParser(BaseParser):
             if marker_references:
                 references = marker_references
                 
+            paper.properties["pdf_parser"] = "marker"
+                
         except Exception as e:
             con.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.")
             logger.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.", exc_info=True)
             full_text = legacy_text
+            paper.properties["pdf_parser"] = "fitz"
+            paper.properties["pdf_parser_fallback"] = True
+            paper.properties["pdf_parser_error"] = str(e)
 
         # Update paper file path and return
         paper.file_path = source
