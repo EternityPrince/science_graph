@@ -165,3 +165,4 @@ back/benchmarks/rag/dataset/
 back/benchmarks/rag/reports/
 
 ./graph_retrieval_trace.jsonl
+graph_retrieval_trace.jsonl
