@@ -2,6 +2,7 @@ import json
 import asyncio
 import re
 from typing import List, Tuple, AsyncGenerator, Any, Optional
+from pathlib import Path
 import tiktoken
 from src.models import Chunk
 from src.repository.base import GraphRepository, VectorRepository
@@ -220,7 +221,8 @@ class RAGService:
         embedding_engine: EmbeddingEngine,
         llm_engine: BaseLLMEngine,
         expander: Optional[Any] = None,
-        warmup: bool = False
+        warmup: bool = False,
+        trace_dir: Optional[Path] = None
     ):
         self.graph_repo = graph_repo
         self.vector_repo = vector_repo
@@ -228,6 +230,8 @@ class RAGService:
         self.llm_engine = llm_engine
         self.expander = expander
         self._reranker = None
+        self.trace_dir = trace_dir
+        self._last_graph_trace = {}
         if warmup:
             try:
                 embedding_engine.get_embedding("warmup query")
@@ -661,6 +665,9 @@ class RAGService:
                 for source in chunk.retrieval_sources:
                     if not any(s.get("source") == source.get("source") for s in existing_chunk.retrieval_sources):
                         existing_chunk.retrieval_sources.append(source)
+                for attr in ("candidate_source", "seed_paper_ids", "graph_neighbor_paper_id", "graph_distance", "graph_path_reason", "matched_edge_types"):
+                    if hasattr(chunk, attr) and not hasattr(existing_chunk, attr):
+                        setattr(existing_chunk, attr, getattr(chunk, attr))
             else:
                 seen[key] = len(merged_chunks)
                 merged_chunks.append(chunk)
@@ -880,20 +887,32 @@ class RAGService:
         card_content = "Graph links among selected sources:\n" + "\n".join(selected_facts)
         return card_content
 
+    def _parse_trace_dir_from_argv(self) -> Optional[Path]:
+        """Helper to extract output directory from command line arguments for fallback."""
+        import sys
+        for idx, arg in enumerate(sys.argv):
+            if arg in ("--output", "-o"):
+                if idx + 1 < len(sys.argv):
+                    return Path(sys.argv[idx + 1]).parent
+            elif arg.startswith("--output="):
+                return Path(arg.split("=", 1)[1]).parent
+        return None
+
     def _write_graph_retrieval_trace(self, query: str, final_chunks: List[Any], trimmed_chunks: Optional[List[Any]] = None) -> None:
         import sys
-        is_benchmark_mode = any(arg in sys.argv for arg in ("--dataset", "--baselines", "run_pipeline.py", "run_benchmarks.py", "run_custom_retrieve.py"))
+        import json
+        from pathlib import Path
+        is_benchmark_mode = (self.trace_dir is not None) or any(
+            arg in sys.argv for arg in ("--dataset", "--baselines", "run_pipeline.py", "run_benchmarks.py", "run_custom_retrieve.py")
+        )
         
         if not (is_benchmark_mode or getattr(config, "graph_retrieval_trace_enabled", False)):
             return
             
-        last_trace = getattr(self, "_last_graph_trace", None)
+        last_trace = getattr(self, "_last_graph_trace", {})
         if not last_trace:
             return
             
-        import json
-        from pathlib import Path
-        
         query_id = "Q"
         baseline = "B6"
         category = "general"
@@ -926,7 +945,6 @@ class RAGService:
             if getattr(item[0] if isinstance(item, tuple) else item, "paper_id", None)
         })
         
-        # Calculate rerank positions and best rank for tests
         rerank_positions = []
         best_rank = None
         for idx, item in enumerate(final_chunks, start=1):
@@ -954,7 +972,9 @@ class RAGService:
             "baseline": baseline,
             "category": category,
             
-            # Old fields required by tests
+            "graph_retrieval_enabled": last_trace.get("graph_retrieval_enabled", getattr(config, "graph_retrieval_enabled", True)),
+            "graph_retrieval_skip_reason": last_trace.get("graph_retrieval_skip_reason", None),
+            
             "query_concepts": last_trace.get("query_concepts", []),
             "seed_paper_ids": last_trace.get("seed_paper_ids", []),
             "graph_concept_candidate_papers": last_trace.get("graph_concept_candidate_papers", []),
@@ -971,7 +991,6 @@ class RAGService:
             "distinct_papers_in_final_context": len(final_context_paper_ids),
             "graph_candidate_source_breakdown": last_trace.get("graph_candidate_source_breakdown", {"graph_concept_retrieval": 0, "graph_bridge_retrieval": 0}),
             
-            # New fields
             "base_candidates_count": last_trace.get("base_candidates_count", 0),
             "base_candidate_chunk_ids": last_trace.get("base_candidate_chunk_ids", []),
             "base_candidate_paper_ids": last_trace.get("base_candidate_paper_ids", []),
@@ -986,24 +1005,19 @@ class RAGService:
             "merged_candidates_count_before_reranker": last_trace.get("merged_candidates_count_before_reranker", 0),
             "merged_candidate_chunk_ids": last_trace.get("merged_candidate_chunk_ids", []),
             
+            "reranker_input_count_before_limit": last_trace.get("reranker_input_count_before_limit", len(final_chunks)),
+            "reranker_input_count_after_limit": last_trace.get("reranker_input_count_after_limit", len(final_chunks)),
             "candidate_count_after_reranker": len(final_chunks),
         }
         
-        # Determine output trace file path
-        benchmark_dir = None
-        for idx, arg in enumerate(sys.argv):
-            if arg in ("--output", "-o"):
-                if idx + 1 < len(sys.argv):
-                    benchmark_dir = Path(sys.argv[idx + 1]).parent
-                    break
-            elif arg.startswith("--output="):
-                benchmark_dir = Path(arg.split("=", 1)[1]).parent
-                break
-                
-        if benchmark_dir and benchmark_dir.exists():
-            trace_file = benchmark_dir / "graph_retrieval_trace.jsonl"
+        if self.trace_dir:
+            trace_file = Path(self.trace_dir) / "graph_retrieval_trace.jsonl"
         else:
-            trace_file = Path("graph_retrieval_trace.jsonl")
+            benchmark_dir = self._parse_trace_dir_from_argv()
+            if benchmark_dir and benchmark_dir.exists():
+                trace_file = benchmark_dir / "graph_retrieval_trace.jsonl"
+            else:
+                trace_file = Path("graph_retrieval_trace.jsonl")
             
         try:
             with open(trace_file, "a", encoding="utf-8") as f:
@@ -1269,15 +1283,26 @@ class RAGService:
         seed_paper_ids = list({c.paper_id for c in candidates if getattr(c, "paper_id", None)})
         query_concepts = self._extract_query_concepts(query)
         
+        graph_retrieval_enabled = config.graph_retrieval_enabled
+        graph_neighbors_in_rrf = config.rag_components.get("graph_neighbors_in_rrf", False)
+        
+        skip_reason = None
+        if not graph_retrieval_enabled:
+            skip_reason = "disabled"
+        elif not graph_neighbors_in_rrf:
+            skip_reason = "graph_neighbors_in_rrf_disabled"
+        
         # 1. Graph Neighbor Retrieval
         graph_neighbor_paper_ids = []
         neighbor_info = {}
-        if config.rag_components.get("graph_neighbors_in_rrf", False) and config.graph_retrieval_enabled:
+        if graph_neighbors_in_rrf and graph_retrieval_enabled:
             order = _safe_int(getattr(config, "b6_graph_neighbors_order", 2), 2)
             graph_neighbor_paper_ids = self.graph_repo.get_neighbor_papers(
                 seed_paper_ids=seed_paper_ids,
                 order=order
             )
+            if not graph_neighbor_paper_ids:
+                skip_reason = "no_neighbor_papers_found"
             
             # BFS mapping for metadata
             for seed_id in seed_paper_ids:
@@ -1353,6 +1378,8 @@ class RAGService:
                     paper_ids=graph_neighbor_paper_ids,
                     limit_per_paper=chunks_per_paper
                 )
+                if not chunks_with_scores:
+                    skip_reason = "no_chunks_found_for_neighbor_papers"
                 
                 chunks_with_scores.sort(key=lambda x: x[1], reverse=True)
                 if derived_graph_candidate_budget is not None:
@@ -1508,6 +1535,8 @@ class RAGService:
             "graph_candidate_source_breakdown": breakdown,
             
             # New tracing properties
+            "graph_retrieval_enabled": graph_retrieval_enabled,
+            "graph_retrieval_skip_reason": skip_reason,
             "base_candidates_count": len(base_candidates),
             "base_candidate_chunk_ids": [c.id for c in base_candidates],
             "base_candidate_paper_ids": list({c.paper_id for c in base_candidates if getattr(c, "paper_id", None)}),
@@ -1518,6 +1547,8 @@ class RAGService:
             "graph_chunk_candidate_paper_ids": list({c.paper_id for c in graph_candidates if any(s.get("source") == "graph_neighbor" for s in c.retrieval_sources)}),
             "merged_candidates_count_before_reranker": len(candidates),
             "merged_candidate_chunk_ids": [c.id for c in candidates],
+            "reranker_input_count_before_limit": len(candidates),
+            "reranker_input_count_after_limit": len(candidates),
         }
         # === END DETERMINISTIC GRAPH RETRIEVAL ===
 

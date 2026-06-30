@@ -98,7 +98,7 @@ DEFAULT_CONFIG = {
         "graph_retrieval_trace": False,
     },
     "graph_retrieval": {
-        "enabled": True,
+        "enabled": False,
         "concept_retrieval_enabled": False,
         "bridge_retrieval_enabled": False,
         "selected_sources_card_enabled": False,
@@ -327,7 +327,7 @@ rag_components:
 
 # Deterministic Graph Retrieval configuration
 graph_retrieval:
-  enabled: true
+  enabled: false
   concept_retrieval_enabled: false
   bridge_retrieval_enabled: false
   selected_sources_card_enabled: false
@@ -771,11 +771,19 @@ hyperparameters:
 
     @property
     def graph_retrieval_enabled(self) -> bool:
-        return bool(self.data.get("graph_retrieval", {}).get("enabled", True))
+        env_val = os.environ.get("RAG_GRAPH_RETRIEVAL")
+        if env_val is not None:
+            return env_val.lower() in ("1", "true", "yes", "on")
+        return bool(self.data.get("graph_retrieval", {}).get("enabled", False))
 
     @property
     def graph_retrieval_candidate_budget_mode(self) -> str:
-        return str(self.data.get("graph_retrieval", {}).get("candidate_budget_mode", "mirror_base"))
+        mode = self.data.get("graph_retrieval", {}).get("candidate_budget_mode", "mirror_base")
+        if mode not in ("mirror_base", "fixed"):
+            import logging
+            logging.getLogger(__name__).warning(f"Invalid candidate_budget_mode '{mode}' in config. Falling back to 'mirror_base'.")
+            return "mirror_base"
+        return str(mode)
 
     @property
     def graph_retrieval_max_graph_chunk_candidates(self) -> Optional[int]:

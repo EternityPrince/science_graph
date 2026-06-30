@@ -1000,8 +1000,13 @@ class SQLiteGraphRepository(GraphRepository):
             return [(r["seed_id"], r["candidate_id"], r["direction"], r["candidate_title"] or "") for r in rows]
 
     def search_chunks_within_papers(self, query_embedding: List[float], paper_ids: List[str], limit_per_paper: int = 1) -> List[Tuple[Chunk, float]]:
-        if not paper_ids or not query_embedding:
+        if not paper_ids:
             return []
+            
+        if not query_embedding:
+            import logging
+            logging.getLogger(__name__).warning("Query embedding is unavailable for search_chunks_within_papers. Falling back to default chunk retrieval with similarity 0.0.")
+            query_embedding = [0.0] * 384
         
         placeholders = ",".join("?" for _ in paper_ids)
         query = f"""

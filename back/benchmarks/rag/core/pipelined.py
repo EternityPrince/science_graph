@@ -395,6 +395,9 @@ async def run_pipelined_stage_async(
     
     con.info("Initializing repositories and models for pipelined run...")
     rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
+    if getattr(args, "output", None):
+        from pathlib import Path
+        rag_service.trace_dir = Path(args.output).parent
     
     api_key, base_url, model_name = get_cloud_credentials(config)
     con.info(f"Initializing Cloud LLM Evaluator ({model_name}) for pipelined run...")
