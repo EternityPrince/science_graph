@@ -85,7 +85,8 @@ def parse_graph_retrieval_trace(traces_dir: Path, parsed_dir: Path):
     if not trace_file.exists():
         print(f"Warning: graph_retrieval_trace.jsonl not found in {traces_dir} or {traces_dir.parent}")
         trace_file = traces_dir.parent / "graph_retrieval_trace.jsonl"
-
+        print(f"Warning: graph_retrieval_trace.jsonl not found in {traces_dir}")
+        return None, None
     rows = []
     try:
         with open(trace_file, "r", encoding="utf-8") as f:
@@ -217,7 +218,8 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     if not trace_file.exists():
         print(f"Warning: eval_trace.jsonl not found in {traces_dir} or {traces_dir.parent}")
         trace_file = traces_dir.parent / "eval_trace.jsonl"
-
+        print(f"Warning: eval_trace.jsonl not found in {traces_dir}")
+        return None, None
     rows = []
     try:
         with open(trace_file, "r", encoding="utf-8") as f:
@@ -361,7 +363,7 @@ def print_confusion_matrix_and_metrics_tables(data):
             "нельзя сделать вывод", "нельзя ответить", "не представляется возможным ответить",
             "no information", "does not contain", "cannot answer", "not mention", "do not have",
             "not available", "unable to answer", "insufficient information", "not specify", "not specified",
-            "not described", "not defined", "not found"
+            "not described", "not defined", "not found", "unanswerable"
         ]
         for kw in refusal_keywords:
             if kw in text_lower:
