@@ -124,3 +124,65 @@ def test_graph_retrieval_skip_reasons_in_trace(tmp_path, monkeypatch):
         entry = json.loads(f.read().strip())
         assert entry["graph_retrieval_enabled"] is True
         assert entry["graph_retrieval_skip_reason"] == "graph_neighbors_in_rrf_disabled"
+
+
+def test_write_trace_creates_missing_directory(tmp_path, monkeypatch):
+    """Verify that writing a trace creates the trace directory if it doesn't exist."""
+    monkeypatch.setattr(Config, "graph_retrieval_enabled", property(lambda self: False))
+    
+    service = RAGService(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+    
+    # Path that definitely does not exist
+    missing_dir = tmp_path / "new_reports" / "nested_traces"
+    assert not missing_dir.exists()
+    
+    service.trace_dir = missing_dir
+    
+    # Mock base search candidates
+    c1 = DummyChunk("c1", "P1", "text 1")
+    vector_repo = MagicMock()
+    vector_repo.search_similar_chunks.return_value = [(c1, 0.9)]
+    vector_repo.search_text_fts5.return_value = []
+    service.vector_repo = vector_repo
+    
+    # This will trigger trace writing
+    service.retrieve_relevant_chunks("query", limit=5)
+    
+    assert missing_dir.exists()
+    trace_file = missing_dir / "graph_retrieval_trace.jsonl"
+    assert trace_file.exists()
+    with open(trace_file, "r") as f:
+        entry = json.loads(f.read().strip())
+        assert entry["graph_retrieval_enabled"] is False
+
+
+def test_write_trace_creates_missing_directory_from_argv(tmp_path, monkeypatch):
+    """Verify that writing a trace creates the trace directory if parsed from argv output path."""
+    monkeypatch.setattr(Config, "graph_retrieval_enabled", property(lambda self: False))
+    
+    service = RAGService(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+    service.trace_dir = None
+    
+    missing_dir = tmp_path / "argv_reports"
+    assert not missing_dir.exists()
+    
+    # Mock sys.argv to include --output pointing to a file in the missing directory
+    output_file = missing_dir / "evaluation_results.yaml"
+    import sys
+    monkeypatch.setattr(sys, "argv", ["run_pipeline.py", "--output", str(output_file)])
+    
+    c1 = DummyChunk("c1", "P1", "text 1")
+    vector_repo = MagicMock()
+    vector_repo.search_similar_chunks.return_value = [(c1, 0.9)]
+    vector_repo.search_text_fts5.return_value = []
+    service.vector_repo = vector_repo
+    
+    service.retrieve_relevant_chunks("query", limit=5)
+    
+    # Since traces dir is created nested under the parent folder,
+    # the trace directory should be missing_dir / "traces"
+    expected_trace_dir = missing_dir / "traces"
+    assert expected_trace_dir.exists()
+    trace_file = expected_trace_dir / "graph_retrieval_trace.jsonl"
+    assert trace_file.exists()
+
