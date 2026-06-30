@@ -403,9 +403,11 @@ class TestRagBenchmark(unittest.TestCase):
                 "candidate_count_after_reranker", "final_context_paper_id_list",
                 "final_context_token_count", "whether_graph_neighbor_chunk_survived_into_final_context",
                 "answer_token_count"
-            ])
-            self.assertEqual(reader_det[1][:25], ["Q01", "general", "B0", "success", "5.432", "True", "", "", "", "0.8", "", "0.75", "0.7742", "", "", "", "", "", "", "", "", "", "", "", ""])
-            self.assertEqual(reader_det[2][:25], ["Q01", "general", "B1", "success", "12.345", "True", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "0.8899", "", "", "", "", "", "", "", "", "", "", "", ""])
+            ]),
+            self.assertEqual(reader_det[1][:25], ["Q01", "general", "B0", "success", "5.432", "True", "", "", "", "0.8", "", "0.75", "0.7742", "", "", "", "", "", "", "", "", "", "", "", ""]),
+            self.assertEqual(reader_det[2][:25], ["Q01", "general", "B1", "success", "12.345", "True", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "0.8899", "", "", "", "", "", "", "", "", "", "", "", ""]),
+            self.assertEqual(reader_det[1][:23], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", "", "", "", "", "", "", "", "", "", ""]),
+            self.assertEqual(reader_det[2][:23], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", "", "", "", "", "", "", "", "", "", ""])
 
     @patch("subprocess.check_output")
     @patch("subprocess.run")

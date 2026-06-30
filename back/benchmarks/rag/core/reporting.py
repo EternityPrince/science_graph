@@ -84,6 +84,71 @@ NEW_SUMMARY_HEADERS = [
 ]
 
 
+NEW_CSV_FIELDS = [
+    "graph_retrieval_enabled",
+    "graph_retrieval_skip_reason",
+    "query_concepts_all_count",
+    "query_concepts_strong_count",
+    "query_concepts_dropped_count",
+    "query_concepts_all",
+    "query_concepts_strong",
+    "query_concepts_dropped",
+    "graph_neighbor_nodes_total",
+    "graph_neighbor_paper_nodes_count",
+    "graph_neighbor_local_papers_count",
+    "graph_neighbor_papers_with_chunks_count",
+    "graph_neighbor_placeholder_or_external_count",
+    "graph_neighbor_non_paper_nodes_count",
+    "graph_neighbor_chunks_retrieved_count",
+    "graph_concept_candidate_papers_count",
+    "graph_bridge_candidate_papers_count",
+    "graph_chunks_before_rerank_count",
+    "graph_chunk_candidates_count",
+    "graph_candidate_source_breakdown",
+    "base_candidates_count",
+    "merged_candidates_count_before_reranker",
+    "reranker_input_count_before_limit",
+    "reranker_input_count_after_limit",
+    "candidate_count_after_reranker",
+    "graph_candidate_rerank_positions",
+    "best_graph_candidate_rank_after_rerank",
+    "graph_chunks_survived_final_context_count",
+    "graph_survival_rate",
+    "graph_chunks_survived_final_context",
+    "distinct_papers_in_final_context",
+    "graph_neighbor_resolution_sample",
+    "graph_concept_candidate_papers",
+    "graph_bridge_candidate_papers",
+    "graph_chunks_before_rerank"
+]
+
+NEW_SUMMARY_HEADERS = [
+    "Graph Retrieval Enabled Rate",
+    "Graph Retrieval Skipped Rate",
+    "Avg Query Concepts",
+    "Avg Strong Query Concepts",
+    "Avg Dropped Query Concepts",
+    "Avg Graph Neighbor Nodes",
+    "Avg Graph Neighbor Paper Nodes",
+    "Avg Graph Neighbor Local Papers",
+    "Avg Graph Neighbor Papers With Chunks",
+    "Avg Graph Neighbor Chunks Retrieved",
+    "Avg Base Candidates",
+    "Avg Graph Chunk Candidates",
+    "Avg Merged Candidates Before Reranker",
+    "Avg Reranker Input Before Limit",
+    "Avg Reranker Input After Limit",
+    "Avg Candidates After Reranker",
+    "Graph Survival Rate",
+    "Queries With Graph Chunks",
+    "Queries With Graph Chunks Survived",
+    "Avg Best Graph Candidate Rank",
+    "Avg Graph Neighbor Candidates",
+    "Avg Graph Concept Candidates",
+    "Avg Graph Bridge Candidates"
+]
+
+
 def print_rich_tables(stats: dict) -> None:
     """Prints beautiful summary tables to the terminal using Rich."""
     if not HAS_RICH:
