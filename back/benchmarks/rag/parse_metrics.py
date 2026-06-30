@@ -620,13 +620,98 @@ def main():
                 queries_with_graph_survival = sum(1 for r in g_cat_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0)
                 run_summary["by_category"][cat][b]["queries_with_graph_survival"] = queries_with_graph_survival
 
+    # 6. Run summary JSON and YAML with highlights
+    # Extract Interesting Highlights
+    highlights = {
+        "low_faithfulness": [],
+        "high_latency": [],
+        "graph_successes": []
+    }
+
+    # Helper to safely convert value to float
+    def safe_float(v):
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except ValueError:
+            return None
+
+    # Find low faithfulness cases (faithfulness < 0.8)
+    for key, row in joined_data.items():
+        faith = safe_float(row.get("faithfulness"))
+        if faith is not None and faith < 0.8:
+            highlights["low_faithfulness"].append({
+                "query_id": row["query_id"],
+                "baseline": row["baseline"],
+                "faithfulness": faith,
+                "category": row.get("category", "general")
+            })
+
+    # Find high latency cases (latency > 4.0 sec)
+    for key, row in joined_data.items():
+        lat = safe_float(row.get("latency_sec"))
+        if lat is not None and lat > 4.0:
+            highlights["high_latency"].append({
+                "query_id": row["query_id"],
+                "baseline": row["baseline"],
+                "latency_sec": lat,
+                "category": row.get("category", "general")
+            })
+
+    # Find graph successes (survival_rate >= 0.5)
+    for key, row in joined_data.items():
+        surv = safe_float(row.get("graph_survival_rate"))
+        if surv is not None and surv >= 0.5:
+            highlights["graph_successes"].append({
+                "query_id": row["query_id"],
+                "baseline": row["baseline"],
+                "survival_rate": surv,
+                "survived_count": int(safe_float(row.get("graph_chunks_survived_final_context_count")) or 0),
+                "category": row.get("category", "general")
+            })
+
+    # Sort and slice highlights
+    highlights["low_faithfulness"].sort(key=lambda x: x["faithfulness"])
+    highlights["low_faithfulness"] = highlights["low_faithfulness"][:3]
+
+    highlights["high_latency"].sort(key=lambda x: x["latency_sec"], reverse=True)
+    highlights["high_latency"] = highlights["high_latency"][:3]
+
+    highlights["graph_successes"].sort(key=lambda x: (x["survival_rate"], x["survived_count"]), reverse=True)
+    highlights["graph_successes"] = highlights["graph_successes"][:3]
+
+    run_summary["highlights"] = highlights
+
     with open(parsed_dir / "run_summary.json", "w", encoding="utf-8") as f:
         json.dump(run_summary, f, ensure_ascii=False, indent=2)
+
+    with open(parsed_dir / "run_summary.yaml", "w", encoding="utf-8") as f:
+        yaml.safe_dump(run_summary, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
     # 7. Print Console Report
     print(f"\nParsed run: {run_dir}")
     print(f"Queries: {run_summary['query_count']}")
     print(f"Baselines: {', '.join(run_summary['baselines'])}")
+
+    if run_summary["metrics"]:
+        print("\nQuality Metrics:")
+        header_fmt = "| {:<10} | {:<12} | {:<14} | {:<12} | {:<12} | {:<17} | {:<12} |"
+        row_fmt = "| {:<10} | {:<12.4f} | {:<14.4f} | {:<12.4f} | {:<12.4f} | {:<17.4f} | {:<11.3f}s |"
+        sep = "+" + "-"*12 + "+" + "-"*14 + "+" + "-"*16 + "+" + "-"*14 + "+" + "-"*14 + "+" + "-"*19 + "+" + "-"*14 + "+"
+        print(sep)
+        print(header_fmt.format("Baseline", "Mean Recall", "Mean Precision", "Faithfulness", "Relevance", "Semantic Accuracy", "Mean Latency"))
+        print(sep)
+        for b in run_summary["baselines"]:
+            b_metrics = run_summary["metrics"].get(b, {})
+            recall = b_metrics.get("retrieval_recall_mean", 0.0)
+            precision = b_metrics.get("context_precision_mean", 0.0)
+            faithfulness = b_metrics.get("faithfulness_mean", 0.0)
+            relevance = b_metrics.get("answer_relevance_mean", 0.0)
+            semantic = b_metrics.get("semantic_accuracy_mean", 0.0)
+            latency = b_metrics.get("latency_sec_mean", 0.0)
+            print(row_fmt.format(b, recall, precision, faithfulness, relevance, semantic, latency))
+        print(sep)
 
     if run_summary["graph_retrieval"]:
         print("\nGraph retrieval:")
@@ -637,8 +722,27 @@ def main():
             print(f"  - queries with graph chunks survived: {g_stats['queries_with_graph_survival']}/{run_summary['query_count']}")
             print(f"  - avg graph survival rate: {g_stats['avg_graph_survival_rate']:.4f}")
 
+    if highlights["low_faithfulness"] or highlights["high_latency"] or highlights["graph_successes"]:
+        print("\nInteresting Query Highlights:")
+        
+        if highlights["low_faithfulness"]:
+            print("  - Low Faithfulness Cases (potential hallucinations):")
+            for h in highlights["low_faithfulness"]:
+                print(f"    * Query {h['query_id']} ({h['baseline']}): Faithfulness = {h['faithfulness']:.2f} [Category: {h['category']}]")
+                
+        if highlights["high_latency"]:
+            print("  - High Latency Cases (performance bottlenecks):")
+            for h in highlights["high_latency"]:
+                print(f"    * Query {h['query_id']} ({h['baseline']}): Latency = {h['latency_sec']:.2f}s [Category: {h['category']}]")
+                
+        if highlights["graph_successes"]:
+            print("  - High Graph Survival Cases (graph retrieval impact):")
+            for h in highlights["graph_successes"]:
+                print(f"    * Query {h['query_id']} ({h['baseline']}): Survival Rate = {h['survival_rate']:.1f} ({h['survived_count']} chunks) [Category: {h['category']}]")
+
     print(f"\nJoined file:\n  - {joined_csv_path}")
     print(f"\nSummaries:\n  - {parsed_dir / 'run_summary.json'}")
+    print(f"  - {parsed_dir / 'run_summary.yaml'}")
     if (parsed_dir / "graph_retrieval_trace.summary.json").exists():
         print(f"  - {parsed_dir / 'graph_retrieval_trace.summary.json'}")
 

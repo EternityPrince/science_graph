@@ -41,12 +41,37 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
         con.error("Empty or invalid dataset file.")
         sys.exit(1)
 
+    # Resolve unique run directory
+    original_output_path = Path(args.output) if getattr(args, "output", None) else Path("reports/retrieved_contexts.yaml")
+    
+    if args.cloud:
+        llm_model = config.data.get("llm", {}).get("cloud", {}).get("model_name", "cloud_model")
+    else:
+        llm_model = config.data.get("llm", {}).get("local", {}).get("model_path", "local_model")
+        
+    if getattr(args, "no_unique_dir", False):
+        output_path = original_output_path
+        run_dir = output_path.parent
+    else:
+        from core.config import get_safe_model_name
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_model = get_safe_model_name(llm_model)
+        run_dir_name = f"run_retrive_{timestamp}_{safe_model}"
+        run_dir = original_output_path.parent / run_dir_name
+        output_path = run_dir / original_output_path.name
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "traces").mkdir(parents=True, exist_ok=True)
+    (run_dir / "parsed").mkdir(parents=True, exist_ok=True)
+    
+    args.output = str(output_path)
+
     # Initialize RAG Service (eager warmup disabled to prevent early model loads)
     con.info("Initializing RAG Service (eager warmup disabled)...")
     try:
         rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
-        if getattr(args, "output", None):
-            rag_service.trace_dir = Path(args.output).parent / "traces"
+        rag_service.trace_dir = run_dir / "traces"
     except Exception as e:
         con.error(f"Failed to initialize RAG Service: {e}")
         sys.exit(1)
@@ -553,36 +578,3 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
     con.success(f"Stage transition complete. Retrieved contexts saved to: {output_path.resolve()}")
 
-    # Save a copy to the unique run subdirectory under the reports directory
-    if not getattr(args, "no_unique_dir", False):
-        try:
-            from core.config import get_safe_model_name
-            from datetime import datetime
-
-            if args.cloud:
-                llm_model = config.data.get("llm", {}).get("cloud", {}).get("model_name", "cloud_model")
-            else:
-                llm_model = config.data.get("llm", {}).get("local", {}).get("model_path", "local_model")
-
-            safe_model_name = get_safe_model_name(llm_model)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-            # Locate the reports directory
-            resolved_output_path = output_path.resolve()
-            reports_dir = None
-            for parent in [resolved_output_path.parent] + list(resolved_output_path.parents):
-                if parent.name == "reports":
-                    reports_dir = parent
-                    break
-            if not reports_dir:
-                reports_dir = Path(__file__).resolve().parents[1] / "reports"
-
-            run_retrive_dir = reports_dir / f"run_retrive_{timestamp}_{safe_model_name}"
-            run_retrive_dir.mkdir(parents=True, exist_ok=True)
-
-            copy_output_path = run_retrive_dir / output_path.name
-            with open(copy_output_path, "w", encoding="utf-8") as f:
-                yaml.dump(list(contexts_to_save.values()), f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-            con.success(f"Retrieved contexts copy saved to: {copy_output_path.resolve()}")
-        except Exception as e:
-            con.warning(f"Could not save copy to run_retrive directory: {e}")

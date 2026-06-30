@@ -548,6 +548,12 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
     if not output_path.is_absolute():
         output_path = script_dir / output_path
 
+    # Bind output path to input path directory if output has default parent but input is in a subdirectory
+    if input_path.parent != script_dir and input_path.parent.name not in ("graphs", "reports"):
+        if output_path.parent in (script_dir, script_dir / "graphs", script_dir / "reports"):
+            output_path = input_path.parent / output_path.name
+            args.output = str(output_path)
+
     if not input_path.exists():
         con.error(f"Input file not found: {input_path}")
         sys.exit(1)
