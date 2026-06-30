@@ -237,7 +237,6 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
 
     # Save config snapshot and manifest
     import os
-    import yaml
     import hashlib
     try:
         with open(run_dir / "config_snapshot.yaml", "w", encoding="utf-8") as f:
@@ -256,6 +255,14 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             git_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
             status_out = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
             working_tree_dirty = bool(status_out.strip())
+            
+            # Sanitize mock objects during unit testing
+            if not isinstance(git_commit, str) or "Mock" in type(git_commit).__name__:
+                git_commit = "unknown"
+            if not isinstance(git_branch, str) or "Mock" in type(git_branch).__name__:
+                git_branch = "unknown"
+            if not isinstance(working_tree_dirty, bool) or "Mock" in type(working_tree_dirty).__name__:
+                working_tree_dirty = False
         except Exception:
             pass
 

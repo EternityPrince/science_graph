@@ -46,14 +46,14 @@ def test_directory_input_resolves_correctly(tmp_path):
     run_dir = tmp_path / "run_test_visualizations"
     run_dir.mkdir()
     
-    # Write a mock evaluation_results.yaml to this run_dir
+    # Write a mock result_metrics.yaml to this run_dir
     smoke_yaml_path = Path(__file__).resolve().parents[1] / "reports" / "result_metrics_smoke.yaml"
     
     # If the smoke yaml doesn't exist, we skip
     if not smoke_yaml_path.exists():
         pytest.skip("result_metrics_smoke.yaml not found, skipping integration test")
         
-    shutil.copy(smoke_yaml_path, run_dir / "evaluation_results.yaml")
+    shutil.copy(smoke_yaml_path, run_dir / "result_metrics.yaml")
     
     # Call main in generate_scientific_visualizations with the directory input
     from generate_scientific_visualizations import main
@@ -70,3 +70,29 @@ def test_directory_input_resolves_correctly(tmp_path):
     assert (figures_dir / "captions.md").exists()
     assert (figures_dir / "fig1_heatmap.png").exists()
     assert (figures_dir / "fig15_multihop_coverage.png").exists()
+
+def test_directory_input_prefers_result_metrics(tmp_path):
+    run_dir = tmp_path / "run_test_prefers"
+    run_dir.mkdir()
+    
+    smoke_yaml_path = Path(__file__).resolve().parents[1] / "reports" / "result_metrics_smoke.yaml"
+    if not smoke_yaml_path.exists():
+        pytest.skip("result_metrics_smoke.yaml not found, skipping integration test")
+        
+    shutil.copy(smoke_yaml_path, run_dir / "result_metrics.yaml")
+    
+    # evaluation_results.yaml has invalid YAML to cause a parse crash if it is loaded
+    with open(run_dir / "evaluation_results.yaml", "w") as f:
+        f.write("invalid: [unclosed bracket")
+        
+    # If the script incorrectly loads evaluation_results.yaml, it will crash.
+    # If it correctly prefers result_metrics.yaml, it will run successfully.
+    from generate_scientific_visualizations import main
+    test_args = ["generate_scientific_visualizations.py", "--input", str(run_dir)]
+    with patch("sys.argv", test_args):
+        main()
+        
+    # Check that figures folder was created inside run_dir
+    figures_dir = run_dir / "figures"
+    assert figures_dir.exists()
+    assert (figures_dir / "captions.md").exists()

@@ -840,6 +840,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         mock_config.hyde_count = 1
         mock_config.max_expanded_queries = 1
         mock_config.llm_max_tokens = 1000
+        mock_config.graph_retrieval_enabled = False
         
         self.emb_engine.get_embedding.return_value = [0.1, 0.2]
         self.llm_engine.generate_response.return_value = "Hypothetical text"
@@ -867,6 +868,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         mock_config.hyde_count = 2
         mock_config.max_expanded_queries = 1
         mock_config.llm_max_tokens = 1000
+        mock_config.graph_retrieval_enabled = False
         
         self.emb_engine.get_embedding.return_value = [0.1, 0.2]
         self.llm_engine.generate_response.side_effect = ["Hypothetical text 1", "Hypothetical text 2"]

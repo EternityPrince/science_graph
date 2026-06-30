@@ -1047,7 +1047,7 @@ def main():
     if yaml_path.is_dir():
         input_dir = yaml_path
         # Search inside it
-        preferred_names = ["evaluation_results.yaml", "result_metrics.yaml"]
+        preferred_names = ["result_metrics.yaml", "evaluation_results.yaml"]
         found = False
         for name in preferred_names:
             candidate = yaml_path / name

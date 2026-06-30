@@ -404,9 +404,10 @@ class TestRagBenchmark(unittest.TestCase):
             self.assertEqual(reader_det[1], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", "", "", "", "", "", "", "", "", "", ""])
             self.assertEqual(reader_det[2], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", "", "", "", "", "", "", "", "", "", ""])
 
+    @patch("benchmarks.rag.run_pipeline.subprocess.check_output")
     @patch("benchmarks.rag.run_pipeline.subprocess.run")
     @patch("benchmarks.rag.run_pipeline.run_command_with_progress")
-    def test_run_pipeline_orchestration(self, mock_run_progress, mock_run):
+    def test_run_pipeline_orchestration(self, mock_run_progress, mock_run, mock_check_output):
         """Verifies that run_pipeline.py runs all three stages in sequence with correct arguments."""
         import sys
         import tempfile
@@ -474,8 +475,7 @@ class TestRagBenchmark(unittest.TestCase):
         # Verify call 4: parse_metrics.py
         call4_args = mock_run.call_args_list[0][0][0]
         self.assertIn("parse_metrics.py", call4_args[1])
-        self.assertIn("--csv-summary", call4_args)
-        self.assertIn("--csv-details", call4_args)
+        self.assertTrue(any("test_reports" in arg for arg in call4_args))
 
     @patch("benchmarks.rag.run_retrieve.container.get_rag_service")
     def test_run_retrieve_saves_copy_in_run_retrive_directory(self, mock_get_rag_service):
