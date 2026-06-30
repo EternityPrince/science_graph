@@ -575,6 +575,15 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     with open(output_path, "w", encoding="utf-8") as f:
         yaml.dump(list(contexts_to_save.values()), f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
+    # Also save to original output path if unique dir was used
+    if not getattr(args, "no_unique_dir", False):
+        try:
+            original_output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(original_output_path, "w", encoding="utf-8") as f:
+                yaml.dump(list(contexts_to_save.values()), f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        except Exception as e:
+            con.warning(f"Could not save copy to original output path: {e}")
+
     con.success(f"Stage transition complete. Retrieved contexts saved to: {output_path.resolve()}")
 
     if not getattr(args, "no_unique_dir", False):
