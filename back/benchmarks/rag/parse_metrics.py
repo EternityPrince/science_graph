@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
-Science Graph — RAG Quality Metrics Parser & Aggregator.
-Parses result_metrics.yaml and exports CSV/Markdown reports (delegated to core).
+Science Graph — RAG Quality Metrics & Trace Parser and Aggregator.
+Parses result_metrics.yaml and trace files inside the run directory.
 """
 
 import sys
 import argparse
+import csv
+import json
+import statistics
+import yaml
 from pathlib import Path
 
 # Set up python path to resolve src and core imports correctly
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core.analytics import analyze_metrics
 from core.reporting import (
@@ -18,16 +23,233 @@ from core.reporting import (
     export_wide_csv,
     export_detailed_csv
 )
-
-
 from core.models import load_report_file
+
+
+def parse_graph_retrieval_trace(traces_dir: Path, parsed_dir: Path):
+    """Parses graph_retrieval_trace.jsonl to CSV and summary JSON."""
+    trace_file = traces_dir / "graph_retrieval_trace.jsonl"
+    if not trace_file.exists():
+        print(f"Warning: graph_retrieval_trace.jsonl not found in {traces_dir}")
+        return None, None
+
+    rows = []
+    try:
+        with open(trace_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    rows.append(json.loads(line))
+    except Exception as e:
+        print(f"Error reading graph_retrieval_trace.jsonl: {e}")
+        return None, None
+
+    if not rows:
+        return None, None
+
+    csv_file = parsed_dir / "graph_retrieval_trace.parsed.csv"
+    headers = [
+        "query_id", "baseline", "category", "query",
+        "graph_retrieval_enabled", "graph_retrieval_skip_reason",
+        "base_candidates_count", "graph_neighbor_paper_ids_count", "graph_chunk_candidates_count",
+        "merged_candidates_count_before_reranker", "reranker_input_count_before_limit",
+        "reranker_input_count_after_limit", "candidate_count_after_reranker",
+        "graph_chunks_survived_final_context_count", "graph_chunks_survived_final_context",
+        "graph_survival_rate", "distinct_papers_in_final_context",
+        "base_candidate_paper_ids_count", "graph_chunk_candidate_paper_ids_count",
+        "final_context_paper_ids_count"
+    ]
+
+    csv_rows = []
+    for r in rows:
+        base_cand_papers = r.get("base_candidate_paper_ids", [])
+        graph_chunk_cand_papers = r.get("graph_chunk_candidate_paper_ids", [])
+        final_context_papers = r.get("final_context_paper_ids", [])
+
+        base_candidate_paper_ids_count = len(base_cand_papers) if isinstance(base_cand_papers, list) else 0
+        graph_chunk_candidate_paper_ids_count = len(graph_chunk_cand_papers) if isinstance(graph_chunk_cand_papers, list) else 0
+        final_context_paper_ids_count = len(final_context_papers) if isinstance(final_context_papers, list) else 0
+
+        survived_context = r.get("graph_chunks_survived_final_context", [])
+        survived_str = json.dumps(survived_context) if isinstance(survived_context, list) else str(survived_context)
+
+        csv_rows.append({
+            "query_id": r.get("query_id") or (r.get("query_concepts", [""])[0] if r.get("query_concepts") else "UNKNOWN"),
+            "baseline": r.get("baseline", "B6"),
+            "category": r.get("category", "general"),
+            "query": r.get("query", ""),
+            "graph_retrieval_enabled": r.get("graph_retrieval_enabled", True),
+            "graph_retrieval_skip_reason": r.get("graph_retrieval_skip_reason") or "",
+            "base_candidates_count": r.get("base_candidates_count", 0),
+            "graph_neighbor_paper_ids_count": r.get("graph_neighbor_paper_ids_count", 0),
+            "graph_chunk_candidates_count": r.get("graph_chunk_candidates_count", 0),
+            "merged_candidates_count_before_reranker": r.get("merged_candidates_count_before_reranker", 0),
+            "reranker_input_count_before_limit": r.get("reranker_input_count_before_limit", 0),
+            "reranker_input_count_after_limit": r.get("reranker_input_count_after_limit", 0),
+            "candidate_count_after_reranker": r.get("candidate_count_after_reranker", 0),
+            "graph_chunks_survived_final_context_count": r.get("graph_chunks_survived_final_context_count", 0),
+            "graph_chunks_survived_final_context": survived_str,
+            "graph_survival_rate": r.get("graph_survival_rate", 0.0),
+            "distinct_papers_in_final_context": r.get("distinct_papers_in_final_context", 0),
+            "base_candidate_paper_ids_count": base_candidate_paper_ids_count,
+            "graph_chunk_candidate_paper_ids_count": graph_chunk_candidate_paper_ids_count,
+            "final_context_paper_ids_count": final_context_paper_ids_count
+        })
+
+    with open(csv_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        for crow in csv_rows:
+            writer.writerow(crow)
+
+    total_queries = len(csv_rows)
+    enabled_count = sum(1 for r in csv_rows if r["graph_retrieval_enabled"])
+    queries_with_neighbors = sum(1 for r in csv_rows if r["graph_neighbor_paper_ids_count"] > 0)
+    queries_with_chunks = sum(1 for r in csv_rows if r["graph_chunk_candidates_count"] > 0)
+    queries_with_survival = sum(1 for r in csv_rows if r["graph_chunks_survived_final_context_count"] > 0)
+
+    avg_base_candidates = statistics.mean([r["base_candidates_count"] for r in csv_rows]) if csv_rows else 0.0
+    avg_graph_neighbors = statistics.mean([r["graph_neighbor_paper_ids_count"] for r in csv_rows]) if csv_rows else 0.0
+    avg_graph_chunks = statistics.mean([r["graph_chunk_candidates_count"] for r in csv_rows]) if csv_rows else 0.0
+    avg_merged_before = statistics.mean([r["merged_candidates_count_before_reranker"] for r in csv_rows]) if csv_rows else 0.0
+    avg_survival_rate = statistics.mean([r["graph_survival_rate"] for r in csv_rows]) if csv_rows else 0.0
+    avg_distinct_papers = statistics.mean([r["distinct_papers_in_final_context"] for r in csv_rows]) if csv_rows else 0.0
+
+    skip_reasons = {}
+    for r in csv_rows:
+        reason = r["graph_retrieval_skip_reason"]
+        if not r["graph_retrieval_enabled"]:
+            reason = "disabled"
+        if not reason:
+            continue
+        skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+
+    by_category = {}
+    categories = set(r["category"] for r in csv_rows)
+    for cat in categories:
+        cat_rows = [r for r in csv_rows if r["category"] == cat]
+        by_category[cat] = {
+            "queries": len(cat_rows),
+            "queries_with_graph_survival": sum(1 for r in cat_rows if r["graph_chunks_survived_final_context_count"] > 0),
+            "avg_graph_chunk_candidates_count": round(statistics.mean([r["graph_chunk_candidates_count"] for r in cat_rows]), 2) if cat_rows else 0.0,
+            "avg_graph_survival_rate": round(statistics.mean([r["graph_survival_rate"] for r in cat_rows]), 4) if cat_rows else 0.0
+        }
+
+    summary_data = {
+        "total_queries": total_queries,
+        "queries_with_graph_retrieval_enabled": enabled_count,
+        "queries_with_graph_neighbors": queries_with_neighbors,
+        "queries_with_graph_chunks": queries_with_chunks,
+        "queries_with_graph_survival": queries_with_survival,
+        "avg_base_candidates_count": round(avg_base_candidates, 2),
+        "avg_graph_neighbor_paper_ids_count": round(avg_graph_neighbors, 2),
+        "avg_graph_chunk_candidates_count": round(avg_graph_chunks, 2),
+        "avg_merged_candidates_count_before_reranker": round(avg_merged_before, 2),
+        "avg_graph_survival_rate": round(avg_survival_rate, 4),
+        "avg_distinct_papers_in_final_context": round(avg_distinct_papers, 2),
+        "by_category": by_category,
+        "skip_reasons": skip_reasons
+    }
+
+    with open(parsed_dir / "graph_retrieval_trace.summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary_data, f, ensure_ascii=False, indent=2)
+
+    return csv_rows, summary_data
+
+
+def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
+    """Parses eval_trace.jsonl to CSV and summary JSON."""
+    trace_file = traces_dir / "eval_trace.jsonl"
+    if not trace_file.exists():
+        print(f"Warning: eval_trace.jsonl not found in {traces_dir}")
+        return None, None
+
+    rows = []
+    try:
+        with open(trace_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    rows.append(json.loads(line))
+    except Exception as e:
+        print(f"Error reading eval_trace.jsonl: {e}")
+        return None, None
+
+    if not rows:
+        return None, None
+
+    csv_file = parsed_dir / "eval_trace.parsed.csv"
+    headers = [
+        "query_id", "baseline", "category", "judge_model", "latency_sec",
+        "retrieval_recall", "context_precision", "faithfulness",
+        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness"
+    ]
+
+    csv_rows = []
+    for r in rows:
+        csv_rows.append({
+            "query_id": r.get("query_id") or r.get("id"),
+            "baseline": r.get("baseline"),
+            "category": r.get("category", "general"),
+            "judge_model": r.get("judge_model", ""),
+            "latency_sec": r.get("latency_sec"),
+            "retrieval_recall": r.get("retrieval_recall"),
+            "context_precision": r.get("context_precision"),
+            "faithfulness": r.get("faithfulness"),
+            "answer_relevance": r.get("answer_relevance"),
+            "citation_fidelity": r.get("citation_fidelity"),
+            "semantic_accuracy": r.get("semantic_accuracy"),
+            "context_fillness": r.get("context_fillness")
+        })
+
+    with open(csv_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        for crow in csv_rows:
+            writer.writerow(crow)
+
+    total_eval_rows = len(csv_rows)
+    queries_evaluated = len(set(r["query_id"] for r in csv_rows))
+    baselines = sorted(list(set(r["baseline"] for r in csv_rows if r["baseline"])))
+
+    metrics_summary = {}
+    metric_names = [
+        "retrieval_recall", "context_precision", "faithfulness",
+        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness"
+    ]
+
+    for m in metric_names:
+        vals = [r[m] for r in csv_rows if r.get(m) is not None and r[m] != ""]
+        if vals:
+            metrics_summary[m] = {
+                "mean": round(statistics.mean(vals), 4),
+                "count": len(vals)
+            }
+
+    summary_data = {
+        "total_eval_rows": total_eval_rows,
+        "queries_evaluated": queries_evaluated,
+        "baselines": baselines,
+        "metrics": metrics_summary,
+        "errors": {
+            "count": 0,
+            "by_type": {}
+        }
+    }
+
+    with open(parsed_dir / "eval_trace.summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary_data, f, ensure_ascii=False, indent=2)
+
+    return csv_rows, summary_data
 
 
 def main():
     parser = argparse.ArgumentParser(description="Parse RAG quality metrics and generate reports")
     parser.add_argument(
-        "--file", "-f", type=str, default="reports/result_metrics.yaml",
-        help="Path to result_metrics.yaml file."
+        "run_dir", type=str, nargs="?", default=None,
+        help="Path to benchmark run directory (e.g. graphs/run_XYZ)."
+    )
+    parser.add_argument(
+        "--file", "-f", type=str, default=None,
+        help="Path to result_metrics.yaml file (backward compatibility)."
     )
     parser.add_argument(
         "--output-md", "-m", type=str, default=None,
@@ -41,31 +263,332 @@ def main():
         "--csv-details", type=str, default=None,
         help="Path to save detailed case-by-case CSV."
     )
+    parser.add_argument(
+        "--traces-only", action="store_true",
+        help="Analyze only trace files and skip result_metrics.yaml."
+    )
+    parser.add_argument(
+        "--include-traces", action="store_true",
+        help="Included for CLI compatibility (traces are parsed by default if present)."
+    )
     args = parser.parse_args()
 
-    input_path = Path(args.file)
-    try:
-        report = load_report_file(input_path)
-        data = report.model_dump()
-    except Exception as e:
-        print(f"Error loading or validating report file: {e}")
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parents[2]
+
+    # 1. Resolve run directory
+    run_dir = None
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+        if not run_dir.is_absolute():
+            run_dir = (project_root / run_dir).resolve()
+    elif args.file:
+        file_path = Path(args.file)
+        if not file_path.is_absolute():
+            file_path = (project_root / file_path).resolve()
+        if file_path.is_dir():
+            run_dir = file_path
+        else:
+            run_dir = file_path.parent
+    else:
+        # Fallback default: project_root / graphs or reports
+        run_dir = project_root / "graphs"
+        if not run_dir.exists():
+            run_dir = project_root / "reports"
+
+    if not run_dir.exists():
+        print(f"Error: run directory does not exist: {run_dir}")
         sys.exit(1)
+
+    print(f"Processing run directory: {run_dir}")
+
+    # Set up outputs
+    parsed_dir = run_dir / "parsed"
+    parsed_dir.mkdir(parents=True, exist_ok=True)
+    traces_dir = run_dir / "traces"
+
+    # Default output files if not specified
+    output_md_path = Path(args.output_md) if args.output_md else run_dir / "metrics_summary.md"
+    csv_summary_path = Path(args.csv_summary) if args.csv_summary else run_dir / "metrics_summary.csv"
+    csv_details_path = Path(args.csv_details) if args.csv_details else run_dir / "metrics_details.csv"
+
+    # 2. Parse result_metrics.yaml
+    input_path = Path(args.file) if args.file else run_dir / "result_metrics.yaml"
+    if not input_path.is_absolute():
+        input_path = (project_root / input_path).resolve()
+
+    data = None
+    stats = None
+
+    if not args.traces_only and input_path.exists():
+        try:
+            report = load_report_file(input_path)
+            data = report.model_dump()
+            stats = analyze_metrics(data)
+            
+            # Print tables to stdout
+            print_rich_tables(stats)
+            
+            # Export reports/CSVs
+            generate_markdown_report(stats, output_md_path)
+            export_wide_csv(stats, csv_summary_path)
+            export_detailed_csv(data, stats, csv_details_path)
+            
+            # Export metrics_summary.parsed.json
+            with open(parsed_dir / "metrics_summary.parsed.json", "w", encoding="utf-8") as f:
+                json.dump(stats, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            print(f"Error processing result_metrics.yaml: {e}")
+            sys.exit(1)
+    elif not args.traces_only:
+        print(f"Warning: result_metrics.yaml not found at {input_path}")
+
+    # 3. Parse Traces
+    graph_rows = None
+    eval_rows = None
+    if traces_dir.exists():
+        graph_rows, graph_summary = parse_graph_retrieval_trace(traces_dir, parsed_dir)
+        eval_rows, eval_summary = parse_eval_trace(traces_dir, parsed_dir)
+
+    # 4. Detailed Metrics Rows
+    metrics_rows = []
+    if csv_details_path.exists():
+        try:
+            with open(csv_details_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                metrics_rows = list(reader)
+        except Exception as e:
+            print(f"Warning: Could not read metrics_details.csv: {e}")
+
+    if not metrics_rows and data and "results" in data:
+        baselines = stats["baselines"] if stats else list(data["results"][0].get("baselines", {}).keys())
+        for r in data["results"]:
+            q_id = r.get("id", "UNKNOWN")
+            category = r.get("category", "general")
+            for b in baselines:
+                b_data = r.get("baselines", {}).get(b, {})
+                if not b_data:
+                    continue
+                eval_metrics = b_data.get("eval_metrics", {})
+                metrics_rows.append({
+                    "query_id": q_id,
+                    "category": category,
+                    "baseline": b,
+                    "status": b_data.get("status", "success"),
+                    "latency_sec": b_data.get("latency_sec"),
+                    "retrieval_recall": eval_metrics.get("retrieval_recall"),
+                    "context_precision": eval_metrics.get("context_precision"),
+                    "faithfulness": eval_metrics.get("faithfulness"),
+                    "answer_relevance": eval_metrics.get("answer_relevance"),
+                    "citation_fidelity": eval_metrics.get("citation_fidelity"),
+                    "semantic_accuracy": eval_metrics.get("semantic_accuracy"),
+                    "context_fillness": eval_metrics.get("context_fillness"),
+                    "token_output": eval_metrics.get("token_output"),
+                    "token_answer": eval_metrics.get("token_answer"),
+                    "token_reasoning": eval_metrics.get("token_reasoning")
+                })
+
+    # Write metrics_details.parsed.csv
+    if metrics_rows:
+        with open(parsed_dir / "metrics_details.parsed.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys())
+            writer.writeheader()
+            for r in metrics_rows:
+                writer.writerow(r)
+
+    # 5. Join per-query data
+    joined_data = {}
     
-    # Compute all metrics and statistics
-    stats = analyze_metrics(data)
-    
-    # Print tables to stdout
-    print_rich_tables(stats)
-    
-    # Export reports if paths are specified
-    if args.output_md:
-        generate_markdown_report(stats, Path(args.output_md))
-        
-    if args.csv_summary:
-        export_wide_csv(stats, Path(args.csv_summary))
-        
-    if args.csv_details:
-        export_detailed_csv(data, stats, Path(args.csv_details))
+    # Standardize and populate metrics rows
+    for r in metrics_rows:
+        q_id = str(r.get("query_id") or "")
+        base = str(r.get("baseline") or "")
+        if not q_id or not base:
+            continue
+        key = (q_id, base)
+        joined_data[key] = {
+            "query_id": q_id,
+            "baseline": base,
+            "category": r.get("category", "general"),
+            "retrieval_recall": r.get("retrieval_recall"),
+            "context_precision": r.get("context_precision"),
+            "faithfulness": r.get("faithfulness"),
+            "answer_relevance": r.get("answer_relevance"),
+            "citation_fidelity": r.get("citation_fidelity"),
+            "semantic_accuracy": r.get("semantic_accuracy"),
+            "context_fillness": r.get("context_fillness"),
+            "latency_sec": r.get("latency_sec"),
+            "token_output": r.get("token_output"),
+            "token_answer": r.get("token_answer"),
+            "token_reasoning": r.get("token_reasoning")
+        }
+
+    # Merge graph trace rows
+    if graph_rows:
+        for r in graph_rows:
+            q_id = str(r.get("query_id") or "")
+            base = str(r.get("baseline") or "")
+            key = (q_id, base)
+            if key not in joined_data:
+                joined_data[key] = {
+                    "query_id": q_id,
+                    "baseline": base,
+                    "category": r.get("category", "general")
+                }
+            joined_data[key].update({
+                "graph_retrieval_enabled": r.get("graph_retrieval_enabled"),
+                "graph_retrieval_skip_reason": r.get("graph_retrieval_skip_reason"),
+                "base_candidates_count": r.get("base_candidates_count"),
+                "graph_neighbor_paper_ids_count": r.get("graph_neighbor_paper_ids_count"),
+                "graph_chunk_candidates_count": r.get("graph_chunk_candidates_count"),
+                "merged_candidates_count_before_reranker": r.get("merged_candidates_count_before_reranker"),
+                "graph_chunks_survived_final_context_count": r.get("graph_chunks_survived_final_context_count"),
+                "graph_chunks_survived_final_context": r.get("graph_chunks_survived_final_context"),
+                "graph_survival_rate": r.get("graph_survival_rate"),
+                "distinct_papers_in_final_context": r.get("distinct_papers_in_final_context")
+            })
+
+    # Merge eval trace rows
+    if eval_rows:
+        for r in eval_rows:
+            q_id = str(r.get("query_id") or "")
+            base = str(r.get("baseline") or "")
+            key = (q_id, base)
+            if key not in joined_data:
+                joined_data[key] = {
+                    "query_id": q_id,
+                    "baseline": base,
+                    "category": r.get("category", "general")
+                }
+            for m in ["retrieval_recall", "context_precision", "faithfulness", "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness", "latency_sec"]:
+                if r.get(m) is not None and (joined_data[key].get(m) is None or joined_data[key].get(m) == ""):
+                    joined_data[key][m] = r[m]
+
+    # Write per_query_joined.csv
+    joined_csv_path = parsed_dir / "per_query_joined.csv"
+    joined_headers = [
+        "query_id", "baseline", "category",
+        "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
+        "citation_fidelity", "semantic_accuracy", "context_fillness", "latency_sec",
+        "token_output", "token_answer", "token_reasoning",
+        "graph_retrieval_enabled", "graph_retrieval_skip_reason",
+        "base_candidates_count", "graph_neighbor_paper_ids_count",
+        "graph_chunk_candidates_count", "merged_candidates_count_before_reranker",
+        "graph_chunks_survived_final_context_count", "graph_chunks_survived_final_context",
+        "graph_survival_rate", "distinct_papers_in_final_context"
+    ]
+
+    with open(joined_csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=joined_headers)
+        writer.writeheader()
+        for key in sorted(joined_data.keys()):
+            row = joined_data[key]
+            clean_row = {h: row.get(h, "") for h in joined_headers}
+            writer.writerow(clean_row)
+
+    # 6. Run summary JSON
+    run_summary = {
+        "run_id": run_dir.name,
+        "baselines": [],
+        "query_count": 0,
+        "metrics": {},
+        "graph_retrieval": {},
+        "by_category": {}
+    }
+
+    all_baselines = set()
+    for row in joined_data.values():
+        if row.get("baseline"):
+            all_baselines.add(row["baseline"])
+    run_summary["baselines"] = sorted(list(all_baselines))
+    run_summary["query_count"] = len(set(row["query_id"] for row in joined_data.values()))
+
+    for b in run_summary["baselines"]:
+        b_rows = [row for row in joined_data.values() if row["baseline"] == b]
+        run_summary["metrics"][b] = {}
+        for m in ["semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall", "context_precision", "answer_relevance"]:
+            vals = []
+            for row in b_rows:
+                val = row.get(m)
+                if val is not None and val != "":
+                    try:
+                        vals.append(float(val))
+                    except ValueError:
+                        pass
+            if vals:
+                run_summary["metrics"][b][f"{m}_mean"] = round(statistics.mean(vals), 4)
+
+        g_rows = [row for row in b_rows if row.get("graph_retrieval_enabled") is not None]
+        if g_rows:
+            queries_with_graph_neighbors = sum(1 for r in g_rows if float(r.get("graph_neighbor_paper_ids_count") or 0) > 0)
+            queries_with_graph_chunks = sum(1 for r in g_rows if float(r.get("graph_chunk_candidates_count") or 0) > 0)
+            queries_with_graph_survival = sum(1 for r in g_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0)
+            
+            surv_vals = []
+            for r in g_rows:
+                s_rate = r.get("graph_survival_rate")
+                if s_rate is not None and s_rate != "":
+                    try:
+                        surv_vals.append(float(s_rate))
+                    except ValueError:
+                        pass
+            avg_survival_rate = statistics.mean(surv_vals) if surv_vals else 0.0
+
+            run_summary["graph_retrieval"][b] = {
+                "queries_with_graph_neighbors": queries_with_graph_neighbors,
+                "queries_with_graph_chunks": queries_with_graph_chunks,
+                "queries_with_graph_survival": queries_with_graph_survival,
+                "avg_graph_survival_rate": round(avg_survival_rate, 4)
+            }
+
+    categories = set(row["category"] for row in joined_data.values() if row.get("category"))
+    for cat in categories:
+        run_summary["by_category"][cat] = {}
+        cat_rows = [row for row in joined_data.values() if row["category"] == cat]
+        for b in run_summary["baselines"]:
+            b_cat_rows = [row for row in cat_rows if row["baseline"] == b]
+            if not b_cat_rows:
+                continue
+            run_summary["by_category"][cat][b] = {}
+            
+            sem_vals = []
+            for row in b_cat_rows:
+                s_acc = row.get("semantic_accuracy")
+                if s_acc is not None and s_acc != "":
+                    try:
+                        sem_vals.append(float(s_acc))
+                    except ValueError:
+                        pass
+            if sem_vals:
+                run_summary["by_category"][cat][b]["semantic_accuracy_mean"] = round(statistics.mean(sem_vals), 4)
+
+            g_cat_rows = [row for row in b_cat_rows if row.get("graph_retrieval_enabled") is not None]
+            if g_cat_rows:
+                queries_with_graph_survival = sum(1 for r in g_cat_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0)
+                run_summary["by_category"][cat][b]["queries_with_graph_survival"] = queries_with_graph_survival
+
+    with open(parsed_dir / "run_summary.json", "w", encoding="utf-8") as f:
+        json.dump(run_summary, f, ensure_ascii=False, indent=2)
+
+    # 7. Print Console Report
+    print(f"\nParsed run: {run_dir}")
+    print(f"Queries: {run_summary['query_count']}")
+    print(f"Baselines: {', '.join(run_summary['baselines'])}")
+
+    if run_summary["graph_retrieval"]:
+        print("\nGraph retrieval:")
+        for b, g_stats in run_summary["graph_retrieval"].items():
+            print(f"Baseline {b}:")
+            print(f"  - queries with neighbors: {g_stats['queries_with_graph_neighbors']}/{run_summary['query_count']}")
+            print(f"  - queries with graph chunks: {g_stats['queries_with_graph_chunks']}/{run_summary['query_count']}")
+            print(f"  - queries with graph chunks survived: {g_stats['queries_with_graph_survival']}/{run_summary['query_count']}")
+            print(f"  - avg graph survival rate: {g_stats['avg_graph_survival_rate']:.4f}")
+
+    print(f"\nJoined file:\n  - {joined_csv_path}")
+    print(f"\nSummaries:\n  - {parsed_dir / 'run_summary.json'}")
+    if (parsed_dir / "graph_retrieval_trace.summary.json").exists():
+        print(f"  - {parsed_dir / 'graph_retrieval_trace.summary.json'}")
 
 
 if __name__ == "__main__":

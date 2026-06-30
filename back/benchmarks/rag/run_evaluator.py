@@ -138,12 +138,12 @@ def main():
 
     parser = argparse.ArgumentParser(description="Science Graph RAG Quality Evaluator (LLM-as-a-Judge)")
     parser.add_argument(
-        "--input", "-i", type=str, default="reports/evaluation_results.yaml",
-        help="Path to input evaluation results YAML. Defaults to reports/evaluation_results.yaml"
+        "--input", "-i", type=str, default="graphs/evaluation_results.yaml",
+        help="Path to input evaluation results YAML. Defaults to graphs/evaluation_results.yaml"
     )
     parser.add_argument(
-        "--output", "-o", type=str, default="reports/result_metrics.yaml",
-        help="Path to save output result metrics. Defaults to reports/result_metrics.yaml"
+        "--output", "-o", type=str, default="graphs/result_metrics.yaml",
+        help="Path to save output result metrics. Defaults to graphs/result_metrics.yaml"
     )
     parser.add_argument(
         "--baselines", "-b", type=str, default="all",
@@ -174,6 +174,20 @@ def main():
         help="Ignore existing evaluation checkpoints and restart from scratch."
     )
     args = parser.parse_args()
+
+    # Determine project root and resolve output/input paths
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parents[2]
+    
+    input_path = Path(args.input)
+    if not input_path.is_absolute():
+        input_path = (project_root / input_path).resolve()
+    args.input = str(input_path)
+    
+    output_path = Path(args.output)
+    if not output_path.is_absolute():
+        output_path = (project_root / output_path).resolve()
+    args.output = str(output_path)
 
     asyncio.run(run_evaluation(args, config, con))
 

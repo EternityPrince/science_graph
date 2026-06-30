@@ -1015,7 +1015,11 @@ class RAGService:
         else:
             benchmark_dir = self._parse_trace_dir_from_argv()
             if benchmark_dir and benchmark_dir.exists():
-                trace_file = benchmark_dir / "graph_retrieval_trace.jsonl"
+                trace_dir = benchmark_dir
+                if trace_dir.name != "traces":
+                    trace_dir = trace_dir / "traces"
+                trace_dir.mkdir(parents=True, exist_ok=True)
+                trace_file = trace_dir / "graph_retrieval_trace.jsonl"
             else:
                 trace_file = Path("graph_retrieval_trace.jsonl")
             

@@ -750,6 +750,40 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
     with open(output_path, "w", encoding="utf-8") as f:
         yaml.dump(output_report, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
+    # Write eval trace
+    trace_dir = output_path.parent / "traces"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    eval_trace_path = trace_dir / "eval_trace.jsonl"
+    try:
+        with open(eval_trace_path, "w", encoding="utf-8") as f:
+            for case_out in final_results:
+                case_id = case_out.get("id")
+                category = case_out.get("category", "general")
+                for baseline_name, b_data in case_out.get("baselines", {}).items():
+                    metrics = b_data.get("eval_metrics", {})
+                    entry = {
+                        "query_id": case_id,
+                        "baseline": baseline_name,
+                        "category": category,
+                        "retrieval_recall": metrics.get("retrieval_recall"),
+                        "context_precision": metrics.get("context_precision"),
+                        "faithfulness": metrics.get("faithfulness"),
+                        "answer_relevance": metrics.get("answer_relevance"),
+                        "citation_fidelity": metrics.get("citation_fidelity"),
+                        "semantic_accuracy": metrics.get("semantic_accuracy"),
+                        "context_fillness": metrics.get("context_fillness"),
+                        "latency_sec": b_data.get("latency_sec"),
+                        "judge_model": model_name,
+                        "token_output": metrics.get("token_output"),
+                        "token_answer": metrics.get("token_answer"),
+                        "token_reasoning": metrics.get("token_reasoning"),
+                        "eval_details": b_data.get("eval_details", {})
+                    }
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        con.info(f"Saved evaluation trace to {eval_trace_path}")
+    except Exception as e:
+        con.warning(f"Could not save evaluation trace: {e}")
+
     if checkpoint_path.exists():
         checkpoint_path.unlink()
 

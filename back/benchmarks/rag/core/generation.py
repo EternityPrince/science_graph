@@ -196,9 +196,6 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     con.info("Initializing repositories and models...")
     try:
         rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
-        if getattr(args, "output", None):
-            from pathlib import Path
-            rag_service.trace_dir = Path(args.output).parent
     except Exception as e:
         con.error(f"Failed to initialize RAG Service: {e}")
         sys.exit(1)
@@ -223,6 +220,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     original_output_path = Path(args.output)
     if args.no_unique_dir:
         output_path = original_output_path
+        run_dir = output_path.parent
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_model_name = get_safe_model_name(llm_model)
@@ -230,7 +228,81 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         run_dir = original_output_path.parent / run_dir_name
         output_path = run_dir / original_output_path.name
     
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure directories exist
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "traces").mkdir(parents=True, exist_ok=True)
+    (run_dir / "parsed").mkdir(parents=True, exist_ok=True)
+
+    rag_service.trace_dir = run_dir / "traces"
+
+    # Save config snapshot and manifest
+    import os
+    import yaml
+    import hashlib
+    try:
+        with open(run_dir / "config_snapshot.yaml", "w", encoding="utf-8") as f:
+            yaml.safe_dump(config.data, f, default_flow_style=False, allow_unicode=True)
+        con.info(f"Saved configuration snapshot to {run_dir}/config_snapshot.yaml")
+    except Exception as e:
+        con.warning(f"Could not save config snapshot: {e}")
+
+    try:
+        git_commit = None
+        git_branch = None
+        working_tree_dirty = None
+        try:
+            import subprocess
+            git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+            git_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+            status_out = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
+            working_tree_dirty = bool(status_out.strip())
+        except Exception:
+            pass
+
+        dataset_hash = None
+        try:
+            if dataset_path.exists():
+                dataset_hash = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+        except Exception:
+            pass
+
+        manifest = {
+            "run_id": run_dir.name,
+            "created_at": datetime.now().isoformat(),
+            "git_commit": git_commit,
+            "git_branch": git_branch,
+            "working_tree_dirty": working_tree_dirty,
+            "baselines": baselines_to_run,
+            "model": {
+                "provider": config.data["llm"]["provider"],
+                "local_model_path": config.data["llm"]["local"]["model_path"],
+                "model_max_context": config.llm_model_max_context,
+                "max_tokens": config.data["llm"].get("max_tokens")
+            },
+            "embedding": {
+                "model_name": config.data["embedding"]["model_name"]
+            },
+            "reranker": {
+                "model_name": config.reranker_model_name if config.data["rag_components"].get("reranker", True) else "disabled"
+            },
+            "config_profile": getattr(config, "profile", None),
+            "config_snapshot_path": "config_snapshot.yaml",
+            "dataset": {
+                "name": dataset_path.name,
+                "query_count": len(test_cases),
+                "dataset_hash": dataset_hash
+            },
+            "output_dir": str(run_dir),
+            "trace_dir": str(run_dir / "traces"),
+            "env_overrides": {
+                "RAG_GRAPH_RETRIEVAL": os.environ.get("RAG_GRAPH_RETRIEVAL")
+            }
+        }
+        with open(run_dir / "run_manifest.yaml", "w", encoding="utf-8") as f:
+            yaml.safe_dump(manifest, f, default_flow_style=False, allow_unicode=True)
+        con.info(f"Saved run manifest to {run_dir}/run_manifest.yaml")
+    except Exception as e:
+        con.warning(f"Could not save run manifest: {e}")
 
     # Load existing file for merging/resuming
     existing_data = None

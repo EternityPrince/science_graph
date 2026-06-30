@@ -65,8 +65,12 @@ def main():
         help="Ignore existing evaluation checkpoints and restart from scratch."
     )
     parser.add_argument(
-        "--output-dir", type=str, default="reports",
+        "--output-dir", type=str, default="graphs",
         help="Directory to save all run outputs."
+    )
+    parser.add_argument(
+        "--output", "-o", type=str, default=None,
+        help="Specific run directory to use, e.g., graphs/run_XYZ. If specified, overrides --output-dir."
     )
     parser.add_argument(
         "--no-unique-dir", action="store_true",
@@ -113,11 +117,13 @@ def main():
             pass
 
     # 2. Determine target output directory
-    output_dir = Path(args.output_dir)
-    if not output_dir.is_absolute():
-        output_dir = (script_dir / output_dir).resolve()
-        
-    if is_already_retrieved:
+    project_root = script_dir.parents[2]
+    
+    if args.output:
+        run_dir = Path(args.output)
+        if not run_dir.is_absolute():
+            run_dir = (project_root / run_dir).resolve()
+    elif is_already_retrieved:
         run_dir = dataset_path.parent
         con.info(f"Detected pre-retrieved context dataset. Skipping retrieval stage.")
         con.info(f"Outputs will be saved directly to: {run_dir}")
@@ -128,18 +134,26 @@ def main():
         except Exception as e:
             con.warning(f"Could not generate retrieval metrics table: {e}")
     elif args.no_unique_dir:
+        output_dir = Path(args.output_dir)
+        if not output_dir.is_absolute():
+            output_dir = (project_root / output_dir).resolve()
         run_dir = output_dir
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path(args.output_dir)
+        if not output_dir.is_absolute():
+            output_dir = (project_root / output_dir).resolve()
+            
         if args.cloud:
             llm_model = config.data["llm"]["cloud"]["model_name"]
         else:
             llm_model = config.data["llm"]["local"]["model_path"]
-        
-        safe_model_name = get_safe_model_name(llm_model)
-        run_dir = output_dir / f"run_{timestamp}_{safe_model_name}"
+            
+        from core.config import create_graph_run_dir
+        run_dir = create_graph_run_dir(output_dir, model_name=llm_model)
 
     run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "traces").mkdir(parents=True, exist_ok=True)
+    (run_dir / "parsed").mkdir(parents=True, exist_ok=True)
     con.info(f"All run reports will be saved to: {run_dir}")
 
     # Build final custom configuration overrides if user requested it or specified a config file or overrides
@@ -206,6 +220,80 @@ def main():
     total_retrieval_steps = max(num_cases * num_baselines_with_retrieval, 1)
     total_generation_steps = max(num_cases * num_baselines, 1)
     total_evaluation_steps = max(num_cases * num_baselines, 1)
+
+    # Save config snapshot and manifest
+    import os
+    import yaml
+    import hashlib
+    from datetime import datetime
+    
+    # 1. Config snapshot
+    with open(run_dir / "config_snapshot.yaml", "w", encoding="utf-8") as f:
+        yaml.safe_dump(config.data, f, default_flow_style=False, allow_unicode=True)
+    con.info(f"Saved configuration snapshot to {run_dir}/config_snapshot.yaml")
+    
+    # 2. git info for manifest
+    git_commit = None
+    git_branch = None
+    working_tree_dirty = None
+    try:
+        import subprocess
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        git_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        status_out = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
+        working_tree_dirty = bool(status_out.strip())
+    except Exception:
+        pass
+        
+    # dataset hash
+    dataset_hash = None
+    try:
+        if dataset_path.exists():
+            dataset_hash = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+    except Exception:
+        pass
+        
+    if args.cloud:
+        llm_model_name = config.data["llm"]["cloud"]["model_name"]
+    else:
+        llm_model_name = config.data["llm"]["local"]["model_path"]
+        
+    manifest = {
+        "run_id": run_dir.name,
+        "created_at": datetime.now().isoformat(),
+        "git_commit": git_commit,
+        "git_branch": git_branch,
+        "working_tree_dirty": working_tree_dirty,
+        "baselines": baselines_to_run,
+        "model": {
+            "provider": config.data["llm"]["provider"],
+            "local_model_path": config.data["llm"]["local"]["model_path"],
+            "model_max_context": config.llm_model_max_context,
+            "max_tokens": config.data["llm"].get("max_tokens")
+        },
+        "embedding": {
+            "model_name": config.data["embedding"]["model_name"]
+        },
+        "reranker": {
+            "model_name": config.reranker_model_name if config.data["rag_components"].get("reranker", True) else "disabled"
+        },
+        "config_profile": getattr(config, "profile", None),
+        "config_snapshot_path": "config_snapshot.yaml",
+        "dataset": {
+            "name": dataset_path.name,
+            "query_count": num_cases,
+            "dataset_hash": dataset_hash
+        },
+        "output_dir": str(run_dir),
+        "trace_dir": str(run_dir / "traces"),
+        "env_overrides": {
+            "RAG_GRAPH_RETRIEVAL": os.environ.get("RAG_GRAPH_RETRIEVAL")
+        }
+    }
+    
+    with open(run_dir / "run_manifest.yaml", "w", encoding="utf-8") as f:
+        yaml.safe_dump(manifest, f, default_flow_style=False, allow_unicode=True)
+    con.info(f"Saved run manifest to {run_dir}/run_manifest.yaml")
 
     # Output filenames
     eval_results = run_dir / "evaluation_results.yaml"
@@ -296,10 +384,7 @@ def main():
             con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
             parse_cmd = [
                 python_bin, str(script_dir / "parse_metrics.py"),
-                "--file", str(metrics_results),
-                "--output-md", str(summary_md),
-                "--csv-summary", str(summary_csv),
-                "--csv-details", str(details_csv)
+                str(run_dir)
             ]
             con.dim(f"Running command: {' '.join(parse_cmd)}")
             try:
@@ -372,10 +457,7 @@ def main():
             con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
             parse_cmd = [
                 python_bin, str(script_dir / "parse_metrics.py"),
-                "--file", str(metrics_results),
-                "--output-md", str(summary_md),
-                "--csv-summary", str(summary_csv),
-                "--csv-details", str(details_csv)
+                str(run_dir)
             ]
             con.dim(f"Running command: {' '.join(parse_cmd)}")
             try:

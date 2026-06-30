@@ -46,8 +46,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     try:
         rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
         if getattr(args, "output", None):
-            from pathlib import Path
-            rag_service.trace_dir = Path(args.output).parent
+            rag_service.trace_dir = Path(args.output).parent / "traces"
     except Exception as e:
         con.error(f"Failed to initialize RAG Service: {e}")
         sys.exit(1)

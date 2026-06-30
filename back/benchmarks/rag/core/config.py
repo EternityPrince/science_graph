@@ -144,3 +144,34 @@ def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42
             pass
             
     return data
+
+
+def create_graph_run_dir(
+    base_dir: Path,
+    run_name: str | None = None,
+    model_name: str | None = None,
+    timestamp: Any = None,
+) -> Path:
+    """Creates a unified benchmark run directory inside base_dir with traces/ and parsed/ subfolders."""
+    from datetime import datetime
+    if timestamp is None:
+        timestamp = datetime.now()
+        
+    ts_str = timestamp.strftime("%Y%m%d_%H%M%S")
+    
+    if run_name:
+        dir_name = run_name
+    elif model_name:
+        safe_model = get_safe_model_name(model_name)
+        dir_name = f"run_{ts_str}_{safe_model}"
+    else:
+        dir_name = f"run_{ts_str}"
+        
+    run_dir = base_dir / dir_name
+    
+    # Create the directories
+    (run_dir / "traces").mkdir(parents=True, exist_ok=True)
+    (run_dir / "parsed").mkdir(parents=True, exist_ok=True)
+    
+    return run_dir
+
