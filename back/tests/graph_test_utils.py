@@ -329,6 +329,7 @@ class FakeGraphRepository:
         return len([p for p in self.papers.values() if p.get("label") == "Paper"])
 
     def get_concept_idf(self, concept_ids: List[str]) -> Dict[str, float]:
+        import math
         total = self.count_total_local_papers()
         idfs = {}
         for cid in concept_ids:
