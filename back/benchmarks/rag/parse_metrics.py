@@ -36,6 +36,7 @@ from core.reporting import (
 from core.models import load_report_file
 
 
+<<<<<<< HEAD
 def load_graph_retrieval_trace(trace_path: Path) -> dict[tuple[str, str], dict]:
     """
     Robustly loads graph_retrieval_trace.jsonl.
@@ -77,13 +78,19 @@ def load_graph_retrieval_trace(trace_path: Path) -> dict[tuple[str, str], dict]:
     return trace_map
 
 
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
 def parse_graph_retrieval_trace(traces_dir: Path, parsed_dir: Path):
     """Parses graph_retrieval_trace.jsonl to CSV and summary JSON."""
     trace_file = traces_dir / "graph_retrieval_trace.jsonl"
     if not trace_file.exists():
+<<<<<<< HEAD
         trace_file = traces_dir.parent / "graph_retrieval_trace.jsonl"
     if not trace_file.exists():
         print(f"Warning: graph_retrieval_trace.jsonl not found in {traces_dir} or {traces_dir.parent}")
+=======
+        print(f"Warning: graph_retrieval_trace.jsonl not found in {traces_dir}")
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         return None, None
 
     rows = []
@@ -213,9 +220,13 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     """Parses eval_trace.jsonl to CSV and summary JSON."""
     trace_file = traces_dir / "eval_trace.jsonl"
     if not trace_file.exists():
+<<<<<<< HEAD
         trace_file = traces_dir.parent / "eval_trace.jsonl"
     if not trace_file.exists():
         print(f"Warning: eval_trace.jsonl not found in {traces_dir} or {traces_dir.parent}")
+=======
+        print(f"Warning: eval_trace.jsonl not found in {traces_dir}")
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         return None, None
 
     rows = []
@@ -235,12 +246,17 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     headers = [
         "query_id", "baseline", "category", "judge_model", "latency_sec",
         "retrieval_recall", "context_precision", "faithfulness",
+<<<<<<< HEAD
         "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness",
         "ar_sa_f1", "is_answerable"
+=======
+        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness"
+>>>>>>> 7c7b22f (add trace into parse_metrica)
     ]
 
     csv_rows = []
     for r in rows:
+<<<<<<< HEAD
         is_ans = r.get("is_answerable")
         if is_ans is None:
             is_ans = True
@@ -262,6 +278,8 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
                 except (ValueError, TypeError):
                     ar_f1 = 0.0
 
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         csv_rows.append({
             "query_id": r.get("query_id") or r.get("id"),
             "baseline": r.get("baseline"),
@@ -274,9 +292,13 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
             "answer_relevance": r.get("answer_relevance"),
             "citation_fidelity": r.get("citation_fidelity"),
             "semantic_accuracy": r.get("semantic_accuracy"),
+<<<<<<< HEAD
             "context_fillness": r.get("context_fillness"),
             "ar_sa_f1": ar_f1,
             "is_answerable": is_ans
+=======
+            "context_fillness": r.get("context_fillness")
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         })
 
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
@@ -292,6 +314,7 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     metrics_summary = {}
     metric_names = [
         "retrieval_recall", "context_precision", "faithfulness",
+<<<<<<< HEAD
         "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness",
         "ar_sa_f1"
     ]
@@ -301,6 +324,13 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
             vals = [r[m] for r in csv_rows if r.get("is_answerable") is True and r.get(m) is not None and r[m] != ""]
         else:
             vals = [r[m] for r in csv_rows if r.get(m) is not None and r[m] != ""]
+=======
+        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness"
+    ]
+
+    for m in metric_names:
+        vals = [r[m] for r in csv_rows if r.get(m) is not None and r[m] != ""]
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         if vals:
             metrics_summary[m] = {
                 "mean": round(statistics.mean(vals), 4),
@@ -324,6 +354,7 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     return csv_rows, summary_data
 
 
+<<<<<<< HEAD
 def print_confusion_matrix_and_metrics_tables(data):
     """
     Computes and prints confusion matrix and classification quality metrics
@@ -476,6 +507,8 @@ def print_confusion_matrix_and_metrics_tables(data):
     print(metrics_sep)
 
 
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
 def main():
     parser = argparse.ArgumentParser(description="Parse RAG quality metrics and generate reports")
     parser.add_argument(
@@ -506,10 +539,13 @@ def main():
         "--include-traces", action="store_true",
         help="Included for CLI compatibility (traces are parsed by default if present)."
     )
+<<<<<<< HEAD
     parser.add_argument(
         "--confusion", "--confusion-matrix", action="store_true",
         help="Calculate and print confusion matrix and classification quality metrics."
     )
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
     args = parser.parse_args()
 
     script_dir = Path(__file__).resolve().parent
@@ -551,6 +587,7 @@ def main():
     csv_summary_path = Path(args.csv_summary) if args.csv_summary else run_dir / "metrics_summary.csv"
     csv_details_path = Path(args.csv_details) if args.csv_details else run_dir / "metrics_details.csv"
 
+<<<<<<< HEAD
     # Load trace map first for merging
     trace_path = run_dir / "graph_retrieval_trace.jsonl"
     if not trace_path.exists():
@@ -602,6 +639,12 @@ def main():
             input_path = candidate_path
 
     print(f"Resolved report file to parse: {input_path}")
+=======
+    # 2. Parse result_metrics.yaml
+    input_path = Path(args.file) if args.file else run_dir / "result_metrics.yaml"
+    if not input_path.is_absolute():
+        input_path = (project_root / input_path).resolve()
+>>>>>>> 7c7b22f (add trace into parse_metrica)
 
     data = None
     stats = None
@@ -610,7 +653,11 @@ def main():
         try:
             report = load_report_file(input_path)
             data = report.model_dump()
+<<<<<<< HEAD
             stats = analyze_metrics(data, trace_map)
+=======
+            stats = analyze_metrics(data)
+>>>>>>> 7c7b22f (add trace into parse_metrica)
             
             # Print tables to stdout
             print_rich_tables(stats)
@@ -633,13 +680,18 @@ def main():
     # 3. Parse Traces
     graph_rows = None
     eval_rows = None
+<<<<<<< HEAD
     has_traces = traces_dir.exists() or (run_dir / "graph_retrieval_trace.jsonl").exists() or (run_dir / "eval_trace.jsonl").exists()
     if has_traces:
+=======
+    if traces_dir.exists():
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         graph_rows, graph_summary = parse_graph_retrieval_trace(traces_dir, parsed_dir)
         eval_rows, eval_summary = parse_eval_trace(traces_dir, parsed_dir)
 
     # 4. Detailed Metrics Rows
     metrics_rows = []
+<<<<<<< HEAD
     
     # If we have fresh YAML data, always use it to build metrics_rows
     if data and "results" in data:
@@ -712,6 +764,55 @@ def main():
     # 5. Join per-query data
     joined_data = {}
     
+=======
+    if csv_details_path.exists():
+        try:
+            with open(csv_details_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                metrics_rows = list(reader)
+        except Exception as e:
+            print(f"Warning: Could not read metrics_details.csv: {e}")
+
+    if not metrics_rows and data and "results" in data:
+        baselines = stats["baselines"] if stats else list(data["results"][0].get("baselines", {}).keys())
+        for r in data["results"]:
+            q_id = r.get("id", "UNKNOWN")
+            category = r.get("category", "general")
+            for b in baselines:
+                b_data = r.get("baselines", {}).get(b, {})
+                if not b_data:
+                    continue
+                eval_metrics = b_data.get("eval_metrics", {})
+                metrics_rows.append({
+                    "query_id": q_id,
+                    "category": category,
+                    "baseline": b,
+                    "status": b_data.get("status", "success"),
+                    "latency_sec": b_data.get("latency_sec"),
+                    "retrieval_recall": eval_metrics.get("retrieval_recall"),
+                    "context_precision": eval_metrics.get("context_precision"),
+                    "faithfulness": eval_metrics.get("faithfulness"),
+                    "answer_relevance": eval_metrics.get("answer_relevance"),
+                    "citation_fidelity": eval_metrics.get("citation_fidelity"),
+                    "semantic_accuracy": eval_metrics.get("semantic_accuracy"),
+                    "context_fillness": eval_metrics.get("context_fillness"),
+                    "token_output": eval_metrics.get("token_output"),
+                    "token_answer": eval_metrics.get("token_answer"),
+                    "token_reasoning": eval_metrics.get("token_reasoning")
+                })
+
+    # Write metrics_details.parsed.csv
+    if metrics_rows:
+        with open(parsed_dir / "metrics_details.parsed.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys())
+            writer.writeheader()
+            for r in metrics_rows:
+                writer.writerow(r)
+
+    # 5. Join per-query data
+    joined_data = {}
+    
+>>>>>>> 7c7b22f (add trace into parse_metrica)
     # Standardize and populate metrics rows
     for r in metrics_rows:
         q_id = str(r.get("query_id") or "")
@@ -719,6 +820,7 @@ def main():
         if not q_id or not base:
             continue
         key = (q_id, base)
+<<<<<<< HEAD
         is_ans = r.get("is_answerable")
         if is_ans is None or is_ans == "":
             is_ans = True
@@ -740,11 +842,16 @@ def main():
                 except (ValueError, TypeError):
                     ar_f1 = 0.0
 
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         joined_data[key] = {
             "query_id": q_id,
             "baseline": base,
             "category": r.get("category", "general"),
+<<<<<<< HEAD
             "is_answerable": is_ans,
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
             "retrieval_recall": r.get("retrieval_recall"),
             "context_precision": r.get("context_precision"),
             "faithfulness": r.get("faithfulness"),
@@ -752,7 +859,10 @@ def main():
             "citation_fidelity": r.get("citation_fidelity"),
             "semantic_accuracy": r.get("semantic_accuracy"),
             "context_fillness": r.get("context_fillness"),
+<<<<<<< HEAD
             "ar_sa_f1": ar_f1,
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
             "latency_sec": r.get("latency_sec"),
             "token_output": r.get("token_output"),
             "token_answer": r.get("token_answer"),
@@ -796,16 +906,26 @@ def main():
                     "baseline": base,
                     "category": r.get("category", "general")
                 }
+<<<<<<< HEAD
             for m in ["retrieval_recall", "context_precision", "faithfulness", "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "is_answerable", "latency_sec"]:
+=======
+            for m in ["retrieval_recall", "context_precision", "faithfulness", "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness", "latency_sec"]:
+>>>>>>> 7c7b22f (add trace into parse_metrica)
                 if r.get(m) is not None and (joined_data[key].get(m) is None or joined_data[key].get(m) == ""):
                     joined_data[key][m] = r[m]
 
     # Write per_query_joined.csv
     joined_csv_path = parsed_dir / "per_query_joined.csv"
     joined_headers = [
+<<<<<<< HEAD
         "query_id", "baseline", "category", "is_answerable",
         "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
         "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "latency_sec",
+=======
+        "query_id", "baseline", "category",
+        "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
+        "citation_fidelity", "semantic_accuracy", "context_fillness", "latency_sec",
+>>>>>>> 7c7b22f (add trace into parse_metrica)
         "token_output", "token_answer", "token_reasoning",
         "graph_retrieval_enabled", "graph_retrieval_skip_reason",
         "base_candidates_count", "graph_neighbor_paper_ids_count",
@@ -842,6 +962,7 @@ def main():
     for b in run_summary["baselines"]:
         b_rows = [row for row in joined_data.values() if row["baseline"] == b]
         run_summary["metrics"][b] = {}
+<<<<<<< HEAD
         for m in ["semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall", "context_precision", "answer_relevance", "ar_sa_f1"]:
             vals = []
             for row in b_rows:
@@ -849,6 +970,11 @@ def main():
                     is_ans = row.get("is_answerable")
                     if is_ans is None or str(is_ans).lower() != "true":
                         continue
+=======
+        for m in ["semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall", "context_precision", "answer_relevance"]:
+            vals = []
+            for row in b_rows:
+>>>>>>> 7c7b22f (add trace into parse_metrica)
                 val = row.get(m)
                 if val is not None and val != "":
                     try:
@@ -892,7 +1018,10 @@ def main():
             run_summary["by_category"][cat][b] = {}
             
             sem_vals = []
+<<<<<<< HEAD
             ar_sa_vals = []
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
             for row in b_cat_rows:
                 s_acc = row.get("semantic_accuracy")
                 if s_acc is not None and s_acc != "":
@@ -900,6 +1029,7 @@ def main():
                         sem_vals.append(float(s_acc))
                     except ValueError:
                         pass
+<<<<<<< HEAD
                         
                 is_ans = row.get("is_answerable")
                 if is_ans is not None and str(is_ans).lower() == "true":
@@ -913,12 +1043,17 @@ def main():
                 run_summary["by_category"][cat][b]["semantic_accuracy_mean"] = round(statistics.mean(sem_vals), 4)
             if ar_sa_vals:
                 run_summary["by_category"][cat][b]["ar_sa_f1_mean"] = round(statistics.mean(ar_sa_vals), 4)
+=======
+            if sem_vals:
+                run_summary["by_category"][cat][b]["semantic_accuracy_mean"] = round(statistics.mean(sem_vals), 4)
+>>>>>>> 7c7b22f (add trace into parse_metrica)
 
             g_cat_rows = [row for row in b_cat_rows if row.get("graph_retrieval_enabled") is not None]
             if g_cat_rows:
                 queries_with_graph_survival = sum(1 for r in g_cat_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0)
                 run_summary["by_category"][cat][b]["queries_with_graph_survival"] = queries_with_graph_survival
 
+<<<<<<< HEAD
     # 6. Run summary JSON and YAML with highlights
     # Extract Interesting Highlights
     highlights = {
@@ -988,11 +1123,17 @@ def main():
     with open(parsed_dir / "run_summary.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(run_summary, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
+=======
+    with open(parsed_dir / "run_summary.json", "w", encoding="utf-8") as f:
+        json.dump(run_summary, f, ensure_ascii=False, indent=2)
+
+>>>>>>> 7c7b22f (add trace into parse_metrica)
     # 7. Print Console Report
     print(f"\nParsed run: {run_dir}")
     print(f"Queries: {run_summary['query_count']}")
     print(f"Baselines: {', '.join(run_summary['baselines'])}")
 
+<<<<<<< HEAD
     if run_summary["metrics"]:
         print("\nQuality Metrics:")
         header_fmt = "| {:<10} | {:<12} | {:<14} | {:<12} | {:<12} | {:<17} | {:<12} | {:<12} |"
@@ -1013,6 +1154,8 @@ def main():
             print(row_fmt.format(b, recall, precision, faithfulness, relevance, semantic, ar_sa_f1, latency))
         print(sep)
 
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)
     if run_summary["graph_retrieval"]:
         print("\nGraph retrieval:")
         for b, g_stats in run_summary["graph_retrieval"].items():
@@ -1022,6 +1165,7 @@ def main():
             print(f"  - queries with graph chunks survived: {g_stats['queries_with_graph_survival']}/{run_summary['query_count']}")
             print(f"  - avg graph survival rate: {g_stats['avg_graph_survival_rate']:.4f}")
 
+<<<<<<< HEAD
     if highlights["low_faithfulness"] or highlights["high_latency"] or highlights["graph_successes"]:
         print("\nInteresting Query Highlights:")
         
@@ -1048,6 +1192,12 @@ def main():
 
     if args.confusion:
         print_confusion_matrix_and_metrics_tables(data)
+=======
+    print(f"\nJoined file:\n  - {joined_csv_path}")
+    print(f"\nSummaries:\n  - {parsed_dir / 'run_summary.json'}")
+    if (parsed_dir / "graph_retrieval_trace.summary.json").exists():
+        print(f"  - {parsed_dir / 'graph_retrieval_trace.summary.json'}")
+>>>>>>> 7c7b22f (add trace into parse_metrica)
 
 
 if __name__ == "__main__":

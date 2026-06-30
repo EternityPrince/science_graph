@@ -223,6 +223,7 @@ def test_parse_old_reports_directory_still_supported(tmp_path, monkeypatch):
     
     parsed_details = legacy_dir / "parsed" / "metrics_details.parsed.csv"
     assert parsed_details.exists()
+<<<<<<< HEAD
 
 
 def test_load_graph_retrieval_trace(tmp_path):
@@ -414,3 +415,5 @@ def test_markdown_rendering_and_failure_examples(tmp_path):
         md_content_no_trace = f.read()
         assert "Graph retrieval trace was not found for this run." in md_content_no_trace
         assert "Graph Candidate Source Breakdown" not in md_content_no_trace
+=======
+>>>>>>> 7c7b22f (add trace into parse_metrica)

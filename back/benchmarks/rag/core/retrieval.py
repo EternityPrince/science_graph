@@ -70,7 +70,12 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     con.info("Initializing RAG Service (eager warmup disabled)...")
     try:
         rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
+<<<<<<< HEAD
         rag_service.trace_dir = run_dir / "traces"
+=======
+        if getattr(args, "output", None):
+            rag_service.trace_dir = Path(args.output).parent / "traces"
+>>>>>>> 7c7b22f (add trace into parse_metrica)
     except Exception as e:
         con.error(f"Failed to initialize RAG Service: {e}")
         sys.exit(1)
