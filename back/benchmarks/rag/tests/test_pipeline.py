@@ -1,6 +1,5 @@
 import pytest
 import time
-import re
 import yaml
 from unittest.mock import MagicMock, AsyncMock, patch
 from rich.progress import Task
@@ -8,7 +7,6 @@ from rich.text import Text
 
 from core.subprocess_runner import IterationSpeedColumn
 from core.evaluator import CloudEvaluator
-import src.services.container
 
 
 # =========================================================================
@@ -325,7 +323,6 @@ async def test_pipelined_stage_execution(mock_get_rag_service, mock_call_llm, tm
     import yaml
     import json
     from core.pipelined import run_pipelined_stage_async
-    from src.config import config
     
     # Mock call_llm to return simulated judge JSON scores
     async def mock_call_llm_fn(system_prompt, user_prompt):

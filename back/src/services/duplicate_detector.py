@@ -3,7 +3,6 @@ DuplicateDetector — identifies duplicate documents in the database.
 """
 
 import hashlib
-import re
 from typing import List, Optional, Tuple
 
 from src.models import Paper, Chunk, slugify

@@ -1,6 +1,5 @@
 import sys
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -222,7 +221,6 @@ def test_get_metrics_summary_auto_generate_no_rich(tmp_path):
         core.clipboard.HAS_RICH = old_rich
 
 def test_clipboard_import_no_rich():
-    import sys
     import importlib
     with patch.dict(sys.modules, {"rich": None, "rich.console": None, "rich.table": None, "rich.panel": None}):
         import core.clipboard

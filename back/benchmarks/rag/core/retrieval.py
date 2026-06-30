@@ -3,11 +3,10 @@ import sys
 import time
 import yaml
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 from core.config import BASELINES_INFO, get_baseline_config
 from core.stats import BenchmarkStatsCollector
-from core.metrics import calculate_retrieval_recall, calculate_context_precision
 
 
 def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, con: Any) -> None:

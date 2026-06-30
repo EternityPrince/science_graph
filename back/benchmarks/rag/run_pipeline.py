@@ -6,7 +6,6 @@ Orchestrates the individual stages via subprocesses for optimal VRAM isolation.
 
 import sys
 import argparse
-import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import yaml
 from src.config import config
 from src import console as con
-from core.config import get_safe_model_name
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_creator import (
@@ -125,7 +123,7 @@ def main():
             run_dir = (project_root / run_dir).resolve()
     elif is_already_retrieved:
         run_dir = dataset_path.parent
-        con.info(f"Detected pre-retrieved context dataset. Skipping retrieval stage.")
+        con.info("Detected pre-retrieved context dataset. Skipping retrieval stage.")
         con.info(f"Outputs will be saved directly to: {run_dir}")
         try:
             con.blank()
@@ -225,7 +223,6 @@ def main():
     import os
     import yaml
     import hashlib
-    from datetime import datetime
     
     # 1. Config snapshot
     with open(run_dir / "config_snapshot.yaml", "w", encoding="utf-8") as f:

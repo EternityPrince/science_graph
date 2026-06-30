@@ -8,14 +8,12 @@ and compare their results.
 import abc
 import argparse
 import copy
-import json
-import os
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 
 import yaml
 
@@ -27,7 +25,6 @@ from src.config import config
 from src import console as con
 from src.prompts import prompts
 from core.retrieval import run_staged_retrieval
-from core.metrics import calculate_retrieval_recall, calculate_context_precision
 
 # Import helper functions from run_custom_retrieve to avoid code duplication
 import run_custom_retrieve
@@ -118,9 +115,9 @@ class BaseHyperparameterSweeper(abc.ABC):
 
         for idx, run_cfg in enumerate(runs):
             run_name = run_cfg.get("name", f"run_{idx}")
-            con.info(f"\n=========================================")
+            con.info("\n=========================================")
             con.info(f"Running Experiment [{idx + 1}/{len(runs)}]: {run_name}")
-            con.info(f"=========================================")
+            con.info("=========================================")
 
             # Setup directory for this specific run's outputs
             run_output_path = self.output_dir / f"{run_name}_contexts.yaml"
@@ -326,7 +323,7 @@ class BaseHyperparameterSweeper(abc.ABC):
                 md_content.append("| Baseline | Success Rate | Mean Recall | Mean Precision | Mean Latency |\n")
                 md_content.append("| :--- | :---: | :---: | :---: | :---: |\n")
                 for baseline, m in res["metrics"].items():
-                    b_label = f"**CUSTOM (Ours)**" if baseline == "CUSTOM" else baseline
+                    b_label = "**CUSTOM (Ours)**" if baseline == "CUSTOM" else baseline
                     md_content.append(
                         f"| {b_label} | {m['success_rate']:.1f}% | {m['mean_recall']:.4f} | {m['mean_precision']:.4f} | {m['mean_latency']:.3f}s |\n"
                     )

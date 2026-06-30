@@ -10,7 +10,6 @@ import argparse
 import copy
 import yaml
 from pathlib import Path
-from typing import NamedTuple
 
 # Set up python path to resolve src and core imports correctly
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -30,10 +29,7 @@ from config_creator import (
     DEFAULT_HYPERPARAMS,
     build_custom_config,
     patch_config_for_custom as patch_retrieval_for_custom,
-    add_custom_config_arguments,
-    CUSTOM_PRESET_HYPERPARAMS,
-    CUSTOM_PRESET_HYPERPARAMS_NT,
-    get_custom_preset_weights
+    add_custom_config_arguments
 )
 
 
@@ -239,7 +235,7 @@ def main():
         req_baselines.append("CUSTOM")
     args.baselines = ",".join(req_baselines)
 
-    con.info(f"Custom retrieval config constructed.")
+    con.info("Custom retrieval config constructed.")
     con.info(f"Enabled components: {sorted([k for k, v in custom_comp.items() if v])}")
     con.blank()
 

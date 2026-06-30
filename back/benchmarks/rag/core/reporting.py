@@ -2,7 +2,7 @@ import csv
 import yaml
 import json
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any
 from core.models import parse_report, ReportOutput
 
 # Rich imports for terminal formatting
@@ -16,7 +16,7 @@ except ImportError:
     HAS_RICH = False
 
 from core.config import BASELINES_INFO
-from core.analytics import ALL_METRICS, QUALITY_METRICS, METRIC_LABELS
+from core.analytics import ALL_METRICS, METRIC_LABELS
 
 
 NEW_CSV_FIELDS = [

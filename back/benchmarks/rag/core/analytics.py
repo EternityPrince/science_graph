@@ -1,6 +1,5 @@
 import statistics
-from typing import Dict, List, Any, Tuple
-from core.config import BASELINES_INFO
+from typing import Any
 from core.metrics import (
     calculate_retrieval_recall,
     calculate_context_precision,

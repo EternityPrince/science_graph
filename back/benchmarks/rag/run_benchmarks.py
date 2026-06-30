@@ -26,13 +26,9 @@ from config_creator import (
 
 # Backward compatibility exports in case other files import them from here
 from typing import Any, Tuple
-from core.config import BASELINES_INFO
 from core.config import get_baseline_config as _get_baseline_config
-from core.stats import BenchmarkStatsCollector
-from core.metrics import calculate_retrieval_recall, calculate_context_precision
 from core.generation import run_benchmarking
 from core.generation import run_query_on_baseline as _run_query_on_baseline
-from core.generation import merge_evaluation_data
 
 def get_baseline_config(baseline: str, config_rag_components: dict = None) -> dict:
     if config_rag_components is None:

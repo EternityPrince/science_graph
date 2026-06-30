@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch
 from core.sanitization import (
     clean_answer_tokens,

@@ -1,11 +1,9 @@
 import os
 import json
 import logging
-import pytest
 from unittest.mock import MagicMock, patch
 from src.services.rag_service import RAGService
 from src.config import Config, config
-from src.models import Chunk, Paper
 
 class DummyChunk:
     def __init__(self, id, paper_id, text_content, chunk_index=0):

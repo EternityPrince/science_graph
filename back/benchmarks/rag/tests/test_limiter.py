@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 import time
 from core.limiter import AsyncRateLimiter
 

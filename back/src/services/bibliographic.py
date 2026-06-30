@@ -4,9 +4,8 @@ import re
 import hashlib
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Tuple, Optional
 from src.repository.base import GraphRepository
-from src.models import Paper
 
 @dataclass
 class CanonicalReference:

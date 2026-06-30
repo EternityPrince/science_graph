@@ -1,9 +1,7 @@
 import pytest
 import re
 import yaml
-import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from core.evaluator import evaluate_baseline_case, get_clean_judge_answer, _fallback_parse_reasoning_response
 from core.reporting import save_judge_report, save_individual_judge_reports
@@ -347,7 +345,6 @@ def test_token_output_splitting_and_calculation():
     assert tokens > 0
     
     # 2. Test dynamic token metrics calculation in evaluate_baseline_case
-    from core.evaluator import get_clean_judge_answer
     
     raw_answer = RAW_ANSWER_WITH_REASONING
     clean_answer = get_clean_judge_answer(raw_answer)

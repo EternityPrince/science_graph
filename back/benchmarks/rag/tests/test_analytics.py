@@ -1,7 +1,7 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from core.analytics import analyze_metrics
-from core.models import ReportOutput, TestCaseOutput, BaselineOutput, StageMetrics
+from core.models import ReportOutput, TestCaseOutput, BaselineOutput
 
 def test_analyze_metrics_empty_results():
     data = {"results": []}

@@ -12,7 +12,6 @@ from src.ner_engine import (
     get_ner_engine,
     extract_persons_from_text,
 )
-from transformers import pipeline
 
 class TestNEREngineFunctions(unittest.TestCase):
     def test_is_likely_name(self):

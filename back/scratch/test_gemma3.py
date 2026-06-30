@@ -6,6 +6,6 @@ print(f"Attempting to load model from {model_path}...")
 try:
     model, tokenizer = load(model_path)
     print("Success!")
-except Exception as e:
+except Exception:
     print("Failed with exception:")
     traceback.print_exc()

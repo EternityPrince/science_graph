@@ -1,6 +1,5 @@
 import pytest
 import sys
-import logging
 from unittest.mock import MagicMock, patch
 from core.metrics import (
     calculate_retrieval_recall,

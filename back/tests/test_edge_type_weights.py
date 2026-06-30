@@ -16,7 +16,6 @@ from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
 from src.config import Config, DEFAULT_CONFIG
-from src.models import Chunk, Paper
 from src.services.rag_service import RAGService
 
 # Ensure benchmarks module is importable

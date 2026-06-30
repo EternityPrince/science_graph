@@ -6,11 +6,10 @@ injects it into a prompt template, and copies the result to the clipboard.
 """
 
 import sys
-import os
 import argparse
 import yaml
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 try:
     from rich.console import Console

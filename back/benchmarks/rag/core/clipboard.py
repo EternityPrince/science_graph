@@ -2,7 +2,7 @@ import sys
 import os
 from pathlib import Path
 import subprocess
-from typing import List, Dict, Any, Optional
+from typing import List
 
 try:
     from rich.console import Console
@@ -85,7 +85,7 @@ def get_metrics_summary(run_dir: Path, reports_dir: Path, script_dir: Path) -> s
     msg = f"[!] Warning: Run '{run_dir.name}' has not been evaluated yet (missing result_metrics.yaml)."
     if HAS_RICH:
         console.print(f"[bold red]{msg}[/bold red]")
-        console.print(f"[dim]Falling back to reports/metrics_summary.md (global latest)[/dim]")
+        console.print("[dim]Falling back to reports/metrics_summary.md (global latest)[/dim]")
     else:
         print(msg)
         print("Falling back to reports/metrics_summary.md (global latest)")

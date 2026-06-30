@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from src.services.rag_service import RAGService
-from src.models import Chunk, Paper
+from src.models import Chunk
 from src.config import config
 from tests.graph_test_utils import FakeGraphRepository, FakeReranker
 

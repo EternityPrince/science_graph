@@ -390,7 +390,7 @@ async def run_pipelined_stage_async(
     # 1. Initialize RAG service and Cloud Evaluator
     from src.services.container import container
     from src.prompts import prompts
-    from core.config import load_benchmark_dataset, get_baseline_config
+    from core.config import load_benchmark_dataset
     from core.evaluator import CloudEvaluator, get_cloud_credentials, evaluate_baseline_case
     
     con.info("Initializing repositories and models for pipelined run...")

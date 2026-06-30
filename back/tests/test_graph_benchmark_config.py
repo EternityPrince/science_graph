@@ -1,7 +1,4 @@
-import pytest
-from unittest.mock import MagicMock, patch
 from benchmarks.rag.run_benchmarks import get_baseline_config
-from src.config import config
 
 def test_benchmark_config_baseline_defaults():
     """Verify that new graph retrieval flags default to False for baseline configs (B0-B5)."""

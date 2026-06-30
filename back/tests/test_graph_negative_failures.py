@@ -1,9 +1,5 @@
-import pytest
 from unittest.mock import MagicMock
-import numpy as np
 from src.services.rag_service import RAGService
-from src.config import config
-from src.models import Chunk, Paper
 from tests.graph_test_utils import FakeGraphRepository
 
 class DummyChunk:

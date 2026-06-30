@@ -1,6 +1,4 @@
-import os
 import tempfile
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 

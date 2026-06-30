@@ -1,8 +1,6 @@
 import sqlite3
 import numpy as np
-import os
 import sys
-from pathlib import Path
 
 # Add project root to python path to load src
 sys.path.append("/Users/vladimirkasterin/python/graph/back")

@@ -1,7 +1,6 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.parsers.url_parser import UrlParser
-from src.models import Paper
 
 class TestURLParser(unittest.TestCase):
     @patch("src.parsers.url_parser.requests.get")

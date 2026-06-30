@@ -4,12 +4,10 @@ Science Graph — RAG quality metrics scientific visualization generator.
 Generates academic-style plots for research papers comparing baselines B1–B6.
 """
 
-import os
 import sys
 import argparse
 from pathlib import Path
 from datetime import datetime
-import yaml
 import numpy as np
 import pandas as pd
 
@@ -17,7 +15,6 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import seaborn as sns
 
 # Set up path to import from core
@@ -1144,7 +1141,7 @@ def main():
         input_name = str(yaml_path)
     generate_markdown_report(run_dir, df, sciq_path, input_name=input_name)
     
-    print(f"\n[+] SUCCESS: All 15 figures generated successfully in PNG, SVG, and PDF formats!")
+    print("\n[+] SUCCESS: All 15 figures generated successfully in PNG, SVG, and PDF formats!")
     print(f"→ Outputs saved in: {run_dir}")
 
 if __name__ == "__main__":

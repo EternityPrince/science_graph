@@ -1,6 +1,5 @@
-import os
 import pytest
-from src.config import Config, DEFAULT_CONFIG
+from src.config import Config
 
 @pytest.fixture(autouse=True)
 def mock_config(tmp_path, monkeypatch):

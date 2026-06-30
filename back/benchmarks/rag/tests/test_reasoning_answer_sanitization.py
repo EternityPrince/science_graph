@@ -1,14 +1,10 @@
 import pytest
 import re
 import yaml
-import json
-import hashlib
-from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 from core.evaluator import (
     evaluate_baseline_case,
-    get_clean_judge_answer,
     run_evaluation
 )
 from core.reporting import save_judge_report, save_individual_judge_reports

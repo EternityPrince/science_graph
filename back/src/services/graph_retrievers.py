@@ -1,7 +1,6 @@
 import math
-from typing import List, Dict, Any, Tuple, Set
+from typing import List, Dict, Any, Set
 from src.repository.base import GraphRepository
-from src.models import Chunk
 
 class GraphConceptRetriever:
     def __init__(self, graph_repo: GraphRepository):

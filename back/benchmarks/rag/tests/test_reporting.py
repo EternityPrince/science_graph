@@ -1,7 +1,6 @@
 import pytest
 import csv
 import yaml
-from pathlib import Path
 from core.reporting import (
     print_rich_tables,
     print_plain_tables,
@@ -11,7 +10,6 @@ from core.reporting import (
     save_judge_report,
     save_individual_judge_reports
 )
-from core.models import ReportOutput, TestCaseOutput, BaselineOutput
 
 @pytest.fixture
 def dummy_stats():

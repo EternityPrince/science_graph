@@ -1,5 +1,3 @@
-import pytest
-from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 from tests.graph_test_utils import seed_minimal_graph
 
 def test_sqlite_get_papers_mentioning_concepts(graph_repo, vector_repo):

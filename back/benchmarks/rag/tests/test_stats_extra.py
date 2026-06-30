@@ -1,5 +1,3 @@
-import pytest
-from unittest.mock import MagicMock
 from core.stats import BenchmarkStatsCollector
 
 class DummyReranker:

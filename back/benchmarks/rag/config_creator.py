@@ -5,9 +5,7 @@ Provides shared utilities, presets, and monkey-patching logic for custom runs.
 """
 
 import copy
-import yaml
 import argparse
-from pathlib import Path
 from typing import NamedTuple, Tuple, Dict, Any
 
 from src.config import config
@@ -269,7 +267,6 @@ def build_custom_config(args: Any, file_config: Dict[str, Any] = None) -> Tuple[
 
 def patch_config_for_custom(custom_comp: dict, custom_hype: dict):
     """Dynamically patches core config and retrieval functions to support CUSTOM baseline."""
-    import core.config
     orig_get_baseline_config = core.config.get_baseline_config
 
     def custom_get_baseline_config(baseline: str, config_rag_components: dict) -> dict:

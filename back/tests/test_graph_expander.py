@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import MagicMock
 from src.models import Chunk, Paper, Concept
 from src.services.graph_expander import ExperimentalGraphExpander
-from src.llm_schemas import EvidenceListResponse, EvidenceItem
 
 class TestGraphExpander(unittest.TestCase):
     def setUp(self):

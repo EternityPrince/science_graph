@@ -1170,7 +1170,6 @@ class SQLiteGraphRepository(GraphRepository):
                 if tid in node_ids:
                     edge_map[tid] = etype
 
-        import math
         resolved = []
         for nid in node_ids:
             info = node_map.get(nid)

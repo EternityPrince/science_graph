@@ -1,6 +1,5 @@
 import pytest
 import yaml
-from pathlib import Path
 from core.config import get_baseline_config, get_safe_model_name, load_benchmark_dataset
 
 def test_get_baseline_config():

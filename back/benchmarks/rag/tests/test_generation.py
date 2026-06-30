@@ -1,6 +1,5 @@
 import pytest
 import yaml
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 from core.generation import run_query_on_baseline, merge_evaluation_data, run_benchmarking
 
@@ -267,7 +266,6 @@ def test_run_benchmarking_no_pre_retrieved(tmp_path):
 
 def test_trace_serialization(tmp_path):
     from core.reporting import export_detailed_csv
-    from core.models import ReportOutput
     
     # Create fake report data
     report_data = {

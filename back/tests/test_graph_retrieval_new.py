@@ -1,10 +1,7 @@
-import math
 from unittest.mock import MagicMock
-import pytest
 from src.services.graph_retrievers import GraphConceptRetriever, GraphBridgeRetriever
 from src.services.rag_service import RAGService
-from src.models import Chunk
-from src.config import Config, config
+from src.config import Config
 
 class DummyChunk:
     def __init__(self, id, paper_id, text_content, chunk_index=0):
@@ -158,7 +155,6 @@ def test_build_selected_sources_card():
     assert "[1] and [3] are connected through concept \"agent evaluation\"" in card
 
 def test_trace_logging(tmp_path, monkeypatch):
-    import os
     import json
     
     monkeypatch.chdir(tmp_path)

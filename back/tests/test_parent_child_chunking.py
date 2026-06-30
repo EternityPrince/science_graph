@@ -1,7 +1,6 @@
 import os
 import tempfile
 import fitz
-import pytest
 from unittest.mock import MagicMock, patch
 
 from src.config import config
