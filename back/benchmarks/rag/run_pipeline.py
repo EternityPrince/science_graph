@@ -239,7 +239,6 @@ def main():
         git_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
         status_out = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
         working_tree_dirty = bool(status_out.strip())
-    
         # Sanitize mock objects during unit testing
         if not isinstance(git_commit, str) or "Mock" in type(git_commit).__name__:
             git_commit = "unknown"

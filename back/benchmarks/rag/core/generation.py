@@ -237,7 +237,6 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
 
     # Save config snapshot and manifest
     import os
-    import yaml
     import hashlib
     try:
         with open(run_dir / "config_snapshot.yaml", "w", encoding="utf-8") as f:
