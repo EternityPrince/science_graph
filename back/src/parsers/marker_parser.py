@@ -49,6 +49,10 @@ try:
 except Exception:
     pass
 
+# Suppress noisy debug logs from third-party libraries used by Marker
+logging.getLogger("ocrmypdf").setLevel(logging.WARNING)
+logging.getLogger("pdfminer").setLevel(logging.WARNING)
+
 from typing import List, Tuple
 
 from src.models import Paper, slugify
