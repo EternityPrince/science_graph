@@ -13,6 +13,18 @@ def mock_config(tmp_path, monkeypatch):
     monkeypatch.setattr(src.config, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(src.config, "CONFIG_FILE", config_file)
 
+@pytest.fixture(autouse=True)
+def mock_config(tmp_path, monkeypatch):
+    """Isolate config paths to a temporary directory during tests to avoid modifying the user config."""
+    import src.config
+    config_dir = tmp_path / "config"
+    data_dir = tmp_path / "data"
+    config_file = config_dir / "config.yaml"
+    
+    monkeypatch.setattr(src.config, "DEFAULT_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(src.config, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(src.config, "CONFIG_FILE", config_file)
+
 def test_config_old_keys_load():
     """Verify that an old config dictionary without new graph retrieval keys loads successfully and resolves defaults."""
     import copy
