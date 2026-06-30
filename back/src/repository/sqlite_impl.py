@@ -1169,7 +1169,6 @@ class SQLiteGraphRepository(GraphRepository):
                     edge_map[sid] = etype
                 if tid in node_ids:
                     edge_map[tid] = etype
-
         resolved = []
         for nid in node_ids:
             info = node_map.get(nid)
@@ -1193,6 +1192,42 @@ class SQLiteGraphRepository(GraphRepository):
                 source_relation_type=source_relation_type
             ))
         return resolved
+
+    def get_chunks_count_by_paper_ids(self, paper_ids: List[str]) -> Dict[str, int]:
+        if not paper_ids:
+            return {}
+        placeholders = ",".join("?" for _ in paper_ids)
+        query = f"SELECT paper_id, COUNT(*) as cnt FROM chunks WHERE paper_id IN ({placeholders}) GROUP BY paper_id"
+        res = {}
+        with self._get_connection() as conn:
+            rows = conn.execute(query, paper_ids).fetchall()
+            for r in rows:
+                res[r["paper_id"]] = r["cnt"]
+        return res
+
+    def filter_papers_with_chunks(self, paper_ids: List[str]) -> List[str]:
+        if not paper_ids:
+            return []
+        counts = self.get_chunks_count_by_paper_ids(paper_ids)
+        return [pid for pid in paper_ids if counts.get(pid, 0) > 0]
+
+    def count_total_local_papers(self) -> int:
+        query = "SELECT COUNT(*) FROM nodes WHERE label = 'Paper' AND is_placeholder = 0"
+        with self._get_connection() as conn:
+            row = conn.execute(query).fetchone()
+            return row[0] if row else 0
+
+    def get_concept_idf(self, concept_ids: List[str]) -> Dict[str, float]:
+        if not concept_ids:
+            return {}
+        import math
+        total_papers = self.count_total_local_papers()
+        doc_freqs = self.get_concept_document_frequencies(concept_ids)
+        idfs = {}
+        for c in concept_ids:
+            df = doc_freqs.get(c, 0)
+            idfs[c] = math.log((1 + total_papers) / (1 + df))
+        return idfs
 
     def get_chunks_count_by_paper_ids(self, paper_ids: List[str]) -> Dict[str, int]:
         if not paper_ids:

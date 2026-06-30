@@ -48,13 +48,11 @@ class DummyGraphRepository(GraphRepository):
     def get_total_paper_count(self): return 0
     def get_citation_neighbors(self, paper_ids): return []
     def search_chunks_within_papers(self, query_embedding, paper_ids, limit_per_paper=3): return []
-    def get_neighbor_papers(self, seed_paper_ids, order=2, allowed_edge_types=None): return []
     def resolve_graph_nodes_to_local_papers(self, node_ids): return []
     def get_chunks_count_by_paper_ids(self, paper_ids): return {}
     def filter_papers_with_chunks(self, paper_ids): return []
     def count_total_local_papers(self): return 0
     def get_concept_idf(self, concept_ids): return {}
-
     # --- Bibliographic projection abstract methods ---
     def save_reference_corpus_stats(self, total_papers, doc_frequencies): pass
     def get_reference_corpus_stats(self): return (0, {})
@@ -70,7 +68,7 @@ class DummyGraphRepository(GraphRepository):
     def find_paper_by_arxiv(self, arxiv_id): pass
     def find_paper_by_url(self, url): pass
     def remap_external_work_to_local_paper(self, external_work_id, local_paper_id): pass
-
+    def get_neighbor_papers(self, seed_paper_ids, order=2): return []
     def add_edge(self, source_id, target_id, edge_type, properties=None):
         self.added_edges.append((source_id, target_id, edge_type, properties))
 
