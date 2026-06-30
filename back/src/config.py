@@ -1,7 +1,7 @@
 import os
 import yaml
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "pdf-graph-analyzer"
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "pdf-graph-analyzer"
@@ -105,8 +105,18 @@ DEFAULT_CONFIG = {
         "trace_enabled": False,
         "chunks_per_graph_paper": 1,
         "max_graph_candidate_papers": "auto",
-        "candidate_budget_mode": "mirror_base",
-        "max_graph_chunk_candidates": None
+        "candidate_budget_mode": "fixed",
+        "max_graph_chunk_candidates": None,
+        "use_concept_idf": True,
+        "single_token_concept_policy": "idf_if_no_multitoken",
+        "use_author_edges_for_retrieval": False,
+        "allowed_retrieval_edge_types": [
+            "CITES",
+            "CITED_BY",
+            "MENTIONS_CONCEPT",
+            "RELATED_TO",
+            "HAS_TAG"
+        ]
     },
     "hyperparameters": {
         "rag": {
@@ -820,6 +830,22 @@ hyperparameters:
         if isinstance(val, str) and val.isdigit():
             return int(val)
         return "auto"
+
+    @property
+    def graph_retrieval_use_concept_idf(self) -> bool:
+        return bool(self.data.get("graph_retrieval", {}).get("use_concept_idf", True))
+
+    @property
+    def graph_retrieval_single_token_concept_policy(self) -> str:
+        return str(self.data.get("graph_retrieval", {}).get("single_token_concept_policy", "idf_if_no_multitoken"))
+
+    @property
+    def graph_retrieval_use_author_edges_for_retrieval(self) -> bool:
+        return bool(self.data.get("graph_retrieval", {}).get("use_author_edges_for_retrieval", False))
+
+    @property
+    def graph_retrieval_allowed_retrieval_edge_types(self) -> List[str]:
+        return list(self.data.get("graph_retrieval", {}).get("allowed_retrieval_edge_types", ["CITES", "CITED_BY", "MENTIONS_CONCEPT", "RELATED_TO", "HAS_TAG"]))
 
     def is_component_enabled(self, name: str) -> bool:
         if name == "intent_classifier":

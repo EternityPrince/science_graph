@@ -2,6 +2,7 @@ import math
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 from src.models import Paper, Concept, Chunk
+from src.repository.base import ResolvedPaperNode
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 
 def make_chunk(chunk_id: str, paper_id: str, chunk_index: int, text: str, embedding: Optional[List[float]] = None) -> Chunk:
@@ -257,7 +258,7 @@ class FakeGraphRepository:
                 res[pid] = p
         return res
 
-    def get_neighbors(self, paper_id: str, max_depth: int = 1) -> List[Tuple[str, str, str, str, str, Dict[str, Any]]]:
+    def get_neighbors(self, paper_id: str, max_depth: int = 1, allowed_edge_types: List[str] = None) -> List[Tuple[str, str, str, str, str, Dict[str, Any]]]:
         res = []
         visited_edges = set()
         queue = [(paper_id, 0)]
@@ -266,6 +267,8 @@ class FakeGraphRepository:
             if depth >= max_depth:
                 continue
             for src, tgt, etype in self.edges:
+                if allowed_edge_types is not None and etype not in allowed_edge_types:
+                    continue
                 if src == curr and (src, tgt, etype) not in visited_edges:
                     visited_edges.add((src, tgt, etype))
                     src_label = "Paper" if src.startswith("P") else "Concept"
@@ -280,16 +283,62 @@ class FakeGraphRepository:
                     queue.append((src, depth + 1))
         return res
 
-    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2) -> List[str]:
+    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2, allowed_edge_types: List[str] = None) -> List[str]:
         neighbor_paper_ids = set()
         for pid in seed_paper_ids:
-            neighbors = self.get_neighbors(pid, max_depth=order)
+            neighbors = self.get_neighbors(pid, max_depth=order, allowed_edge_types=allowed_edge_types)
             for src_id, src_label, _, tgt_id, tgt_label, _ in neighbors:
                 if src_label in ("Paper", "UserNote") and src_id not in seed_paper_ids:
                     neighbor_paper_ids.add(src_id)
                 if tgt_label in ("Paper", "UserNote") and tgt_id not in seed_paper_ids:
                     neighbor_paper_ids.add(tgt_id)
         return list(neighbor_paper_ids)
+
+    def resolve_graph_nodes_to_local_papers(self, node_ids: List[str]) -> List[ResolvedPaperNode]:
+        res = []
+        for nid in node_ids:
+            is_paper = nid.startswith("P")
+            exists = is_paper and (nid in self.papers)
+            chunks_count = len(self.chunks.get(nid, []))
+            
+            # Find a relation type for this paper from edges
+            rel_type = None
+            for src, tgt, etype in self.edges:
+                if src == nid or tgt == nid:
+                    rel_type = etype
+                    break
+
+            res.append(ResolvedPaperNode(
+                original_node_id=nid,
+                canonical_paper_id=nid if is_paper else None,
+                node_type="Paper" if is_paper else ("Concept" if nid.startswith("c_") else None),
+                exists_in_papers_table=exists,
+                chunks_count=chunks_count,
+                is_placeholder=False,
+                source_relation_type=rel_type
+            ))
+        return res
+
+    def get_chunks_count_by_paper_ids(self, paper_ids: List[str]) -> Dict[str, int]:
+        return {pid: len(self.chunks.get(pid, [])) for pid in paper_ids}
+
+    def filter_papers_with_chunks(self, paper_ids: List[str]) -> List[str]:
+        return [pid for pid in paper_ids if len(self.chunks.get(pid, [])) > 0]
+
+    def count_total_local_papers(self) -> int:
+        return len([p for p in self.papers.values() if p.get("label") == "Paper"])
+
+    def get_concept_idf(self, concept_ids: List[str]) -> Dict[str, float]:
+        import math
+        total = self.count_total_local_papers()
+        idfs = {}
+        for cid in concept_ids:
+            df = 0
+            for src, tgt, etype in self.edges:
+                if etype == "MENTIONS_CONCEPT" and tgt == cid:
+                    df += 1
+            idfs[cid] = math.log((1 + total) / (1 + df))
+        return idfs
 
 
 class FakeReranker:

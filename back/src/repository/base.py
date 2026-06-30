@@ -2,6 +2,17 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple
 from contextlib import contextmanager
 from src.models import Paper, Author, Concept, Chunk
+from dataclasses import dataclass
+
+@dataclass
+class ResolvedPaperNode:
+    original_node_id: str
+    canonical_paper_id: str | None
+    node_type: str | None
+    exists_in_papers_table: bool
+    chunks_count: int
+    is_placeholder: bool
+    source_relation_type: str | None = None
 
 class GraphRepository(ABC):
     @abstractmethod
@@ -35,8 +46,33 @@ class GraphRepository(ABC):
         pass
 
     @abstractmethod
-    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2) -> List[str]:
+    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2, allowed_edge_types: List[str] = None) -> List[str]:
         """Retrieves neighboring papers up to a given depth (order) from the seed papers, excluding the seed papers themselves."""
+        pass
+
+    @abstractmethod
+    def resolve_graph_nodes_to_local_papers(self, node_ids: List[str]) -> List[ResolvedPaperNode]:
+        """Resolves node IDs to canonical local paper IDs with metadata."""
+        pass
+
+    @abstractmethod
+    def get_chunks_count_by_paper_ids(self, paper_ids: List[str]) -> Dict[str, int]:
+        """Retrieves mapping of paper_id -> chunks count."""
+        pass
+
+    @abstractmethod
+    def filter_papers_with_chunks(self, paper_ids: List[str]) -> List[str]:
+        """Filters paper IDs to keep only those that have parsed chunks in the database."""
+        pass
+
+    @abstractmethod
+    def count_total_local_papers(self) -> int:
+        """Retrieves total count of non-placeholder paper nodes in the database."""
+        pass
+
+    @abstractmethod
+    def get_concept_idf(self, concept_ids: List[str]) -> Dict[str, float]:
+        """Retrieves mapping of concept_id -> IDF score."""
         pass
 
     @abstractmethod
@@ -95,7 +131,7 @@ class GraphRepository(ABC):
         pass
 
     @abstractmethod
-    def get_neighbors(self, node_id: str, max_depth: int = 1) -> List[tuple[str, str, str, str, str, str]]:
+    def get_neighbors(self, node_id: str, max_depth: int = 1, allowed_edge_types: List[str] = None) -> List[tuple[str, str, str, str, str, str]]:
         """
         Returns connections from node_id.
         Each connection is a tuple: (src_id, src_label, edge_type, target_id, target_label, edge_properties_json)

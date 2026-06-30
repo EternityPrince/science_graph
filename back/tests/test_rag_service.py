@@ -9,6 +9,22 @@ from src.services.rag_service import RAGService
 class TestRAGService(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.graph_repo = MagicMock()
+        def resolve_mock(node_ids):
+            from src.repository.base import ResolvedPaperNode
+            return [
+                ResolvedPaperNode(
+                    original_node_id=nid,
+                    canonical_paper_id=nid,
+                    node_type="Paper",
+                    exists_in_papers_table=True,
+                    chunks_count=1,
+                    is_placeholder=False,
+                    source_relation_type="CITES"
+                )
+                for nid in node_ids
+            ]
+        self.graph_repo.resolve_graph_nodes_to_local_papers.side_effect = resolve_mock
+        
         self.vector_repo = MagicMock()
         self.emb_engine = MagicMock()
         self.llm_engine = MagicMock()

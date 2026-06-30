@@ -6,7 +6,7 @@ import numpy as np
 import threading
 from contextlib import contextmanager
 from typing import List, Dict, Any, Optional, Tuple
-from src.repository.base import GraphRepository, VectorRepository
+from src.repository.base import GraphRepository, VectorRepository, ResolvedPaperNode
 from src.models import Paper, Author, Concept, Chunk
 
 def stable_hash(text: str) -> int:
@@ -492,12 +492,22 @@ class SQLiteGraphRepository(GraphRepository):
             )
             conn.commit()
 
-    def get_neighbors(self, node_id: str, max_depth: int = 1) -> List[tuple[str, str, str, str, str, str]]:
+    def get_neighbors(self, node_id: str, max_depth: int = 1, allowed_edge_types: List[str] = None) -> List[tuple[str, str, str, str, str, str]]:
         if max_depth < 1:
             return []
         
+        type_filter = ""
+        params = {"node_id": node_id, "max_depth": max_depth}
+        if allowed_edge_types is not None:
+            placeholders = []
+            for i, etype in enumerate(allowed_edge_types):
+                key = f"etype_{i}"
+                placeholders.append(f":{key}")
+                params[key] = etype
+            type_filter = f"AND e.type IN ({','.join(placeholders)})"
+        
         # Optimized recursive CTE traversal with UNION (implicit distinct) and path-based cycle prevention
-        query = """
+        query = f"""
         WITH RECURSIVE traverse(current_node, src_id, src_label, edge_type, tgt_id, tgt_label, edge_props, depth, path) AS (
             -- Anchor query: edges directly connected to the starting node
             SELECT 
@@ -508,7 +518,7 @@ class SQLiteGraphRepository(GraphRepository):
             FROM edges e
             JOIN nodes n1 ON e.source_id = n1.id
             JOIN nodes n2 ON e.target_id = n2.id
-            WHERE e.source_id = :node_id OR e.target_id = :node_id
+            WHERE (e.source_id = :node_id OR e.target_id = :node_id) {type_filter}
             
             UNION
             
@@ -524,12 +534,13 @@ class SQLiteGraphRepository(GraphRepository):
             JOIN traverse t ON (e.source_id = t.current_node OR e.target_id = t.current_node)
             WHERE t.depth < :max_depth
               AND t.path NOT LIKE '%,' || CASE WHEN e.source_id = t.current_node THEN e.target_id ELSE e.source_id END || ',%'
+              {type_filter}
         )
         SELECT DISTINCT src_id, src_label, edge_type, tgt_id, tgt_label, edge_props FROM traverse;
         """
         
         with self._get_connection() as conn:
-            rows = conn.execute(query, {"node_id": node_id, "max_depth": max_depth}).fetchall()
+            rows = conn.execute(query, params).fetchall()
             return [(
                 r["src_id"], r["src_label"],
                 r["edge_type"],
@@ -1059,18 +1070,116 @@ class SQLiteGraphRepository(GraphRepository):
             
         return results
 
-    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2) -> List[str]:
+    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2, allowed_edge_types: List[str] = None) -> List[str]:
         if not seed_paper_ids:
             return []
         neighbor_paper_ids = set()
         for pid in seed_paper_ids:
-            neighbors = self.get_neighbors(pid, max_depth=order)
+            neighbors = self.get_neighbors(pid, max_depth=order, allowed_edge_types=allowed_edge_types)
             for src_id, src_label, _, tgt_id, tgt_label, _ in neighbors:
                 if src_label in ("Paper", "UserNote") and src_id not in seed_paper_ids:
                     neighbor_paper_ids.add(src_id)
                 if tgt_label in ("Paper", "UserNote") and tgt_id not in seed_paper_ids:
                     neighbor_paper_ids.add(tgt_id)
         return list(neighbor_paper_ids)
+
+    def resolve_graph_nodes_to_local_papers(self, node_ids: List[str]) -> List[ResolvedPaperNode]:
+        if not node_ids:
+            return []
+        
+        # 1. Query nodes table
+        placeholders = ",".join("?" for _ in node_ids)
+        nodes_query = f"SELECT id, label, is_placeholder FROM nodes WHERE id IN ({placeholders})"
+        
+        node_map = {}
+        with self._get_connection() as conn:
+            rows = conn.execute(nodes_query, node_ids).fetchall()
+            for r in rows:
+                node_map[r["id"]] = {
+                    "label": r["label"],
+                    "is_placeholder": bool(r["is_placeholder"])
+                }
+                
+        # 2. Query chunks count
+        chunks_query = f"SELECT paper_id, COUNT(*) as cnt FROM chunks WHERE paper_id IN ({placeholders}) GROUP BY paper_id"
+        chunks_map = {}
+        with self._get_connection() as conn:
+            rows = conn.execute(chunks_query, node_ids).fetchall()
+            for r in rows:
+                chunks_map[r["paper_id"]] = r["cnt"]
+                
+        # 3. Query edge type for relation
+        edges_query = f"SELECT source_id, target_id, type FROM edges WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})"
+        edge_map = {}
+        with self._get_connection() as conn:
+            rows = conn.execute(edges_query, node_ids + node_ids).fetchall()
+            for r in rows:
+                sid, tid, etype = r["source_id"], r["target_id"], r["type"]
+                if sid in node_ids:
+                    edge_map[sid] = etype
+                if tid in node_ids:
+                    edge_map[tid] = etype
+
+        import math
+        resolved = []
+        for nid in node_ids:
+            info = node_map.get(nid)
+            exists = info is not None
+            node_type = info["label"] if exists else None
+            is_placeholder = info["is_placeholder"] if exists else False
+            
+            is_paper = node_type in ("Paper", "UserNote")
+            canonical_paper_id = nid if is_paper else None
+            
+            chunks_count = chunks_map.get(nid, 0)
+            source_relation_type = edge_map.get(nid, None)
+            
+            resolved.append(ResolvedPaperNode(
+                original_node_id=nid,
+                canonical_paper_id=canonical_paper_id,
+                node_type=node_type,
+                exists_in_papers_table=is_paper and exists,
+                chunks_count=chunks_count,
+                is_placeholder=is_placeholder,
+                source_relation_type=source_relation_type
+            ))
+        return resolved
+
+    def get_chunks_count_by_paper_ids(self, paper_ids: List[str]) -> Dict[str, int]:
+        if not paper_ids:
+            return {}
+        placeholders = ",".join("?" for _ in paper_ids)
+        query = f"SELECT paper_id, COUNT(*) as cnt FROM chunks WHERE paper_id IN ({placeholders}) GROUP BY paper_id"
+        res = {}
+        with self._get_connection() as conn:
+            rows = conn.execute(query, paper_ids).fetchall()
+            for r in rows:
+                res[r["paper_id"]] = r["cnt"]
+        return res
+
+    def filter_papers_with_chunks(self, paper_ids: List[str]) -> List[str]:
+        if not paper_ids:
+            return []
+        counts = self.get_chunks_count_by_paper_ids(paper_ids)
+        return [pid for pid in paper_ids if counts.get(pid, 0) > 0]
+
+    def count_total_local_papers(self) -> int:
+        query = "SELECT COUNT(*) FROM nodes WHERE label = 'Paper' AND is_placeholder = 0"
+        with self._get_connection() as conn:
+            row = conn.execute(query).fetchone()
+            return row[0] if row else 0
+
+    def get_concept_idf(self, concept_ids: List[str]) -> Dict[str, float]:
+        if not concept_ids:
+            return {}
+        import math
+        total_papers = self.count_total_local_papers()
+        doc_freqs = self.get_concept_document_frequencies(concept_ids)
+        idfs = {}
+        for c in concept_ids:
+            df = doc_freqs.get(c, 0)
+            idfs[c] = math.log((1 + total_papers) / (1 + df))
+        return idfs
 
 
 

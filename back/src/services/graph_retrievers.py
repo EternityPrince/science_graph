@@ -12,7 +12,8 @@ class GraphConceptRetriever:
         query: str,
         query_concepts: List[str],
         exclude_paper_ids: List[str],
-        max_candidate_papers: Any
+        max_candidate_papers: Any,
+        dropped_concepts_not_used: List[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieves paper candidates that mention query concepts, ranked by concept IDF.
@@ -100,7 +101,9 @@ class GraphConceptRetriever:
                 "paper_id": c["paper_id"],
                 "title": c["title"],
                 "matched_concepts": sorted(c["matched_concepts"]),
+                "matched_strong_concepts": sorted(c["matched_concepts"]),
                 "concept_idf_sum": c["concept_idf_sum"],
+                "dropped_concepts_not_used": sorted(dropped_concepts_not_used or []),
                 "reason": "paper_mentions_query_concept"
             })
             
@@ -200,10 +203,16 @@ class GraphBridgeRetriever:
         candidate_paths: Dict[str, List[Dict[str, Any]]] = {}
 
         for cand_id in all_candidates_to_fetch:
-            paths = []
             cand_concepts = candidate_concepts.get(cand_id, set())
+            covered_strong_query_concepts = cand_concepts.intersection(query_concepts)
+            
+            # Bridge candidate must contain at least one strong query concept
+            if len(covered_strong_query_concepts) == 0:
+                continue
 
-            # Condition 1: Candidate shares a query concept with a seed paper
+            paths = []
+
+            # Condition 1: seed_shared_strong_query_concept & seed_shared_query_concept
             for seed_id in seed_paper_ids:
                 shared_query_concepts = cand_concepts.intersection(seed_concepts.get(seed_id, set())).intersection(query_concepts)
                 for q_concept in shared_query_concepts:
@@ -213,8 +222,14 @@ class GraphBridgeRetriever:
                         "concept_id": q_concept,
                         "candidate_paper_id": cand_id
                     })
+                    paths.append({
+                        "type": "seed_shared_strong_query_concept",
+                        "seed_paper_id": seed_id,
+                        "concept_id": q_concept,
+                        "candidate_paper_id": cand_id
+                    })
 
-            # Condition 2: Candidate is a citation neighbor of a seed paper AND mentions a query concept
+            # Condition 2: seed_citation_neighbor_with_strong_query_concept & seed_citation_neighbor_with_query_concept
             for seed_id, neighbor_id, direction, _ in citation_neighbors:
                 if neighbor_id == cand_id:
                     shared_query_concepts = cand_concepts.intersection(query_concepts)
@@ -226,14 +241,27 @@ class GraphBridgeRetriever:
                             "concept_id": q_concept,
                             "direction": direction
                         })
+                        paths.append({
+                            "type": "seed_citation_neighbor_with_strong_query_concept",
+                            "seed_paper_id": seed_id,
+                            "candidate_paper_id": cand_id,
+                            "concept_id": q_concept,
+                            "direction": direction
+                        })
 
-            # Condition 3: Candidate bridges two distinct seed papers through a shared concept
+            # Condition 3: candidate_bridges_two_seed_papers_via_concept & seed_shared_concept
             for concept_id in cand_concepts:
                 matching_seeds = [s_id for s_id in seed_paper_ids if concept_id in seed_concepts.get(s_id, set())]
                 if len(matching_seeds) >= 2:
                     for seed_id in matching_seeds:
                         paths.append({
                             "type": "seed_shared_concept",
+                            "seed_paper_id": seed_id,
+                            "concept_id": concept_id,
+                            "candidate_paper_id": cand_id
+                        })
+                        paths.append({
+                            "type": "candidate_bridges_two_seed_papers_via_concept",
                             "seed_paper_id": seed_id,
                             "concept_id": concept_id,
                             "candidate_paper_id": cand_id
@@ -246,16 +274,16 @@ class GraphBridgeRetriever:
         scored_candidates = []
         for cand_id, paths in candidate_paths.items():
             cand_concepts = candidate_concepts.get(cand_id, set())
-            covered_query_concepts = cand_concepts.intersection(query_concepts)
+            covered_strong_query_concepts = cand_concepts.intersection(query_concepts)
             connected_seed_papers = {p["seed_paper_id"] for p in paths}
             
             min_dist = 2
             for p in paths:
-                if p["type"] == "seed_citation_neighbor_with_query_concept":
+                if p["type"] in ("seed_citation_neighbor_with_query_concept", "seed_citation_neighbor_with_strong_query_concept"):
                     min_dist = 1
                     break
                     
-            concept_idf_sum = sum(idfs.get(c, 0.0) for c in covered_query_concepts)
+            concept_idf_sum = sum(idfs.get(c, 0.0) for c in covered_strong_query_concepts)
 
             # Sort paths to be deterministic
             paths.sort(key=lambda p: (
@@ -268,7 +296,8 @@ class GraphBridgeRetriever:
             scored_candidates.append({
                 "paper_id": cand_id,
                 "title": candidate_titles.get(cand_id, ""),
-                "covered_query_concepts": list(covered_query_concepts),
+                "covered_strong_query_concepts": list(covered_strong_query_concepts),
+                "matched_concepts": list(covered_strong_query_concepts),
                 "connected_seed_papers": list(connected_seed_papers),
                 "min_graph_distance": min_dist,
                 "concept_idf_sum": concept_idf_sum,
@@ -277,7 +306,7 @@ class GraphBridgeRetriever:
 
         # 6. Ranking without manual weights
         scored_candidates.sort(key=lambda x: (
-            -len(x["covered_query_concepts"]),
+            -len(x["covered_strong_query_concepts"]),
             -len(x["connected_seed_papers"]),
             x["min_graph_distance"],
             -x["concept_idf_sum"],
@@ -287,13 +316,14 @@ class GraphBridgeRetriever:
         # 7. Format output reason metadata
         output = []
         for c in scored_candidates[:limit]:
-            limited_paths = c["paths"][:5]
+            limited_paths = c["paths"][:10]  # Allow up to 10 paths for combined aliases
             output.append({
                 "source": "graph_bridge_retrieval",
                 "paper_id": c["paper_id"],
                 "title": c["title"],
                 "connected_seed_papers": sorted(c["connected_seed_papers"]),
-                "matched_concepts": sorted(c["covered_query_concepts"]),
+                "covered_strong_query_concepts": sorted(c["covered_strong_query_concepts"]),
+                "matched_concepts": sorted(c["covered_strong_query_concepts"]),
                 "concept_idf_sum": c["concept_idf_sum"],
                 "min_graph_distance": c["min_graph_distance"],
                 "paths": limited_paths
