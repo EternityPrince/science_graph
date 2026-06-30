@@ -1054,6 +1054,19 @@ class SQLiteGraphRepository(GraphRepository):
             
         return results
 
+    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2) -> List[str]:
+        if not seed_paper_ids:
+            return []
+        neighbor_paper_ids = set()
+        for pid in seed_paper_ids:
+            neighbors = self.get_neighbors(pid, max_depth=order)
+            for src_id, src_label, _, tgt_id, tgt_label, _ in neighbors:
+                if src_label in ("Paper", "UserNote") and src_id not in seed_paper_ids:
+                    neighbor_paper_ids.add(src_id)
+                if tgt_label in ("Paper", "UserNote") and tgt_id not in seed_paper_ids:
+                    neighbor_paper_ids.add(tgt_id)
+        return list(neighbor_paper_ids)
+
 
 
 class SQLiteVectorRepository(VectorRepository):

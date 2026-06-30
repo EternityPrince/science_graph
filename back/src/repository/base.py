@@ -35,6 +35,11 @@ class GraphRepository(ABC):
         pass
 
     @abstractmethod
+    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2) -> List[str]:
+        """Retrieves neighboring papers up to a given depth (order) from the seed papers, excluding the seed papers themselves."""
+        pass
+
+    @abstractmethod
     def save_paper(self, paper: Paper) -> None:
         """Saves a paper node to the database."""
         pass

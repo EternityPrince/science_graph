@@ -259,16 +259,37 @@ class FakeGraphRepository:
 
     def get_neighbors(self, paper_id: str, max_depth: int = 1) -> List[Tuple[str, str, str, str, str, Dict[str, Any]]]:
         res = []
-        for src, tgt, etype in self.edges:
-            if src == paper_id:
-                src_label = "Paper" if src.startswith("P") else "Concept"
-                tgt_label = "Concept" if tgt.startswith("c_") or tgt.startswith("C_") else "Paper"
-                res.append((src, src_label, etype, tgt, tgt_label, {}))
-            if tgt == paper_id:
-                src_label = "Paper" if src.startswith("P") else "Concept"
-                tgt_label = "Concept" if tgt.startswith("c_") or tgt.startswith("C_") else "Paper"
-                res.append((src, src_label, etype, tgt, tgt_label, {}))
+        visited_edges = set()
+        queue = [(paper_id, 0)]
+        while queue:
+            curr, depth = queue.pop(0)
+            if depth >= max_depth:
+                continue
+            for src, tgt, etype in self.edges:
+                if src == curr and (src, tgt, etype) not in visited_edges:
+                    visited_edges.add((src, tgt, etype))
+                    src_label = "Paper" if src.startswith("P") else "Concept"
+                    tgt_label = "Concept" if tgt.startswith("c_") or tgt.startswith("C_") else "Paper"
+                    res.append((src, src_label, etype, tgt, tgt_label, {}))
+                    queue.append((tgt, depth + 1))
+                elif tgt == curr and (src, tgt, etype) not in visited_edges:
+                    visited_edges.add((src, tgt, etype))
+                    src_label = "Paper" if src.startswith("P") else "Concept"
+                    tgt_label = "Concept" if tgt.startswith("c_") or tgt.startswith("C_") else "Paper"
+                    res.append((src, src_label, etype, tgt, tgt_label, {}))
+                    queue.append((src, depth + 1))
         return res
+
+    def get_neighbor_papers(self, seed_paper_ids: List[str], order: int = 2) -> List[str]:
+        neighbor_paper_ids = set()
+        for pid in seed_paper_ids:
+            neighbors = self.get_neighbors(pid, max_depth=order)
+            for src_id, src_label, _, tgt_id, tgt_label, _ in neighbors:
+                if src_label in ("Paper", "UserNote") and src_id not in seed_paper_ids:
+                    neighbor_paper_ids.add(src_id)
+                if tgt_label in ("Paper", "UserNote") and tgt_id not in seed_paper_ids:
+                    neighbor_paper_ids.add(tgt_id)
+        return list(neighbor_paper_ids)
 
 
 class FakeReranker:

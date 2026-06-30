@@ -226,6 +226,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 "whether_graph_neighbor_chunk_survived_into_final_context": False,
                 "answer_token_count": 0
             }
+            trace["baseline"] = baseline
             rag_service.current_trace = trace
             traces_map[(query, baseline)] = trace
 

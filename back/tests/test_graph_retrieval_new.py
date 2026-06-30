@@ -200,3 +200,10 @@ def test_trace_logging(tmp_path, monkeypatch):
         assert data["graph_chunks_survived_final_context"] == ["chunk_2"]
         assert data["graph_survival_rate"] == 1.0
         assert data["best_graph_candidate_rank_after_rerank"] == 2
+
+
+def test_get_neighbor_papers():
+    from tests.graph_test_utils import FakeGraphRepository
+    repo = FakeGraphRepository()
+    neighbors = repo.get_neighbor_papers(["P1"], order=2)
+    assert sorted(neighbors) == ["P3", "P4"]

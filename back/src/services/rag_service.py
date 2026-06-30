@@ -665,10 +665,29 @@ class RAGService:
                 seen[key] = len(merged_chunks)
                 merged_chunks.append(chunk)
                 
-        source_order = {"dense": 0, "lexical": 1, "graph_concept_retrieval": 2, "graph_bridge_retrieval": 3}
+        source_order = {"dense": 0, "lexical": 1, "graph_neighbor": 2, "graph_concept_retrieval": 3, "graph_bridge_retrieval": 4}
         for chunk in merged_chunks:
             if hasattr(chunk, "retrieval_sources"):
                 chunk.retrieval_sources.sort(key=lambda s: source_order.get(s.get("source", ""), 99))
+            
+            # Map sources to strings for chunk.sources
+            sources_set = set()
+            for s in chunk.retrieval_sources:
+                src = s.get("source")
+                if src == "dense":
+                    sources_set.add("base_dense")
+                elif src == "lexical":
+                    sources_set.add("base_lexical")
+                elif src == "graph_neighbor":
+                    sources_set.add("graph_neighbor")
+                elif src == "graph_concept_retrieval":
+                    sources_set.add("graph_concept")
+                elif src == "graph_bridge_retrieval":
+                    sources_set.add("graph_bridge")
+                elif src:
+                    sources_set.add(src)
+            order_list = ["base_dense", "base_lexical", "graph_neighbor", "graph_concept", "graph_bridge"]
+            chunk.sources = sorted(list(sources_set), key=lambda x: order_list.index(x) if x in order_list else 99)
             
         return merged_chunks
 
@@ -862,7 +881,10 @@ class RAGService:
         return card_content
 
     def _write_graph_retrieval_trace(self, query: str, final_chunks: List[Any], trimmed_chunks: Optional[List[Any]] = None) -> None:
-        if not getattr(config, "graph_retrieval_trace_enabled", False):
+        import sys
+        is_benchmark_mode = any(arg in sys.argv for arg in ("--dataset", "--baselines", "run_pipeline.py", "run_benchmarks.py", "run_custom_retrieve.py"))
+        
+        if not (is_benchmark_mode or getattr(config, "graph_retrieval_trace_enabled", False)):
             return
             
         last_trace = getattr(self, "_last_graph_trace", None)
@@ -873,12 +895,13 @@ class RAGService:
         from pathlib import Path
         
         query_id = "Q"
+        baseline = "B6"
+        category = "general"
         if hasattr(self, "current_trace") and self.current_trace is not None:
             query_id = self.current_trace.get("query_id", "Q")
+            baseline = self.current_trace.get("baseline", "B6")
+            category = self.current_trace.get("category", "general")
             
-        rerank_positions = []
-        best_rank = None
-        
         survived_set = set()
         if trimmed_chunks is not None:
             for item in trimmed_chunks:
@@ -889,11 +912,27 @@ class RAGService:
                 c = item[0] if isinstance(item, tuple) else item
                 survived_set.add(c.id)
                 
+        graph_chunks_before_rerank = last_trace.get("graph_chunks_before_rerank", [])
+        graph_survived_ids = [cid for cid in graph_chunks_before_rerank if cid in survived_set]
+        
+        before_count = len(graph_chunks_before_rerank)
+        survived_count = len(graph_survived_ids)
+        survival_rate = survived_count / before_count if before_count > 0 else 0.0
+        
+        final_context_chunk_ids = list(survived_set)
+        final_context_paper_ids = list({
+            (item[0].paper_id if isinstance(item, tuple) else item.paper_id)
+            for item in (trimmed_chunks if trimmed_chunks is not None else final_chunks)
+            if getattr(item[0] if isinstance(item, tuple) else item, "paper_id", None)
+        })
+        
+        # Calculate rerank positions and best rank for tests
+        rerank_positions = []
+        best_rank = None
         for idx, item in enumerate(final_chunks, start=1):
             c = item[0] if isinstance(item, tuple) else item
             sources = getattr(c, "retrieval_sources", [])
-            graph_sources = [s for s in sources if s.get("source") in ("graph_concept_retrieval", "graph_bridge_retrieval")]
-            
+            graph_sources = [s for s in sources if s.get("source") in ("graph_neighbor", "graph_concept_retrieval", "graph_bridge_retrieval")]
             if graph_sources:
                 for gs in graph_sources:
                     rerank_positions.append({
@@ -906,30 +945,21 @@ class RAGService:
                 if best_rank is None or idx < best_rank:
                     best_rank = idx
                     
-        graph_survived_ids = []
-        for c_id in last_trace.get("graph_chunks_before_rerank", []):
-            if c_id in survived_set:
-                graph_survived_ids.append(c_id)
-                
-        before_count = last_trace.get("graph_chunks_before_rerank_count", 0)
-        survived_count = len(graph_survived_ids)
-        survival_rate = survived_count / before_count if before_count > 0 else 0.0
-        
-        final_context_chunk_ids = list(survived_set)
-        final_context_paper_ids = list({
-            (item[0].paper_id if isinstance(item, tuple) else item.paper_id)
-            for item in (trimmed_chunks if trimmed_chunks is not None else final_chunks)
-            if getattr(item[0] if isinstance(item, tuple) else item, "paper_id", None)
-        })
-        
+        if hasattr(self, "current_trace") and self.current_trace is not None:
+            self.current_trace["whether_graph_neighbor_chunk_survived_into_final_context"] = survived_count > 0
+            
         trace_entry = {
             "query_id": query_id,
             "query": query,
+            "baseline": baseline,
+            "category": category,
+            
+            # Old fields required by tests
             "query_concepts": last_trace.get("query_concepts", []),
             "seed_paper_ids": last_trace.get("seed_paper_ids", []),
             "graph_concept_candidate_papers": last_trace.get("graph_concept_candidate_papers", []),
             "graph_bridge_candidate_papers": last_trace.get("graph_bridge_candidate_papers", []),
-            "graph_chunks_before_rerank": last_trace.get("graph_chunks_before_rerank", []),
+            "graph_chunks_before_rerank": graph_chunks_before_rerank,
             "graph_chunks_before_rerank_count": before_count,
             "graph_candidate_rerank_positions": rerank_positions,
             "best_graph_candidate_rank_after_rerank": best_rank,
@@ -939,10 +969,42 @@ class RAGService:
             "final_context_paper_ids": sorted(final_context_paper_ids),
             "final_context_chunk_ids": sorted(final_context_chunk_ids),
             "distinct_papers_in_final_context": len(final_context_paper_ids),
-            "graph_candidate_source_breakdown": last_trace.get("graph_candidate_source_breakdown", {"graph_concept_retrieval": 0, "graph_bridge_retrieval": 0})
+            "graph_candidate_source_breakdown": last_trace.get("graph_candidate_source_breakdown", {"graph_concept_retrieval": 0, "graph_bridge_retrieval": 0}),
+            
+            # New fields
+            "base_candidates_count": last_trace.get("base_candidates_count", 0),
+            "base_candidate_chunk_ids": last_trace.get("base_candidate_chunk_ids", []),
+            "base_candidate_paper_ids": last_trace.get("base_candidate_paper_ids", []),
+            
+            "graph_neighbor_paper_ids_count": last_trace.get("graph_neighbor_paper_ids_count", 0),
+            "graph_neighbor_paper_ids_sample": last_trace.get("graph_neighbor_paper_ids_sample", []),
+            
+            "graph_chunk_candidates_count": last_trace.get("graph_chunk_candidates_count", 0),
+            "graph_chunk_candidate_chunk_ids": last_trace.get("graph_chunk_candidate_chunk_ids", []),
+            "graph_chunk_candidate_paper_ids": last_trace.get("graph_chunk_candidate_paper_ids", []),
+            
+            "merged_candidates_count_before_reranker": last_trace.get("merged_candidates_count_before_reranker", 0),
+            "merged_candidate_chunk_ids": last_trace.get("merged_candidate_chunk_ids", []),
+            
+            "candidate_count_after_reranker": len(final_chunks),
         }
         
-        trace_file = Path("graph_retrieval_trace.jsonl")
+        # Determine output trace file path
+        benchmark_dir = None
+        for idx, arg in enumerate(sys.argv):
+            if arg in ("--output", "-o"):
+                if idx + 1 < len(sys.argv):
+                    benchmark_dir = Path(sys.argv[idx + 1]).parent
+                    break
+            elif arg.startswith("--output="):
+                benchmark_dir = Path(arg.split("=", 1)[1]).parent
+                break
+                
+        if benchmark_dir and benchmark_dir.exists():
+            trace_file = benchmark_dir / "graph_retrieval_trace.jsonl"
+        else:
+            trace_file = Path("graph_retrieval_trace.jsonl")
+            
         try:
             with open(trace_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(trace_entry, ensure_ascii=False) + "\n")
@@ -1093,7 +1155,7 @@ class RAGService:
                     seed_papers.add(chunk.paper_id)
             self.current_trace["seed_paper_id_list"] = list(seed_papers)
 
-        if config.rag_components.get("graph_neighbors_in_rrf", False):
+        if config.rag_components.get("graph_neighbors_in_rrf", False) and not config.graph_retrieval_enabled:
             paper_ids = set()
             for chunk, _ in all_dense_results.values():
                 pid = getattr(chunk, "paper_id", None)
@@ -1200,9 +1262,6 @@ class RAGService:
             sorted_ids = [c.id for c in candidates]
         
         # === DET DETERMINISTIC GRAPH RETRIEVAL ===
-        graph_concept_retrieval_enabled = config.graph_concept_retrieval_enabled
-        graph_bridge_retrieval_enabled = config.graph_bridge_retrieval_enabled
-        
         graph_candidates = []
         concept_papers = []
         bridge_papers = []
@@ -1210,6 +1269,131 @@ class RAGService:
         seed_paper_ids = list({c.paper_id for c in candidates if getattr(c, "paper_id", None)})
         query_concepts = self._extract_query_concepts(query)
         
+        # 1. Graph Neighbor Retrieval
+        graph_neighbor_paper_ids = []
+        neighbor_info = {}
+        if config.rag_components.get("graph_neighbors_in_rrf", False) and config.graph_retrieval_enabled:
+            order = _safe_int(getattr(config, "b6_graph_neighbors_order", 2), 2)
+            graph_neighbor_paper_ids = self.graph_repo.get_neighbor_papers(
+                seed_paper_ids=seed_paper_ids,
+                order=order
+            )
+            
+            # BFS mapping for metadata
+            for seed_id in seed_paper_ids:
+                try:
+                    edges = self.graph_repo.get_neighbors(seed_id, max_depth=order)
+                except Exception:
+                    edges = []
+                
+                adj = {}
+                for src_id, src_label, edge_type, tgt_id, tgt_label, _ in edges:
+                    if src_id not in adj:
+                        adj[src_id] = []
+                    if tgt_id not in adj:
+                        adj[tgt_id] = []
+                    adj[src_id].append((tgt_id, tgt_label, edge_type))
+                    adj[tgt_id].append((src_id, src_label, edge_type))
+                    
+                from collections import deque
+                queue = deque([(seed_id, 0, [seed_id], [])])
+                visited = {seed_id}
+                
+                while queue:
+                    curr, dist, path, path_edges = queue.popleft()
+                    if dist > 0:
+                        curr_label = None
+                        for src_id, src_label, _, tgt_id, tgt_label, _ in edges:
+                            if src_id == curr:
+                                curr_label = src_label
+                                break
+                            if tgt_id == curr:
+                                curr_label = tgt_label
+                                break
+                        if curr_label in ("Paper", "UserNote") and curr not in seed_paper_ids:
+                            if curr not in neighbor_info:
+                                neighbor_info[curr] = {
+                                    "distance": dist,
+                                    "seeds": {seed_id},
+                                    "paths": [path],
+                                    "edge_types": set(path_edges)
+                                }
+                            else:
+                                existing = neighbor_info[curr]
+                                if dist < existing["distance"]:
+                                    neighbor_info[curr] = {
+                                        "distance": dist,
+                                        "seeds": {seed_id},
+                                        "paths": [path],
+                                        "edge_types": set(path_edges)
+                                    }
+                                elif dist == existing["distance"]:
+                                    existing["seeds"].add(seed_id)
+                                    existing["paths"].append(path)
+                                    existing["edge_types"].update(path_edges)
+                    if dist < order:
+                        for neighbor, neighbor_label, edge_type in adj.get(curr, []):
+                            if neighbor not in visited:
+                                visited.add(neighbor)
+                                queue.append((neighbor, dist + 1, path + [neighbor], path_edges + [edge_type]))
+            
+            if graph_neighbor_paper_ids:
+                query_emb = self.emb_engine.get_embedding(query)
+                chunks_per_paper = config.graph_retrieval_chunks_per_graph_paper
+                
+                # Derive budget
+                base_candidate_count = len(candidates)
+                if config.graph_retrieval_candidate_budget_mode == "fixed":
+                    derived_graph_candidate_budget = config.graph_retrieval_max_graph_chunk_candidates
+                else:  # mirror_base
+                    derived_graph_candidate_budget = base_candidate_count
+                
+                chunks_with_scores = self.graph_repo.search_chunks_within_papers(
+                    query_embedding=query_emb,
+                    paper_ids=graph_neighbor_paper_ids,
+                    limit_per_paper=chunks_per_paper
+                )
+                
+                chunks_with_scores.sort(key=lambda x: x[1], reverse=True)
+                if derived_graph_candidate_budget is not None:
+                    chunks_with_scores = chunks_with_scores[:derived_graph_candidate_budget]
+                    
+                for chunk, score in chunks_with_scores:
+                    info = neighbor_info.get(chunk.paper_id, {})
+                    dist = info.get("distance", 1)
+                    seeds = list(info.get("seeds", []))
+                    paths = info.get("paths", [])
+                    edge_types = list(info.get("edge_types", []))
+                    
+                    path_reasons = []
+                    for p in paths:
+                        path_reasons.append(" -> ".join(p))
+                    path_reason = "; ".join(path_reasons) if path_reasons else f"neighbor of distance {dist}"
+                    
+                    src_metadata = {
+                        "source": "graph_neighbor",
+                        "candidate_source": "graph_neighbor",
+                        "seed_paper_ids": seeds,
+                        "graph_neighbor_paper_id": chunk.paper_id,
+                        "graph_distance": dist,
+                        "graph_path_reason": path_reason,
+                        "matched_edge_types": edge_types
+                    }
+                    if not hasattr(chunk, "retrieval_sources"):
+                        chunk.retrieval_sources = []
+                    chunk.retrieval_sources.append(src_metadata)
+                    
+                    chunk.candidate_source = "graph_neighbor"
+                    chunk.seed_paper_ids = seeds
+                    chunk.graph_neighbor_paper_id = chunk.paper_id
+                    chunk.graph_distance = dist
+                    chunk.graph_path_reason = path_reason
+                    chunk.matched_edge_types = edge_types
+                    
+                    graph_candidates.append(chunk)
+
+        # 2. Graph Concept Retrieval
+        graph_concept_retrieval_enabled = config.graph_concept_retrieval_enabled
         max_graph_papers = config.graph_retrieval_max_graph_candidate_papers
         resolved_limit = len(seed_paper_ids) if max_graph_papers == "auto" else max_graph_papers
         try:
@@ -1238,18 +1422,23 @@ class RAGService:
             concept_papers_map = {p["paper_id"]: p for p in concept_papers}
             for chunk, sim in concept_chunks_with_scores:
                 paper_meta = concept_papers_map.get(chunk.paper_id)
+                src_metadata = {
+                    "source": "graph_concept_retrieval"
+                }
                 if paper_meta:
-                    chunk.retrieval_sources = [{
-                        "source": "graph_concept_retrieval",
+                    src_metadata.update({
                         "paper_id": paper_meta["paper_id"],
                         "matched_concepts": paper_meta["matched_concepts"],
                         "concept_idf_sum": paper_meta["concept_idf_sum"],
                         "reason": paper_meta["reason"]
-                    }]
-                else:
-                    chunk.retrieval_sources = [{"source": "graph_concept_retrieval"}]
+                    })
+                if not hasattr(chunk, "retrieval_sources"):
+                    chunk.retrieval_sources = []
+                chunk.retrieval_sources.append(src_metadata)
                 graph_candidates.append(chunk)
 
+        # 3. Graph Bridge Retrieval
+        graph_bridge_retrieval_enabled = config.graph_bridge_retrieval_enabled
         if graph_bridge_retrieval_enabled and seed_paper_ids and query_concepts and resolved_limit > 0:
             from src.services.graph_retrievers import GraphBridgeRetriever
             bridge_retriever = GraphBridgeRetriever(self.graph_repo)
@@ -1272,45 +1461,64 @@ class RAGService:
             bridge_papers_map = {p["paper_id"]: p for p in bridge_papers}
             for chunk, sim in bridge_chunks_with_scores:
                 paper_meta = bridge_papers_map.get(chunk.paper_id)
+                src_metadata = {
+                    "source": "graph_bridge_retrieval"
+                }
                 if paper_meta:
-                    chunk.retrieval_sources = [{
-                        "source": "graph_bridge_retrieval",
+                    src_metadata.update({
                         "paper_id": paper_meta["paper_id"],
                         "connected_seed_papers": paper_meta["connected_seed_papers"],
                         "matched_concepts": paper_meta["matched_concepts"],
                         "concept_idf_sum": paper_meta["concept_idf_sum"],
                         "min_graph_distance": paper_meta["min_graph_distance"],
                         "paths": paper_meta["paths"]
-                    }]
-                else:
-                    chunk.retrieval_sources = [{"source": "graph_bridge_retrieval"}]
+                    })
+                if not hasattr(chunk, "retrieval_sources"):
+                    chunk.retrieval_sources = []
+                chunk.retrieval_sources.append(src_metadata)
                 graph_candidates.append(chunk)
 
-        all_pool = candidates + graph_candidates
+        base_candidates = candidates
+        all_pool = base_candidates + graph_candidates
         for chunk in all_pool:
             if not hasattr(chunk, "retrieval_sources"):
                 chunk.retrieval_sources = []
                 
         candidates = self._deduplicate_candidates(all_pool)
         
-        if config.graph_retrieval_trace_enabled:
-            graph_chunk_ids = [c.id for c in graph_candidates]
-            breakdown = {"graph_concept_retrieval": 0, "graph_bridge_retrieval": 0}
-            for chunk in graph_candidates:
-                for s in getattr(chunk, "retrieval_sources", []):
-                    src = s.get("source")
-                    if src in breakdown:
-                        breakdown[src] += 1
-                        
-            self._last_graph_trace = {
-                "query_concepts": query_concepts,
-                "seed_paper_ids": seed_paper_ids,
-                "graph_concept_candidate_papers": [p["paper_id"] for p in concept_papers],
-                "graph_bridge_candidate_papers": [p["paper_id"] for p in bridge_papers],
-                "graph_chunks_before_rerank": graph_chunk_ids,
-                "graph_chunks_before_rerank_count": len(graph_chunk_ids),
-                "graph_candidate_source_breakdown": breakdown
-            }
+        # Tracing values
+        if hasattr(self, "current_trace") and self.current_trace is not None:
+            self.current_trace["graph_neighbor_paper_id_list"] = graph_neighbor_paper_ids
+            
+        graph_chunk_ids = [c.id for c in graph_candidates]
+        breakdown = {"graph_neighbor": 0, "graph_concept_retrieval": 0, "graph_bridge_retrieval": 0}
+        for chunk in graph_candidates:
+            for s in getattr(chunk, "retrieval_sources", []):
+                src = s.get("source")
+                if src in breakdown:
+                    breakdown[src] += 1
+                    
+        self._last_graph_trace = {
+            "query_concepts": query_concepts,
+            "seed_paper_ids": seed_paper_ids,
+            "graph_concept_candidate_papers": [p["paper_id"] for p in concept_papers],
+            "graph_bridge_candidate_papers": [p["paper_id"] for p in bridge_papers],
+            "graph_chunks_before_rerank": graph_chunk_ids,
+            "graph_chunks_before_rerank_count": len(graph_chunk_ids),
+            "graph_candidate_source_breakdown": breakdown,
+            
+            # New tracing properties
+            "base_candidates_count": len(base_candidates),
+            "base_candidate_chunk_ids": [c.id for c in base_candidates],
+            "base_candidate_paper_ids": list({c.paper_id for c in base_candidates if getattr(c, "paper_id", None)}),
+            "graph_neighbor_paper_ids_count": len(graph_neighbor_paper_ids),
+            "graph_neighbor_paper_ids_sample": graph_neighbor_paper_ids[:5],
+            "graph_chunk_candidates_count": len([c for c in graph_candidates if any(s.get("source") == "graph_neighbor" for s in c.retrieval_sources)]),
+            "graph_chunk_candidate_chunk_ids": [c.id for c in graph_candidates if any(s.get("source") == "graph_neighbor" for s in c.retrieval_sources)],
+            "graph_chunk_candidate_paper_ids": list({c.paper_id for c in graph_candidates if any(s.get("source") == "graph_neighbor" for s in c.retrieval_sources)}),
+            "merged_candidates_count_before_reranker": len(candidates),
+            "merged_candidate_chunk_ids": [c.id for c in candidates],
+        }
         # === END DETERMINISTIC GRAPH RETRIEVAL ===
 
         if not candidates:

@@ -48,6 +48,7 @@ class DummyGraphRepository(GraphRepository):
     def get_total_paper_count(self): return 0
     def get_citation_neighbors(self, paper_ids): return []
     def search_chunks_within_papers(self, query_embedding, paper_ids, limit_per_paper=3): return []
+    def get_neighbor_papers(self, seed_paper_ids, order=2): return []
 
     def add_edge(self, source_id, target_id, edge_type, properties=None):
         self.added_edges.append((source_id, target_id, edge_type, properties))

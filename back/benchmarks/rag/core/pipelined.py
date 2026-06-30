@@ -205,6 +205,8 @@ def generate_baseline_case(
             pre_metrics = pre_baseline.get("metrics", {})
             pre_latency = pre_baseline.get("latency_sec", 0.0)
             trace = pre_baseline.get("trace")
+            if trace is not None:
+                trace["baseline"] = baseline
             rag_service.current_trace = trace
 
             baseline_config = get_baseline_config(baseline, config.rag_components)
@@ -297,6 +299,7 @@ def generate_baseline_case(
                 "whether_graph_neighbor_chunk_survived_into_final_context": False,
                 "answer_token_count": 0
             }
+            trace["baseline"] = baseline
             rag_service.current_trace = trace
 
             answer, retrieved, metrics, chunks = run_query_on_baseline(

@@ -1,6 +1,7 @@
 import os
 import yaml
 from pathlib import Path
+from typing import Optional
 
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "pdf-graph-analyzer"
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "pdf-graph-analyzer"
@@ -97,12 +98,15 @@ DEFAULT_CONFIG = {
         "graph_retrieval_trace": False,
     },
     "graph_retrieval": {
+        "enabled": True,
         "concept_retrieval_enabled": False,
         "bridge_retrieval_enabled": False,
         "selected_sources_card_enabled": False,
         "trace_enabled": False,
         "chunks_per_graph_paper": 1,
-        "max_graph_candidate_papers": "auto"
+        "max_graph_candidate_papers": "auto",
+        "candidate_budget_mode": "mirror_base",
+        "max_graph_chunk_candidates": None
     },
     "hyperparameters": {
         "rag": {
@@ -320,6 +324,18 @@ rag_components:
   score_blending: true
   context_trimming: true
   citation_repair: true
+
+# Deterministic Graph Retrieval configuration
+graph_retrieval:
+  enabled: true
+  concept_retrieval_enabled: false
+  bridge_retrieval_enabled: false
+  selected_sources_card_enabled: false
+  trace_enabled: false
+  chunks_per_graph_paper: 1
+  max_graph_candidate_papers: "auto"
+  candidate_budget_mode: "mirror_base"
+  max_graph_chunk_candidates: null
 
 # Fine-grained hyperparameters for RAG, graph crawling, and search algorithms
 hyperparameters:
@@ -752,6 +768,21 @@ hyperparameters:
     @property
     def pdf_compression_quality(self) -> int:
         return self.data.get("pdf_compression", {}).get("quality", 75)
+
+    @property
+    def graph_retrieval_enabled(self) -> bool:
+        return bool(self.data.get("graph_retrieval", {}).get("enabled", True))
+
+    @property
+    def graph_retrieval_candidate_budget_mode(self) -> str:
+        return str(self.data.get("graph_retrieval", {}).get("candidate_budget_mode", "mirror_base"))
+
+    @property
+    def graph_retrieval_max_graph_chunk_candidates(self) -> Optional[int]:
+        val = self.data.get("graph_retrieval", {}).get("max_graph_chunk_candidates", None)
+        if val is None or val == "":
+            return None
+        return int(val)
 
     @property
     def graph_concept_retrieval_enabled(self) -> bool:
