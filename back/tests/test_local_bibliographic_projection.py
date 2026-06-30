@@ -5,15 +5,12 @@ from unittest.mock import MagicMock
 import os
 import math
 import sqlite3
-import shutil
 import socket
 import pytest
-from src.models import Paper, Chunk
+from src.models import Paper
 from src.repository.sqlite_impl import SQLiteGraphRepository
 from src.services.bibliographic import (
     canonicalize_reference,
-    resolve_reference_target,
-    find_citation_context_in_text,
     BibliographicProjectionService
 )
 from pathlib import Path

@@ -3,12 +3,12 @@ pytestmark = pytest.mark.llm
 
 import unittest
 from unittest.mock import MagicMock, patch
-
 try:
     import mlx.core as mx
     has_mlx = True
 except ImportError:
     has_mlx = False
+import torch
 
 from src.vector_search import EmbeddingEngine
 from src.llm_engine.mlx_impl import MlxLLMEngine
