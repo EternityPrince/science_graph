@@ -44,16 +44,40 @@ The table below compares the theoretical (intended default) state of components 
 
 ## 3. B6 in the Current Setup
 
-In the default state of the workspace (with no custom overrides in `config.yaml`), **B6** runs as a fully featured pipeline with all components enabled.
+In the default state of the workspace (with no custom overrides in `config.yaml`), **B6** runs as a fully featured pipeline with all components enabled. 
 
-### Active B6 Pipeline:
-1. **Full Graph-RAG**: Adaptive graph traversal (`graph_expansion` via `ExperimentalGraphExpander` and LLM-filtering) is enabled.
-2. **Neighbor Extraction**: It retrieves neighbor documents to depth `b6_graph_neighbors_order` (default 2) for all primary vector/lexical search hits (`graph_neighbors_in_rrf: True`). Chunks of neighbor articles are fetched, ranked via cosine similarity, and added to the candidate pool before RRF and Cross-Encoder reranking.
-3. **Query Expansion**: Active synonym expansion (`llm_query_expansion` + `graph_ontology_lookup`).
-4. **Post-Processing & Blending**: 
-   * `dynamic_alpha_blending` is active (calibrates dense/lexical search balance dynamically).
-   * `score_blending` is active (blends Reranker and RRF scores).
-   * `citation_repair` is active (validates and repairs citation links in generated responses).
+Based on the active configuration (`config.yaml`), the components in the **B6** pipeline are configured as follows:
+
+### Current Configured Pipeline Components for B6:
+* **Active Components (🟢):**
+  * `dense_search`: Semantic vector search.
+  * `lexical_search`: Keyword search using SQLite FTS5.
+  * `rrf`: Reciprocal Rank Fusion for candidate merging.
+  * `reranker`: Cross-Encoder reranking (forced to `True` for B6).
+  * `score_blending`: Combining Reranker and RRF scores.
+  * `graph_neighbors_in_rrf`: Retrieval of neighboring node chunks (forced to `True` for B6).
+  * `graph_ontology_lookup`: Synonyms/concept mapping using the graph ontology.
+  * `context_trimming`: Fitting the final prompt into the context window.
+
+* **Inactive Components (🔴):**
+  * `graph_expansion`: Adaptive graph traversal via `ExperimentalGraphExpander` is **disabled**.
+  * `dynamic_alpha_blending`: Dense/lexical weight balancing is **disabled**.
+  * `citation_repair`: Citation validation and repair is **disabled**.
+  * `hyde`: Hypothetical document embedding is **disabled** (forced to `False` for B6).
+  * `llm_query_expansion`: LLM-based query expansion is **disabled**.
+  * `intent_classifier`: Query intent routing is **disabled**.
+  * `graph_bridge_retrieval`: Deterministic bridge retrieval is **disabled**.
+  * `graph_concept_retrieval`: Deterministic concept retrieval is **disabled**.
+  * `graph_selected_sources_card`: Response selected sources card is **disabled**.
+  * `graph_retrieval_trace`: Tracing to JSONL is **disabled**.
+
+### Active LLM and RAG Parameters:
+* **LLM Provider**: `mlx` (Local execution)
+* **LLM Model**: `/Users/vladimirkasterin/models/llm/OCC-RAG-1.7B`
+* **Model Max Context / Synthesis Input Limit**: `12,000` / `9,500` tokens
+* **Reranker Model**: `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`
+* **NER Model**: `/Users/vladimirkasterin/models/ner/wikineural-multilingual-ner`
+* **SpaCy Model**: `/Users/vladimirkasterin/models/lemmatization`
 
 ---
 

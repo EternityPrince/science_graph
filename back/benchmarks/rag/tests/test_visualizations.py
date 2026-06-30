@@ -2,6 +2,8 @@ import pytest
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import shutil
+from unittest.mock import patch
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -38,3 +40,33 @@ def test_metrics_aggregation_consistency():
             assert np.isclose(core_cat_val, df_cat_val), f"Category mismatch for {b} {cat} {m}: stats={core_cat_val:.4f}, df={df_cat_val:.4f}"
 
     print("Success: Visualization dataframe aggregation matches core analytics stats exactly!")
+
+def test_directory_input_resolves_correctly(tmp_path):
+    # Setup temporary directory representing a run
+    run_dir = tmp_path / "run_test_visualizations"
+    run_dir.mkdir()
+    
+    # Write a mock evaluation_results.yaml to this run_dir
+    smoke_yaml_path = Path(__file__).resolve().parents[1] / "reports" / "result_metrics_smoke.yaml"
+    
+    # If the smoke yaml doesn't exist, we skip
+    if not smoke_yaml_path.exists():
+        pytest.skip("result_metrics_smoke.yaml not found, skipping integration test")
+        
+    shutil.copy(smoke_yaml_path, run_dir / "evaluation_results.yaml")
+    
+    # Call main in generate_scientific_visualizations with the directory input
+    from generate_scientific_visualizations import main
+    
+    test_args = ["generate_scientific_visualizations.py", "--input", str(run_dir)]
+    with patch("sys.argv", test_args):
+        main()
+        
+    # Check that figures folder was created inside run_dir
+    figures_dir = run_dir / "figures"
+    assert figures_dir.exists()
+    
+    # Assert at least some figures and captions.md are generated
+    assert (figures_dir / "captions.md").exists()
+    assert (figures_dir / "fig1_heatmap.png").exists()
+    assert (figures_dir / "fig15_multihop_coverage.png").exists()

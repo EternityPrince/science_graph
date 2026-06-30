@@ -62,6 +62,14 @@ COLOR_PALETTE = {
     'SciQ': '#2B6CB0'   # Standard Blue
 }
 
+def get_baseline_color(b: str) -> str:
+    """Returns baseline color, with slate grey fallback."""
+    return COLOR_PALETTE.get(b, '#718096')
+
+def get_category_metric_value(stats: dict, category: str, baseline: str, metric: str) -> float:
+    """Safely retrieves category metric value, defaulting to 0.0 if not found."""
+    return stats.get("category_stats", {}).get(category, {}).get(baseline, {}).get(metric, 0.0)
+
 def setup_academic_style():
     """Configures matplotlib and seaborn for publication-ready figures."""
     sns.set_theme(style="whitegrid")
@@ -87,8 +95,13 @@ def setup_academic_style():
     plt.rcParams['xtick.labelsize'] = 9
     plt.rcParams['ytick.labelsize'] = 9
 
-def create_output_directory() -> Path:
-    """Creates a timestamped subfolder inside back/benchmarks/rag/figures."""
+def create_output_directory(input_dir: Path = None) -> Path:
+    """Creates a figures directory. If input_dir is a directory, puts it there. Otherwise inside back/benchmarks/rag/figures."""
+    if input_dir and input_dir.is_dir():
+        run_dir = input_dir / "figures"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return run_dir
+        
     base_path = Path(__file__).resolve().parent
     figures_dir = base_path / "figures"
     figures_dir.mkdir(exist_ok=True)
@@ -115,6 +128,28 @@ def load_report_data(yaml_path: Path) -> tuple[pd.DataFrame, dict]:
     report = load_report_file(yaml_path)
     data = report.model_dump()
     stats = analyze_metrics(data)
+    
+    # Dynamically determine the baselines present
+    global BASELINES
+    found_baselines = set()
+    metadata = data.get("metadata") or {}
+    for b in metadata.get("baselines_evaluated", []):
+        found_baselines.add(b)
+    for r in data.get("results", []):
+        for b in r.get("baselines", {}).keys():
+            found_baselines.add(b)
+            
+    # Preserve preferred order if standard
+    preferred_order = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
+    baselines_list = [b for b in preferred_order if b in found_baselines]
+    for b in sorted(found_baselines):
+        if b not in baselines_list:
+            baselines_list.append(b)
+            
+    if not baselines_list:
+        baselines_list = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']  # Fallback
+        
+    BASELINES = baselines_list
     
     rows = []
     for r in data.get("results", []):
@@ -154,23 +189,35 @@ def load_data(yaml_path: Path) -> pd.DataFrame:
     df, _ = load_report_data(yaml_path)
     return df
 
-def find_sciq_results(base_path: Path) -> Path:
-    """Finds SciQ results inside reports directory."""
-    reports_dir = base_path / "reports"
-    if not reports_dir.exists():
-        return None
+def find_sciq_results(base_path: Path, input_dir: Path = None) -> Path:
+    """Finds SciQ results inside reports directory or near input directory."""
+    search_dirs = []
+    if input_dir:
+        search_dirs.append(input_dir.parent)
+        search_dirs.append(input_dir)
         
-    for item in reports_dir.iterdir():
-        if item.is_dir() and "SciQ" in item.name or "sciq" in item.name.lower():
-            yaml_file = item / "result_metrics.yaml"
-            if yaml_file.exists():
+    reports_dir = base_path / "reports"
+    search_dirs.append(reports_dir)
+    
+    for r_dir in search_dirs:
+        if not r_dir or not r_dir.exists() or not r_dir.is_dir():
+            continue
+            
+        for item in r_dir.iterdir():
+            if item.is_dir() and ("SciQ" in item.name or "sciq" in item.name.lower()):
+                for yaml_name in ["result_metrics.yaml", "evaluation_results.yaml"]:
+                    yaml_file = item / yaml_name
+                    if yaml_file.exists():
+                        return yaml_file
+                        
+        # Fallback to general files matching SciQ pattern
+        for yaml_file in r_dir.glob("**/result_metrics.yaml"):
+            if "sciq" in str(yaml_file).lower():
+                return yaml_file
+        for yaml_file in r_dir.glob("**/evaluation_results.yaml"):
+            if "sciq" in str(yaml_file).lower():
                 return yaml_file
                 
-    # Fallback to general files matching SciQ pattern
-    for yaml_file in reports_dir.glob("**/result_metrics.yaml"):
-        if "sciq" in str(yaml_file).lower():
-            return yaml_file
-            
     return None
 
 def save_plot(fig, run_dir: Path, name: str):
@@ -227,9 +274,8 @@ def plot_radar_chart(stats: dict, run_dir: Path):
         for m in METRICS:
             values.append(stats["summary"][b][m]["mean"] * 100)
         values += values[:1]
-        
-        ax.plot(angles, values, color=COLOR_PALETTE[b], linewidth=1.8, label=b)
-        ax.fill(angles, values, color=COLOR_PALETTE[b], alpha=0.08)
+        ax.plot(angles, values, color=get_baseline_color(b), linewidth=1.8, label=b)
+        ax.fill(angles, values, color=get_baseline_color(b), alpha=0.08)
         
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
@@ -251,7 +297,7 @@ def plot_radar_chart(stats: dict, run_dir: Path):
     ax.set_title("Capability Profile Footprint (B1-B6)", pad=20, fontweight='bold')
     
     save_plot(fig, run_dir, "fig2_radar_chart")
-
+ 
 def plot_pareto_plot(stats: dict, run_dir: Path):
     """Figure 3: Pareto frontier: Semantic Accuracy vs Latency."""
     latencies = []
@@ -269,7 +315,7 @@ def plot_pareto_plot(stats: dict, run_dir: Path):
     for b, lat, acc in zip(BASELINES, latencies, accuracies):
         ax.scatter(
             lat, acc,
-            color=COLOR_PALETTE[b],
+            color=get_baseline_color(b),
             s=120,
             edgecolors='black',
             linewidths=0.8,
@@ -283,7 +329,7 @@ def plot_pareto_plot(stats: dict, run_dir: Path):
             ha='center',
             fontsize=9.5,
             fontweight='bold',
-            color=COLOR_PALETTE[b]
+            color=get_baseline_color(b)
         )
         
     pareto_points = sorted(zip(latencies, accuracies), key=lambda x: x[0])
@@ -311,7 +357,7 @@ def plot_pareto_plot(stats: dict, run_dir: Path):
     ax.set_ylim(-3, max(accuracies) * 1.25)
     
     save_plot(fig, run_dir, "fig3_pareto_plot")
-
+ 
 def plot_scatter_plot(df: pd.DataFrame, run_dir: Path):
     """Figure 4: Correlation scatter plot between context fillness and semantic accuracy."""
     fig, ax = plt.subplots(figsize=(6.5, 4.8))
@@ -330,7 +376,7 @@ def plot_scatter_plot(df: pd.DataFrame, run_dir: Path):
         mask = clean_df['baseline'] == b
         ax.scatter(
             x_jitter[mask], y_jitter[mask],
-            color=COLOR_PALETTE[b],
+            color=get_baseline_color(b),
             s=25, alpha=0.65, edgecolors='none', label=b
         )
         
@@ -345,7 +391,7 @@ def plot_scatter_plot(df: pd.DataFrame, run_dir: Path):
     ax.grid(True, linestyle=':', alpha=0.6)
     
     save_plot(fig, run_dir, "fig4_fillness_vs_accuracy")
-
+ 
 def plot_latency_bar_chart(stats: dict, run_dir: Path):
     """Figure 5: Bar chart showing mean latency by baseline."""
     means = [stats["summary"][b]["latency_sec"]["mean"] for b in BASELINES]
@@ -358,7 +404,7 @@ def plot_latency_bar_chart(stats: dict, run_dir: Path):
         
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     
-    colors = [COLOR_PALETTE[b] for b in BASELINES]
+    colors = [get_baseline_color(b) for b in BASELINES]
     bars = ax.bar(BASELINES, means, yerr=sems, capsize=4, color=colors, edgecolor='black', linewidth=0.5, error_kw=dict(ecolor='gray', lw=1.2))
     
     for bar in bars:
@@ -411,9 +457,15 @@ def plot_token_stacked_bar_chart(stats: dict, run_dir: Path):
     save_plot(fig, run_dir, "fig6_token_usage")
 
 def plot_dataset_comparison(custom_stats: dict, sciq_path: Path, run_dir: Path):
-    """Figure 7: Domain comparison (Science Graph vs SciQ) on B6 pipeline."""
+    """Figure 7: Domain comparison (Science Graph vs SciQ) on selected pipeline."""
+    # Determine dynamic baseline for comparison (prefer B6, fallback to last available)
+    b_compare = "B6"
+    if "B6" not in custom_stats["summary"] and BASELINES:
+        b_compare = BASELINES[-1]
+        
     sciq_loaded = False
     sciq_vals = {}
+    sciq_b = "B6"
     
     if sciq_path and sciq_path.exists():
         try:
@@ -423,8 +475,9 @@ def plot_dataset_comparison(custom_stats: dict, sciq_path: Path, run_dir: Path):
             
             sciq_loaded = True
             print("SciQ dataset comparison state: loaded dynamically")
+            sciq_b = b_compare if b_compare in sciq_stats["summary"] else (list(sciq_stats["summary"].keys())[-1] if sciq_stats["summary"] else "B6")
             for m in METRICS:
-                sciq_vals[m] = sciq_stats["summary"]["B6"][m]["mean"] * 100
+                sciq_vals[m] = sciq_stats["summary"][sciq_b][m]["mean"] * 100
         except Exception as e:
             print(f"Error loading SciQ results dynamically: {e}")
             sciq_loaded = False
@@ -440,15 +493,16 @@ def plot_dataset_comparison(custom_stats: dict, sciq_path: Path, run_dir: Path):
         }
         
     labels = [METRIC_LABELS[m] for m in METRICS]
-    custom_vals = [custom_stats["summary"]["B6"][m]["mean"] * 100 for m in METRICS]
+    custom_vals = [custom_stats["summary"][b_compare][m]["mean"] * 100 for m in METRICS]
     
     x = np.arange(len(labels))
     w = 0.35
     
     fig, ax = plt.subplots(figsize=(8, 4.8))
     
-    rects1 = ax.bar(x - w/2, custom_vals, w, label='Science Graph (Custom)', color='#D53F8C', edgecolor='black', linewidth=0.5)
-    rects2 = ax.bar(x + w/2, [sciq_vals[m] for m in METRICS], w, label='HF/SciQ (Popular)', color='#2B6CB0', edgecolor='black', linewidth=0.5)
+    rects1 = ax.bar(x - w/2, custom_vals, w, label=f'Science Graph ({b_compare})', color='#D53F8C', edgecolor='black', linewidth=0.5)
+    sciq_label = f'HF/SciQ ({sciq_b})' if sciq_loaded else 'HF/SciQ (Popular)'
+    rects2 = ax.bar(x + w/2, [sciq_vals[m] for m in METRICS], w, label=sciq_label, color='#2B6CB0', edgecolor='black', linewidth=0.5)
     
     for rect in rects1:
         h = rect.get_height()
@@ -459,7 +513,7 @@ def plot_dataset_comparison(custom_stats: dict, sciq_path: Path, run_dir: Path):
         ax.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8)
         
     ax.set_ylabel("Score (%)")
-    ax.set_title("Domain Gap Analysis on Advanced Graph RAG Pipeline (B6)", pad=15, fontweight='bold')
+    ax.set_title(f"Domain Gap Analysis on Advanced Graph RAG Pipeline ({b_compare})", pad=15, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=20, ha='right')
     ax.legend(frameon=True)
@@ -508,8 +562,8 @@ def plot_hop_comparison(stats: dict, run_dir: Path):
     for i, m in enumerate(METRICS):
         ax = axes[i]
         
-        single_vals = [stats["category_stats"]["single-document"][b][m] * 100 for b in BASELINES]
-        multi_vals = [stats["category_stats"]["multi-hop"][b][m] * 100 for b in BASELINES]
+        single_vals = [get_category_metric_value(stats, "single-document", b, m) * 100 for b in BASELINES]
+        multi_vals = [get_category_metric_value(stats, "multi-hop", b, m) * 100 for b in BASELINES]
         
         rects1 = ax.bar(x - w/2, single_vals, w, label='Single-hop', color='#3182CE', edgecolor='black', linewidth=0.5)
         rects2 = ax.bar(x + w/2, multi_vals, w, label='Multi-hop', color='#ED8936', edgecolor='black', linewidth=0.5)
@@ -542,8 +596,8 @@ def plot_hop_degradation(stats: dict, run_dir: Path):
     for b in BASELINES:
         row = {}
         for m in METRICS:
-            single_val = stats["category_stats"]["single-document"][b][m] * 100
-            multi_val = stats["category_stats"]["multi-hop"][b][m] * 100
+            single_val = get_category_metric_value(stats, "single-document", b, m) * 100
+            multi_val = get_category_metric_value(stats, "multi-hop", b, m) * 100
             row[METRIC_LABELS[m]] = single_val - multi_val
         degradation_data.append(row)
         
@@ -577,8 +631,8 @@ def plot_hop_heatmaps(stats: dict, run_dir: Path):
         row_single = {}
         row_multi = {}
         for m in METRICS:
-            row_single[METRIC_LABELS[m]] = stats["category_stats"]["single-document"][b][m] * 100
-            row_multi[METRIC_LABELS[m]] = stats["category_stats"]["multi-hop"][b][m] * 100
+            row_single[METRIC_LABELS[m]] = get_category_metric_value(stats, "single-document", b, m) * 100
+            row_multi[METRIC_LABELS[m]] = get_category_metric_value(stats, "multi-hop", b, m) * 100
         single_matrix.append(row_single)
         multi_matrix.append(row_multi)
         
@@ -638,20 +692,20 @@ def plot_hop_interactions(stats: dict, run_dir: Path):
         ax = axes[i]
         
         for b in BASELINES:
-            y_single = stats["category_stats"]["single-document"][b][m] * 100
-            y_multi = stats["category_stats"]["multi-hop"][b][m] * 100
+            y_single = get_category_metric_value(stats, "single-document", b, m) * 100
+            y_multi = get_category_metric_value(stats, "multi-hop", b, m) * 100
             
             ax.plot(
                 x_positions, [y_single, y_multi],
                 marker='o',
                 markersize=6,
                 linewidth=1.8,
-                color=COLOR_PALETTE[b],
+                color=get_baseline_color(b),
                 label=b
             )
             
-            ax.text(-0.02, y_single, f"{y_single:.1f}%", fontsize=7.5, ha='right', va='center', color=COLOR_PALETTE[b])
-            ax.text(1.02, y_multi, f"{y_multi:.1f}%", fontsize=7.5, ha='left', va='center', color=COLOR_PALETTE[b])
+            ax.text(-0.02, y_single, f"{y_single:.1f}%", fontsize=7.5, ha='right', va='center', color=get_baseline_color(b))
+            ax.text(1.02, y_multi, f"{y_multi:.1f}%", fontsize=7.5, ha='left', va='center', color=get_baseline_color(b))
             
         ax.set_title(METRIC_LABELS[m], fontsize=11, fontweight='bold')
         ax.set_xticks(x_positions)
@@ -672,11 +726,11 @@ def plot_recall_vs_accuracy_scatter(stats: dict, run_dir: Path):
     fig, ax = plt.subplots(figsize=(7, 5))
     
     for b in BASELINES:
-        x_single = stats["category_stats"]["single-document"][b]["retrieval_recall"] * 100
-        y_single = stats["category_stats"]["single-document"][b]["semantic_accuracy"] * 100
+        x_single = get_category_metric_value(stats, "single-document", b, "retrieval_recall") * 100
+        y_single = get_category_metric_value(stats, "single-document", b, "semantic_accuracy") * 100
         
-        x_multi = stats["category_stats"]["multi-hop"][b]["retrieval_recall"] * 100
-        y_multi = stats["category_stats"]["multi-hop"][b]["semantic_accuracy"] * 100
+        x_multi = get_category_metric_value(stats, "multi-hop", b, "retrieval_recall") * 100
+        y_multi = get_category_metric_value(stats, "multi-hop", b, "semantic_accuracy") * 100
         
         # Draw shift line from Single-hop to Multi-hop
         ax.plot(
@@ -687,19 +741,19 @@ def plot_recall_vs_accuracy_scatter(stats: dict, run_dir: Path):
         # Single-hop point (circle)
         ax.scatter(
             x_single, y_single,
-            color=COLOR_PALETTE[b], marker='o', s=80, edgecolors='black', linewidths=0.8, zorder=2
+            color=get_baseline_color(b), marker='o', s=80, edgecolors='black', linewidths=0.8, zorder=2
         )
         
         # Multi-hop point (square)
         ax.scatter(
             x_multi, y_multi,
-            color=COLOR_PALETTE[b], marker='s', s=80, edgecolors='black', linewidths=0.8, zorder=2
+            color=get_baseline_color(b), marker='s', s=80, edgecolors='black', linewidths=0.8, zorder=2
         )
         
         # Label baseline near Single-hop point
         ax.annotate(
             b, (x_single, y_single),
-            textcoords="offset points", xytext=(8, -3), ha='left', fontsize=9, fontweight='bold', color=COLOR_PALETTE[b]
+            textcoords="offset points", xytext=(8, -3), ha='left', fontsize=9, fontweight='bold', color=get_baseline_color(b)
         )
         
     from matplotlib.lines import Line2D
@@ -725,13 +779,13 @@ def plot_precision_vs_citation_scatter(stats: dict, run_dir: Path):
     
     # Subplot 1: Single-hop
     for b in BASELINES:
-        x = stats["category_stats"]["single-document"][b]["context_precision"] * 100
-        y = stats["category_stats"]["single-document"][b]["citation_fidelity"] * 100
+        x = get_category_metric_value(stats, "single-document", b, "context_precision") * 100
+        y = get_category_metric_value(stats, "single-document", b, "citation_fidelity") * 100
         ax1.scatter(
             x, y,
-            color=COLOR_PALETTE[b], marker='o', s=100, edgecolors='black', linewidths=0.8
+            color=get_baseline_color(b), marker='o', s=100, edgecolors='black', linewidths=0.8
         )
-        ax1.annotate(b, (x, y), textcoords="offset points", xytext=(8,-3), ha='left', fontsize=8.5, fontweight='bold', color=COLOR_PALETTE[b])
+        ax1.annotate(b, (x, y), textcoords="offset points", xytext=(8,-3), ha='left', fontsize=8.5, fontweight='bold', color=get_baseline_color(b))
     ax1.set_title("Single-hop Questions Averages", fontsize=11, fontweight='bold')
     ax1.set_xlabel("Context Precision (%)")
     ax1.set_ylabel("Citation Fidelity (%)")
@@ -741,13 +795,13 @@ def plot_precision_vs_citation_scatter(stats: dict, run_dir: Path):
     
     # Subplot 2: Multi-hop
     for b in BASELINES:
-        x = stats["category_stats"]["multi-hop"][b]["context_precision"] * 100
-        y = stats["category_stats"]["multi-hop"][b]["citation_fidelity"] * 100
+        x = get_category_metric_value(stats, "multi-hop", b, "context_precision") * 100
+        y = get_category_metric_value(stats, "multi-hop", b, "citation_fidelity") * 100
         ax2.scatter(
             x, y,
-            color=COLOR_PALETTE[b], marker='s', s=100, edgecolors='black', linewidths=0.8
+            color=get_baseline_color(b), marker='s', s=100, edgecolors='black', linewidths=0.8
         )
-        ax2.annotate(b, (x, y), textcoords="offset points", xytext=(8,-3), ha='left', fontsize=8.5, fontweight='bold', color=COLOR_PALETTE[b])
+        ax2.annotate(b, (x, y), textcoords="offset points", xytext=(8,-3), ha='left', fontsize=8.5, fontweight='bold', color=get_baseline_color(b))
     ax2.set_title("Multi-hop Questions Averages", fontsize=11, fontweight='bold')
     ax2.set_xlabel("Context Precision (%)")
     ax2.grid(True, linestyle=':', alpha=0.6)
@@ -823,11 +877,19 @@ def plot_multihop_coverage(df: pd.DataFrame, run_dir: Path):
 
 # --- Report and Caption Generation ---
 
-def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: Path):
+def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: Path, input_name: str = "reports/result_metrics.yaml"):
     """Generates a markdown report displaying all figures and their academic captions."""
-    report_text = f"""# 📊 Научный отчет: Визуализация экспериментов RAG (B1–B6)
+    # Determine comparison baseline
+    b_compare = "B6"
+    if BASELINES:
+        b_compare = "B6" if "B6" in BASELINES else BASELINES[-1]
+        
+    baselines_str = "–".join(sorted(BASELINES)) if len(BASELINES) > 1 else (BASELINES[0] if BASELINES else "")
+    baselines_title = f"({baselines_str})" if baselines_str else ""
+    
+    report_text = f"""# 📊 Научный отчет: Визуализация экспериментов RAG {baselines_title}
 Дата генерации: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-Входной файл: `reports/result_metrics.yaml`
+Входной файл: `{input_name}`
 
 Данный отчет содержит визуализации результатов оценки RAG-конвейера (Science Graph) на двух наборах данных:
 1. **Science Graph (Custom)**: 50 сложных междисциплинарных научных вопросов (исходный датасет, разделен на Single-hop и Multi-hop подмножества по 25 вопросов).
@@ -841,7 +903,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ![Heatmap](fig1_heatmap.png)
 
-**Figure 1.** *Heatmap of average RAG quality metrics across baselines B1–B6 on the Science Graph custom dataset. Scores represent the mean percentage calculated across 50 benchmark queries. A clear progression is observed from lexical-only approaches (B1) to dense (B2) and standard hybrid (B4) configurations, while graph-augmented baselines (B5, B6) show structured variations in answer faithfulness and semantic recall.*
+**Figure 1.** *Heatmap of average RAG quality metrics across baselines {baselines_str} on the Science Graph custom dataset. Scores represent the mean percentage calculated across 50 benchmark queries. A clear progression is observed from lexical-only approaches (B1) to dense (B2) and standard hybrid (B4) configurations, while graph-augmented baselines (B5, B6) show structured variations in answer faithfulness and semantic recall.*
 
 ---
 
@@ -849,7 +911,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ![Radar Chart](fig2_radar_chart.png)
 
-**Figure 2.** *Multi-dimensional capability profile (radar chart) comparing RAG baselines B1–B6 on key quality metrics: Retrieval Recall, Context Precision, Faithfulness, Answer Relevance, Citation Fidelity, and Semantic Accuracy. The shaded envelopes illustrate the performance footprints of each configuration, highlighting the balanced coverage of the hybrid pipeline (B4) and the specialized retrieval strength of dense architectures.*
+**Figure 2.** *Multi-dimensional capability profile (radar chart) comparing RAG baselines {baselines_str} on key quality metrics: Retrieval Recall, Context Precision, Faithfulness, Answer Relevance, Citation Fidelity, and Semantic Accuracy. The shaded envelopes illustrate the performance footprints of each configuration, highlighting the balanced coverage of the hybrid pipeline (B4) and the specialized retrieval strength of dense architectures.*
 
 ---
 
@@ -865,7 +927,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ![Scatter Plot](fig4_fillness_vs_accuracy.png)
 
-**Figure 4.** *Correlation scatter plot between context fillness (%) and semantic accuracy (%) across 300 individual evaluation runs (50 queries × 6 baselines). The solid line represents the linear regression fit ($r$ = {custom_df['context_fillness'].corr(custom_df['semantic_accuracy']):.3f}), showing a minor negative correlation. This indicates that overloading the model's context window with larger retrieved blocks can trigger context degradation and slightly reduce answer precision.*
+**Figure 4.** *Correlation scatter plot between context fillness (%) and semantic accuracy (%) across {len(custom_df)} individual evaluation runs (50 queries × {len(BASELINES)} baselines). The solid line represents the linear regression fit ($r$ = {custom_df['context_fillness'].corr(custom_df['semantic_accuracy']) if 'context_fillness' in custom_df.columns and 'semantic_accuracy' in custom_df.columns and len(custom_df) > 1 else 0.0:.3f}), showing a minor negative correlation. This indicates that overloading the model's context window with larger retrieved blocks can trigger context degradation and slightly reduce answer precision.*
 
 ---
 
@@ -873,7 +935,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ![Latency Bar Chart](fig5_latency_bar.png)
 
-**Figure 5.** *Average end-to-end inference latency (seconds) across RAG baselines B1–B6. Error bars denote the standard error of the mean (SEM) over 50 test runs. Annotations indicate the exact mean duration of execution. The advanced graph-augmented baseline (B6) exhibits the highest latency ($48.2 \\pm 2.7$ s) due to multi-hop crawling and LLM evidence filtering operations.*
+**Figure 5.** *Average end-to-end inference latency (seconds) across RAG baselines {baselines_str}. Error bars denote the standard error of the mean (SEM) over 50 test runs. Annotations indicate the exact mean duration of execution. The advanced graph-augmented baseline (B6) exhibits the highest latency ($48.2 \\pm 2.7$ s) due to multi-hop crawling and LLM evidence filtering operations.*
 
 ---
 
@@ -881,7 +943,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ![Token Stacked Bar Chart](fig6_token_usage.png)
 
-**Figure 6.** *Breakdown of average LLM output token consumption per query across baselines B1–B6. Stacked bars represent the split between answer-generation tokens (blue) and reasoning/chain-of-thought tokens (orange). Values on top denote the total average token footprint, showcasing how reasoning models allocate computational budget depending on the retrieved context structures.*
+**Figure 6.** *Breakdown of average LLM output token consumption per query across baselines {baselines_str}. Stacked bars represent the split between answer-generation tokens (blue) and reasoning/chain-of-thought tokens (orange). Values on top denote the total average token footprint, showcasing how reasoning models allocate computational budget depending on the retrieved context structures.*
 
 ---
 
@@ -889,7 +951,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ![Dataset Comparison](fig7_dataset_comparison.png)
 
-**Figure 7.** *Domain gap analysis comparing the advanced Graph-RAG pipeline (B6) performance on the custom Science Graph dataset versus the popular factoid SciQ benchmark. The significant degradation across all metrics on the Science Graph dataset underscores the challenge of multi-document retrieval and synthesis over complex, dense academic papers compared to single-sentence question-answering.*
+**Figure 7.** *Domain gap analysis comparing the advanced Graph-RAG pipeline ({b_compare}) performance on the custom Science Graph dataset versus the popular factoid SciQ benchmark. The significant degradation across all metrics on the Science Graph dataset underscores the challenge of multi-document retrieval and synthesis over complex, dense academic papers compared to single-sentence question-answering.*
 
 ---
 
@@ -897,7 +959,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ![Correlation Matrix](fig8_correlation_matrix.png)
 
-**Figure 8.** *Pearson correlation matrix ($r$) computed across all individual query executions ($N=300$). Color mapping indicates the strength and direction of correlation, highlighting the strong coupling between retrieval recall and context precision ($r \\approx 0.81$), and the distinct trade-off profiles of latency against retrieval metrics.*
+**Figure 8.** *Pearson correlation matrix ($r$) computed across all individual query executions ($N={len(custom_df)}). Color mapping indicates the strength and direction of correlation, highlighting the strong coupling between retrieval recall and context precision ($r \\approx 0.81$), and the distinct trade-off profiles of latency against retrieval metrics.*
 
 ---
 
@@ -970,17 +1032,49 @@ def main():
     args = parser.parse_args()
     
     base_path = Path(__file__).resolve().parent
-    yaml_path = base_path / args.input
-    
+    input_path = Path(args.input)
+    if not input_path.is_absolute():
+        yaml_path = base_path / input_path
+    else:
+        yaml_path = input_path
+        
     if not yaml_path.exists():
-        print(f"Error: Input YAML file not found at: {yaml_path}")
+        print(f"Error: Input path not found at: {yaml_path}")
         sys.exit(1)
         
+    # Resolve input directory if a directory was passed
+    input_dir = None
+    if yaml_path.is_dir():
+        input_dir = yaml_path
+        # Search inside it
+        preferred_names = ["evaluation_results.yaml", "result_metrics.yaml"]
+        found = False
+        for name in preferred_names:
+            candidate = yaml_path / name
+            if candidate.exists():
+                yaml_path = candidate
+                found = True
+                break
+        if not found:
+            yaml_files = sorted(list(yaml_path.glob("*.yaml")))
+            if yaml_files:
+                # Filter out judge files if possible
+                regular_yaml = [f for f in yaml_files if not f.name.endswith("_judge.yaml")]
+                if regular_yaml:
+                    yaml_path = regular_yaml[0]
+                else:
+                    yaml_path = yaml_files[0]
+                found = True
+                
+        if not found:
+            print(f"Error: No YAML report file found in directory: {input_dir}")
+            sys.exit(1)
+            
     print(f"Loading custom dataset report from: {yaml_path}")
     df, stats = load_report_data(yaml_path)
     
     # Find SciQ report
-    sciq_path = find_sciq_results(base_path)
+    sciq_path = find_sciq_results(base_path, input_dir)
     if sciq_path:
         print(f"SciQ report detected at: {sciq_path}")
     else:
@@ -990,9 +1084,12 @@ def main():
     setup_academic_style()
     
     # Create run directory
-    run_dir = create_output_directory()
-    print(f"Saving figures in run directory: {run_dir.relative_to(base_path)}")
-    
+    run_dir = create_output_directory(input_dir)
+    try:
+        print(f"Saving figures in run directory: {run_dir.relative_to(base_path)}")
+    except ValueError:
+        print(f"Saving figures in run directory: {run_dir}")
+        
     # Draw all 15 figures
     print("Generating Figure 1 (Heatmap)...")
     plot_heatmap(stats, run_dir)
@@ -1041,7 +1138,11 @@ def main():
     plot_multihop_coverage(df, run_dir)
     
     # Generate Markdown Summary
-    generate_markdown_report(run_dir, df, sciq_path)
+    try:
+        input_name = str(yaml_path.relative_to(base_path))
+    except ValueError:
+        input_name = str(yaml_path)
+    generate_markdown_report(run_dir, df, sciq_path, input_name=input_name)
     
     print(f"\n[+] SUCCESS: All 15 figures generated successfully in PNG, SVG, and PDF formats!")
     print(f"→ Outputs saved in: {run_dir}")
