@@ -1053,9 +1053,6 @@ def main():
     with open(parsed_dir / "run_summary.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(run_summary, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-    with open(parsed_dir / "run_summary.json", "w", encoding="utf-8") as f:
-        json.dump(run_summary, f, ensure_ascii=False, indent=2)
-
     # 7. Print Console Report
     print(f"\nParsed run: {run_dir}")
     print(f"Queries: {run_summary['query_count']}")
@@ -1116,10 +1113,6 @@ def main():
 
     if args.confusion:
         print_confusion_matrix_and_metrics_tables(data)
-    print(f"\nJoined file:\n  - {joined_csv_path}")
-    print(f"\nSummaries:\n  - {parsed_dir / 'run_summary.json'}")
-    if (parsed_dir / "graph_retrieval_trace.summary.json").exists():
-        print(f"  - {parsed_dir / 'graph_retrieval_trace.summary.json'}")
 
 
 if __name__ == "__main__":

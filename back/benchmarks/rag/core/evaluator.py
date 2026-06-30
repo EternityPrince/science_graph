@@ -790,16 +790,14 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
             for case_out in final_results:
                 case_id = case_out.get("id")
                 category = case_out.get("category", "general")
+                is_ans = case_out.get("is_answerable", True)
                 for baseline_name, b_data in case_out.get("baselines", {}).items():
                     metrics = b_data.get("eval_metrics", {})
                     entry = {
                         "query_id": case_id,
                         "baseline": baseline_name,
                         "category": category,
-<<<<<<< HEAD
                         "is_answerable": is_ans,
-=======
->>>>>>> 7c7b22f (add trace into parse_metrica)
                         "retrieval_recall": metrics.get("retrieval_recall"),
                         "context_precision": metrics.get("context_precision"),
                         "faithfulness": metrics.get("faithfulness"),
@@ -807,10 +805,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                         "citation_fidelity": metrics.get("citation_fidelity"),
                         "semantic_accuracy": metrics.get("semantic_accuracy"),
                         "context_fillness": metrics.get("context_fillness"),
-<<<<<<< HEAD
                         "ar_sa_f1": metrics.get("ar_sa_f1"),
-=======
->>>>>>> 7c7b22f (add trace into parse_metrica)
                         "latency_sec": b_data.get("latency_sec"),
                         "judge_model": model_name,
                         "token_output": metrics.get("token_output"),
