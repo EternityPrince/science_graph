@@ -166,3 +166,6 @@ back/benchmarks/rag/reports/
 
 ./graph_retrieval_trace.jsonl
 graph_retrieval_trace.jsonl
+
+./test_reports/*
+test_reports/
