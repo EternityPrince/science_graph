@@ -226,3 +226,27 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         
         # Exactly 1 call is made - no batching, no speculative loops on client side
         mock_client.chat.completions.create.assert_called_once()
+
+    @patch("os.path.exists")
+    @patch("openai.OpenAI")
+    @patch("src.services.extraction_service.con")
+    def test_extraction_service_concurrency_with_mtp(self, mock_con, mock_openai, mock_exists):
+        # Ensure MTP mode is effective
+        mock_exists.side_effect = lambda path: path.endswith("mtp.safetensors")
+        self.assertTrue(config.llm_effective_mtp_mode)
+
+        from src.services.extraction_service import ExtractionService
+        
+        # 1. With default/unspecified chunk pool size, limit should be 1
+        llm = OpenAILLMEngine()
+        llm.use_cloud = False
+        
+        service = ExtractionService(llm_engine=llm)
+        self.assertEqual(service.semaphore._value, 1)
+
+        # 2. Even if chunk_pool_size is explicitly set to > 1, MTP mode should override it to 1 and print a warning
+        service_custom = ExtractionService(llm_engine=llm, chunk_pool_size=5)
+        self.assertEqual(service_custom.semaphore._value, 1)
+        mock_con.warning.assert_called_once_with(
+            "Speculative decoding (MTP) is active on local server. Overriding chunk pool concurrency to 1 to run sequentially."
+        )

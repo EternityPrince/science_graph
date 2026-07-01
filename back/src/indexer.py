@@ -42,6 +42,37 @@ class DuplicateDocumentError(ValueError):
         self.duplicate_paper_id = duplicate_paper_id
 
 
+def create_progress(description: str, total: int):
+    import sys
+    from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, MofNCompleteColumn, TimeElapsedColumn, TimeRemainingColumn, ProgressColumn
+    from rich.text import Text
+
+    class IterationSpeedColumn(ProgressColumn):
+        def render(self, task):
+            speed = task.finished_speed or task.speed
+            if speed is None or speed == 0:
+                return Text("- sec/it", style="progress.data.speed")
+            sec_per_it = 1.0 / speed
+            return Text(f"{sec_per_it:.2f} sec/it", style="progress.data.speed")
+
+    is_testing = "pytest" in sys.modules or "unittest" in sys.modules
+    disable_progress = is_testing or (not con.console.is_terminal)
+
+    progress = Progress(
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=40, finished_style="green"),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        IterationSpeedColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=con.console,
+        disable=disable_progress
+    )
+    task = progress.add_task(description, total=total)
+    return progress, task
+
+
 class Indexer:
     def __init__(
         self,
@@ -1243,13 +1274,17 @@ class Indexer:
         con.info(f"Starting metadata re-indexing for [bold]{len(candidates)}[/bold] papers …")
         
         success_count = 0
-        with marker_session():
-            for paper_id in candidates:
-                try:
-                    if self.reindex_metadata(paper_id, use_llm=use_llm):
-                        success_count += 1
-                except Exception as e:
-                    con.error(f"Failed to re-index {paper_id}: {e}")
+        progress, task = create_progress("[cyan]Metadata Re-indexing", total=len(candidates))
+        with progress:
+            with marker_session():
+                for paper_id in candidates:
+                    try:
+                        if self.reindex_metadata(paper_id, use_llm=use_llm):
+                            success_count += 1
+                    except Exception as e:
+                        con.error(f"Failed to re-index {paper_id}: {e}")
+                    finally:
+                        progress.advance(task, 1)
 
         con.blank()
         con.success(f"Re-indexed {success_count}/{len(candidates)} papers successfully.")
@@ -1290,16 +1325,20 @@ class Indexer:
         con.info(f"Starting full re-indexing for [bold]{len(candidates)}[/bold] papers …")
         
         success_count = 0
-        with marker_session():
-            for pid in candidates:
-                try:
-                    kwargs = {}
-                    if pdf_parser_type is not None:
-                        kwargs["pdf_parser_type"] = pdf_parser_type
-                    if self.reindex_full(pid, **kwargs):
-                        success_count += 1
-                except Exception as e:
-                    con.error(f"Failed to fully re-index {pid}: {e}")
+        progress, task = create_progress("[cyan]Full Re-indexing", total=len(candidates))
+        with progress:
+            with marker_session():
+                for pid in candidates:
+                    try:
+                        kwargs = {}
+                        if pdf_parser_type is not None:
+                            kwargs["pdf_parser_type"] = pdf_parser_type
+                        if self.reindex_full(pid, **kwargs):
+                            success_count += 1
+                    except Exception as e:
+                        con.error(f"Failed to fully re-index {pid}: {e}")
+                    finally:
+                        progress.advance(task, 1)
 
         con.blank()
         con.success(f"Fully re-indexed {success_count}/{len(candidates)} papers successfully.")
@@ -1444,135 +1483,139 @@ class Indexer:
 
         # Stage 1: Parsing
         parsed_items = []
-        with marker_session():
-            for item in resolved_targets:
-                tgt = item["target"]
-                t = item["type"]
-                trace_info = {
-                    "stages": {},
-                    "tokens": {},
-                    "success": False,
-                    "name": os.path.basename(tgt) if t != "url" else tgt
-                }
+        progress, task = create_progress("[cyan]Parsing Stage", total=len(resolved_targets))
+        with progress:
+            with marker_session():
+                for item in resolved_targets:
+                    tgt = item["target"]
+                    t = item["type"]
+                    trace_info = {
+                        "stages": {},
+                        "tokens": {},
+                        "success": False,
+                        "name": os.path.basename(tgt) if t != "url" else tgt
+                    }
 
-                try:
-                    if t == "pdf":
-                        con.info(f"Parsing [bold]{os.path.basename(tgt)}[/bold]")
-                        t0 = time.perf_counter()
-                        parser = ParserFactory.get_parser(tgt, pdf_parser_type=pdf_parser_type)
-                        paper, raw_references, full_text = await asyncio.to_thread(parser.parse, tgt)
-                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+                    try:
+                        if t == "pdf":
+                            con.info(f"Parsing [bold]{os.path.basename(tgt)}[/bold]")
+                            t0 = time.perf_counter()
+                            parser = ParserFactory.get_parser(tgt, pdf_parser_type=pdf_parser_type)
+                            paper, raw_references, full_text = await asyncio.to_thread(parser.parse, tgt)
+                            trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
 
-                        archive_dir = Path(config.archive_dir)
-                        archive_path = archive_dir / f"{paper.id}.pdf"
-                        archive_path.parent.mkdir(parents=True, exist_ok=True)
-                        paper.file_path = str(archive_path)
-
-                        if len(paper.authors) < 2:
-                            t0_ner = time.perf_counter()
-                            paper.authors = await asyncio.to_thread(self._ner_fallback_authors, paper.authors, tgt)
-                            trace_info["stages"]["NER Author Fallback"] = time.perf_counter() - t0_ner
-
-                        def _archive(t_path=tgt, a_path=archive_path):
-                            self._archive_pdf(t_path, a_path)
-
-                        orig_size = 0
-                        if tgt and os.path.exists(tgt):
-                            orig_size = os.path.getsize(tgt)
-
-                        parsed_items.append({
-                            "item": item,
-                            "paper": paper,
-                            "full_text": full_text,
-                            "refs_or_links": raw_references,
-                            "is_markdown": False,
-                            "needs_enrichment": True,
-                            "archive_fn": _archive,
-                            "source_path": tgt,
-                            "orig_size": orig_size,
-                            "trace_info": trace_info
-                        })
-
-                    elif t == "md":
-                        con.info(f"Parsing note [bold]{os.path.basename(tgt)}[/bold]")
-                        t0 = time.perf_counter()
-                        parser = ParserFactory.get_parser(tgt)
-                        paper, wiki_links, body = await asyncio.to_thread(parser.parse, tgt)
-                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
-
-                        orig_size = 0
-                        if tgt and os.path.exists(tgt):
-                            orig_size = os.path.getsize(tgt)
-
-                        parsed_items.append({
-                            "item": item,
-                            "paper": paper,
-                            "full_text": body,
-                            "refs_or_links": wiki_links,
-                            "is_markdown": True,
-                            "needs_enrichment": False,
-                            "archive_fn": None,
-                            "source_path": tgt,
-                            "orig_size": orig_size,
-                            "trace_info": trace_info
-                        })
-
-                    elif t == "epub":
-                        con.info(f"Parsing EPUB [bold]{os.path.basename(tgt)}[/bold]")
-                        t0 = time.perf_counter()
-                        parser = ParserFactory.get_parser(tgt)
-                        paper, _, full_text = await asyncio.to_thread(parser.parse, tgt)
-                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
-
-                        orig_size = 0
-                        if tgt and os.path.exists(tgt):
-                            orig_size = os.path.getsize(tgt)
-
-                        parsed_items.append({
-                            "item": item,
-                            "paper": paper,
-                            "full_text": full_text,
-                            "refs_or_links": [],
-                            "is_markdown": False,
-                            "needs_enrichment": False,
-                            "archive_fn": None,
-                            "source_path": tgt,
-                            "orig_size": orig_size,
-                            "trace_info": trace_info
-                        })
-
-                    elif t == "url":
-                        con.info(f"Parsing URL [bold]{tgt}[/bold]")
-                        t0 = time.perf_counter()
-                        parser = ParserFactory.get_parser(tgt)
-                        paper, web_links, body = await asyncio.to_thread(parser.parse, tgt)
-                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
-
-                        archive_dir = Path(config.archive_dir)
-                        archive_path = archive_dir / f"{paper.id}.md"
-                        archive_path.parent.mkdir(parents=True, exist_ok=True)
-                        try:
-                            await asyncio.to_thread(archive_path.write_text, body, encoding="utf-8")
+                            archive_dir = Path(config.archive_dir)
+                            archive_path = archive_dir / f"{paper.id}.pdf"
+                            archive_path.parent.mkdir(parents=True, exist_ok=True)
                             paper.file_path = str(archive_path)
-                            con.dim(f"Saved local archive of website to {archive_path}")
-                        except Exception as e:
-                            con.warning(f"Could not save local archive of website: {e}")
 
-                        parsed_items.append({
-                            "item": item,
-                            "paper": paper,
-                            "full_text": body,
-                            "refs_or_links": web_links,
-                            "is_markdown": True,
-                            "needs_enrichment": False,
-                            "archive_fn": None,
-                            "source_path": None,
-                            "trace_info": trace_info
-                        })
-                except Exception as e:
-                    con.error(f"Failed to parse target {tgt}: {e}")
-                    trace_info["success"] = False
-                    session_traces.append(trace_info)
+                            if len(paper.authors) < 2:
+                                t0_ner = time.perf_counter()
+                                paper.authors = await asyncio.to_thread(self._ner_fallback_authors, paper.authors, tgt)
+                                trace_info["stages"]["NER Author Fallback"] = time.perf_counter() - t0_ner
+
+                            def _archive(t_path=tgt, a_path=archive_path):
+                                self._archive_pdf(t_path, a_path)
+
+                            orig_size = 0
+                            if tgt and os.path.exists(tgt):
+                                orig_size = os.path.getsize(tgt)
+
+                            parsed_items.append({
+                                "item": item,
+                                "paper": paper,
+                                "full_text": full_text,
+                                "refs_or_links": raw_references,
+                                "is_markdown": False,
+                                "needs_enrichment": True,
+                                "archive_fn": _archive,
+                                "source_path": tgt,
+                                "orig_size": orig_size,
+                                "trace_info": trace_info
+                            })
+
+                        elif t == "md":
+                            con.info(f"Parsing note [bold]{os.path.basename(tgt)}[/bold]")
+                            t0 = time.perf_counter()
+                            parser = ParserFactory.get_parser(tgt)
+                            paper, wiki_links, body = await asyncio.to_thread(parser.parse, tgt)
+                            trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+
+                            orig_size = 0
+                            if tgt and os.path.exists(tgt):
+                                orig_size = os.path.getsize(tgt)
+
+                            parsed_items.append({
+                                "item": item,
+                                "paper": paper,
+                                "full_text": body,
+                                "refs_or_links": wiki_links,
+                                "is_markdown": True,
+                                "needs_enrichment": False,
+                                "archive_fn": None,
+                                "source_path": tgt,
+                                "orig_size": orig_size,
+                                "trace_info": trace_info
+                            })
+
+                        elif t == "epub":
+                            con.info(f"Parsing EPUB [bold]{os.path.basename(tgt)}[/bold]")
+                            t0 = time.perf_counter()
+                            parser = ParserFactory.get_parser(tgt)
+                            paper, _, full_text = await asyncio.to_thread(parser.parse, tgt)
+                            trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+
+                            orig_size = 0
+                            if tgt and os.path.exists(tgt):
+                                orig_size = os.path.getsize(tgt)
+
+                            parsed_items.append({
+                                "item": item,
+                                "paper": paper,
+                                "full_text": full_text,
+                                "refs_or_links": [],
+                                "is_markdown": False,
+                                "needs_enrichment": False,
+                                "archive_fn": None,
+                                "source_path": tgt,
+                                "orig_size": orig_size,
+                                "trace_info": trace_info
+                            })
+
+                        elif t == "url":
+                            con.info(f"Parsing URL [bold]{tgt}[/bold]")
+                            t0 = time.perf_counter()
+                            parser = ParserFactory.get_parser(tgt)
+                            paper, web_links, body = await asyncio.to_thread(parser.parse, tgt)
+                            trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+
+                            archive_dir = Path(config.archive_dir)
+                            archive_path = archive_dir / f"{paper.id}.md"
+                            archive_path.parent.mkdir(parents=True, exist_ok=True)
+                            try:
+                                await asyncio.to_thread(archive_path.write_text, body, encoding="utf-8")
+                                paper.file_path = str(archive_path)
+                                con.dim(f"Saved local archive of website to {archive_path}")
+                            except Exception as e:
+                                con.warning(f"Could not save local archive of website: {e}")
+
+                            parsed_items.append({
+                                "item": item,
+                                "paper": paper,
+                                "full_text": body,
+                                "refs_or_links": web_links,
+                                "is_markdown": True,
+                                "needs_enrichment": False,
+                                "archive_fn": None,
+                                "source_path": None,
+                                "trace_info": trace_info
+                            })
+                    except Exception as e:
+                        con.error(f"Failed to parse target {tgt}: {e}")
+                        trace_info["success"] = False
+                        session_traces.append(trace_info)
+                    finally:
+                        progress.advance(task, 1)
 
         # Duplicate checking & initial filtering
         filtered_parsed_items = []
@@ -1601,209 +1644,227 @@ class Indexer:
                 trace_info["stages"]["Archiving"] = time.perf_counter() - t0_arch
 
         # Parallel metadata enrichment
-        async def enrich_item(p_item):
-            paper = p_item["paper"]
-            trace_info = p_item["trace_info"]
-            if p_item["needs_enrichment"]:
-                t0_enrich = time.perf_counter()
-                api_meta = await self._enricher.enrich_async(paper)
-                if api_meta:
-                    paper, api_refs, api_cits = self._enricher.apply(paper, api_meta)
-                    p_item["paper"] = paper
-                    p_item["api_references"] = api_refs
-                    p_item["api_citations"] = api_cits
-                trace_info["stages"]["Metadata Enrichment"] = time.perf_counter() - t0_enrich
+        items_needing_enrichment = [p for p in filtered_parsed_items if p["needs_enrichment"]]
+        if items_needing_enrichment:
+            progress, task = create_progress("[cyan]Metadata Enrichment Stage", total=len(items_needing_enrichment))
+            with progress:
+                async def enrich_item(p_item):
+                    paper = p_item["paper"]
+                    trace_info = p_item["trace_info"]
+                    if p_item["needs_enrichment"]:
+                        t0_enrich = time.perf_counter()
+                        api_meta = await self._enricher.enrich_async(paper)
+                        if api_meta:
+                            paper, api_refs, api_cits = self._enricher.apply(paper, api_meta)
+                            p_item["paper"] = paper
+                            p_item["api_references"] = api_refs
+                            p_item["api_citations"] = api_cits
+                        trace_info["stages"]["Metadata Enrichment"] = time.perf_counter() - t0_enrich
+                        progress.advance(task, 1)
 
-        enrich_tasks = [
-            asyncio.create_task(enrich_item(p_item))
-            for p_item in filtered_parsed_items
-        ]
-        if enrich_tasks:
-            await asyncio.gather(*enrich_tasks)
+                enrich_tasks = [
+                    asyncio.create_task(enrich_item(p_item))
+                    for p_item in filtered_parsed_items
+                ]
+                await asyncio.gather(*enrich_tasks)
 
-        # Stage 2: Chunking
-        for p_item in filtered_parsed_items:
-            paper = p_item["paper"]
-            full_text = p_item["full_text"]
-            source_path = p_item["source_path"]
-            trace_info = p_item["trace_info"]
-            p_item["failed"] = False
+        # Stage 2: Chunking & Embedding
+        progress, chunk_task = create_progress("[cyan]Chunking Stage", total=len(filtered_parsed_items))
+        with progress:
+            for p_item in filtered_parsed_items:
+                paper = p_item["paper"]
+                full_text = p_item["full_text"]
+                source_path = p_item["source_path"]
+                trace_info = p_item["trace_info"]
+                p_item["failed"] = False
 
-            try:
-                t0_chunk = time.perf_counter()
-                con.dim(f"Chunking: {(paper.title or paper.id)[:60]}")
+                try:
+                    t0_chunk = time.perf_counter()
+                    con.dim(f"Chunking: {(paper.title or paper.id)[:60]}")
 
-                is_pdf = p_item["archive_fn"] is not None and (source_path or paper.file_path) and (source_path or paper.file_path).endswith(".pdf")
-                if is_pdf:
-                    pdf_path = None
-                    if paper.file_path and os.path.exists(paper.file_path):
-                        pdf_path = paper.file_path
-                    elif source_path and os.path.exists(source_path):
-                        pdf_path = source_path
+                    is_pdf = p_item["archive_fn"] is not None and (source_path or paper.file_path) and (source_path or paper.file_path).endswith(".pdf")
+                    if is_pdf:
+                        pdf_path = None
+                        if paper.file_path and os.path.exists(paper.file_path):
+                            pdf_path = paper.file_path
+                        elif source_path and os.path.exists(source_path):
+                            pdf_path = source_path
+                        else:
+                            pdf_path = source_path or paper.file_path
+                        chunks = await asyncio.to_thread(split_text_to_chunks, paper.id, pdf_path)
                     else:
-                        pdf_path = source_path or paper.file_path
-                    chunks = await asyncio.to_thread(split_text_to_chunks, paper.id, pdf_path)
-                else:
-                    chunks = _split_text_to_chunks_raw(paper.id, full_text)
+                        chunks = _split_text_to_chunks_raw(paper.id, full_text)
 
-                if chunks and paper.properties.get("source_type") == "video":
-                    con.dim("Filtering video transcript chunks for database relevance...")
-                    filtered_chunks = []
-                    for chunk in chunks:
-                        if self._extractor.is_chunk_relevant(chunk.text_content, paper.title or paper.id):
-                            filtered_chunks.append(chunk)
-                    chunks = filtered_chunks
+                    if chunks and paper.properties.get("source_type") == "video":
+                        con.dim("Filtering video transcript chunks for database relevance...")
+                        filtered_chunks = []
+                        for chunk in chunks:
+                            if self._extractor.is_chunk_relevant(chunk.text_content, paper.title or paper.id):
+                                filtered_chunks.append(chunk)
+                        chunks = filtered_chunks
 
-                p_item["chunks"] = chunks
-                p_item["chunk_time"] = time.perf_counter() - t0_chunk
-            except Exception as e:
-                con.error(f"Failed during chunking for {paper.id}: {e}")
-                p_item["failed"] = True
-                trace_info["success"] = False
-                session_traces.append(trace_info)
-
-        # Stage 2.2: Batch Embedding
-        items_to_embed = [p for p in filtered_parsed_items if not p.get("failed", False)]
-        all_chunks = []
-        for p_item in items_to_embed:
-            all_chunks.extend(p_item["chunks"])
-
-        if all_chunks:
-            try:
-                t0_embed = time.perf_counter()
-                embeddings = await asyncio.to_thread(self.emb_engine.get_embeddings, [c.text_content for c in all_chunks])
-                total_embed_time = time.perf_counter() - t0_embed
-
-                idx = 0
-                for p_item in items_to_embed:
-                    doc_chunks = p_item["chunks"]
-                    for chunk in doc_chunks:
-                        chunk.embedding = embeddings[idx]
-                        idx += 1
-                    prop_embed_time = total_embed_time * (len(doc_chunks) / len(all_chunks)) if len(all_chunks) > 0 else 0.0
-                    p_item["trace_info"]["stages"]["Chunking & Embedding"] = p_item["chunk_time"] + prop_embed_time
-            except Exception as e:
-                con.error(f"Failed to generate embeddings for batch: {e}")
-                for p_item in items_to_embed:
+                    p_item["chunks"] = chunks
+                    p_item["chunk_time"] = time.perf_counter() - t0_chunk
+                except Exception as e:
+                    con.error(f"Failed during chunking for {paper.id}: {e}")
                     p_item["failed"] = True
-                    p_item["trace_info"]["success"] = False
-                    session_traces.append(p_item["trace_info"])
+                    trace_info["success"] = False
+                    session_traces.append(trace_info)
+                finally:
+                    progress.advance(chunk_task, 1)
+
+            # Stage 2.2: Batch Embedding
+            items_to_embed = [p for p in filtered_parsed_items if not p.get("failed", False)]
+            all_chunks = []
+            for p_item in items_to_embed:
+                all_chunks.extend(p_item["chunks"])
+
+            if all_chunks:
+                embed_task = progress.add_task("[cyan]Embedding Stage", total=len(all_chunks))
+                try:
+                    t0_embed = time.perf_counter()
+                    embeddings = await asyncio.to_thread(self.emb_engine.get_embeddings, [c.text_content for c in all_chunks])
+                    total_embed_time = time.perf_counter() - t0_embed
+
+                    idx = 0
+                    for p_item in items_to_embed:
+                        doc_chunks = p_item["chunks"]
+                        for chunk in doc_chunks:
+                            chunk.embedding = embeddings[idx]
+                            idx += 1
+                        prop_embed_time = total_embed_time * (len(doc_chunks) / len(all_chunks)) if len(all_chunks) > 0 else 0.0
+                        p_item["trace_info"]["stages"]["Chunking & Embedding"] = p_item["chunk_time"] + prop_embed_time
+                    progress.advance(embed_task, len(all_chunks))
+                except Exception as e:
+                    con.error(f"Failed to generate embeddings for batch: {e}")
+                    for p_item in items_to_embed:
+                        p_item["failed"] = True
+                        p_item["trace_info"]["success"] = False
+                        session_traces.append(p_item["trace_info"])
 
         # Stage 3: LLM Concept Extraction & Summary Generation
         items_for_llm = [p for p in items_to_embed if not p.get("failed", False)]
+        if items_for_llm:
+            progress, task = create_progress("[cyan]Concept Extraction Stage", total=len(items_for_llm))
+            with progress:
+                async def process_llm_for_item(p_item):
+                    paper = p_item["paper"]
+                    full_text = p_item["full_text"]
+                    trace_info = p_item["trace_info"]
 
-        async def process_llm_for_item(p_item):
-            paper = p_item["paper"]
-            full_text = p_item["full_text"]
-            trace_info = p_item["trace_info"]
+                    try:
+                        # Concept Extraction
+                        t0_extract = time.perf_counter()
+                        extraction = await self._extractor.extract_async(
+                            title=paper.title or "",
+                            abstract=paper.abstract or "",
+                            full_text=full_text,
+                            use_llm=use_llm,
+                            trace_info=trace_info,
+                        )
+                        trace_info["stages"]["Concept & Tag Extraction"] = time.perf_counter() - t0_extract
+                        p_item["extraction"] = extraction
 
-            try:
-                # Concept Extraction
-                t0_extract = time.perf_counter()
-                extraction = await self._extractor.extract_async(
-                    title=paper.title or "",
-                    abstract=paper.abstract or "",
-                    full_text=full_text,
-                    use_llm=use_llm,
-                    trace_info=trace_info,
-                )
-                trace_info["stages"]["Concept & Tag Extraction"] = time.perf_counter() - t0_extract
-                p_item["extraction"] = extraction
+                        # Summary Generation
+                        t0_summary = time.perf_counter()
+                        summary_text = await self._extractor.generate_summary_async(paper, full_text, graph_repo=None, trace_info=trace_info)
+                        trace_info["stages"]["Summary Generation"] = time.perf_counter() - t0_summary
+                        p_item["summary_text"] = summary_text
+                    except Exception as e:
+                        con.error(f"Failed during LLM extraction/summary for {paper.id}: {e}")
+                        p_item["failed"] = True
+                        trace_info["success"] = False
+                        session_traces.append(trace_info)
+                    finally:
+                        progress.advance(task, 1)
 
-                # Summary Generation
-                t0_summary = time.perf_counter()
-                summary_text = await self._extractor.generate_summary_async(paper, full_text, graph_repo=None, trace_info=trace_info)
-                trace_info["stages"]["Summary Generation"] = time.perf_counter() - t0_summary
-                p_item["summary_text"] = summary_text
-            except Exception as e:
-                con.error(f"Failed during LLM extraction/summary for {paper.id}: {e}")
-                p_item["failed"] = True
-                trace_info["success"] = False
-                session_traces.append(trace_info)
-
-        llm_tasks = [
-            asyncio.create_task(process_llm_for_item(p_item))
-            for p_item in items_for_llm
-        ]
-        if llm_tasks:
-            await asyncio.gather(*llm_tasks)
+                llm_tasks = [
+                    asyncio.create_task(process_llm_for_item(p_item))
+                    for p_item in items_for_llm
+                ]
+                await asyncio.gather(*llm_tasks)
 
         # Stage 4: Database writes
         items_to_persist = [p for p in items_for_llm if not p.get("failed", False)]
-        for p_item in items_to_persist:
-            paper = p_item["paper"]
-            full_text = p_item["full_text"]
-            extraction = p_item["extraction"]
-            summary_text = p_item["summary_text"]
-            chunks = p_item["chunks"]
-            is_markdown = p_item["is_markdown"]
-            refs_or_links = p_item["refs_or_links"]
-            api_references = p_item.get("api_references") or []
-            api_citations = p_item.get("api_citations") or []
-            trace_info = p_item["trace_info"]
-            source_path = p_item["source_path"]
+        if items_to_persist:
+            progress, task = create_progress("[cyan]Database Persistence Stage", total=len(items_to_persist))
+            with progress:
+                for p_item in items_to_persist:
+                    paper = p_item["paper"]
+                    full_text = p_item["full_text"]
+                    extraction = p_item["extraction"]
+                    summary_text = p_item["summary_text"]
+                    chunks = p_item["chunks"]
+                    is_markdown = p_item["is_markdown"]
+                    refs_or_links = p_item["refs_or_links"]
+                    api_references = p_item.get("api_references") or []
+                    api_citations = p_item.get("api_citations") or []
+                    trace_info = p_item["trace_info"]
+                    source_path = p_item["source_path"]
 
-            try:
-                t0_db = time.perf_counter()
+                    try:
+                        t0_db = time.perf_counter()
 
-                if summary_text:
-                    paper.properties["summary"] = summary_text
+                        if summary_text:
+                            paper.properties["summary"] = summary_text
 
-                orig_size = p_item.get("orig_size", 0)
-                if orig_size > 0 and paper.file_path and os.path.exists(paper.file_path):
-                    new_size = os.path.getsize(paper.file_path)
-                    trace_info["original_size"] = orig_size
-                    trace_info["compressed_size"] = new_size
+                        orig_size = p_item.get("orig_size", 0)
+                        if orig_size > 0 and paper.file_path and os.path.exists(paper.file_path):
+                            new_size = os.path.getsize(paper.file_path)
+                            trace_info["original_size"] = orig_size
+                            trace_info["compressed_size"] = new_size
 
-                if extraction.authors:
-                    existing = {a.lower() for a in paper.authors}
-                    for a in extraction.authors:
-                        if a.lower() not in existing:
-                            paper.authors.append(a)
-                            existing.add(a.lower())
+                        if extraction.authors:
+                            existing = {a.lower() for a in paper.authors}
+                            for a in extraction.authors:
+                                if a.lower() not in existing:
+                                    paper.authors.append(a)
+                                    existing.add(a.lower())
 
-                existing_tags = paper.properties.get("tags") or []
-                if extraction.tags:
-                    seen_tags = {t.lower().strip() for t in existing_tags}
-                    merged_tags = list(existing_tags)
-                    for t in extraction.tags:
-                        t_clean = t.strip()
-                        if t_clean.lower() not in seen_tags:
-                            merged_tags.append(t_clean)
-                            seen_tags.add(t_clean.lower())
-                    paper.properties["tags"] = merged_tags
+                        existing_tags = paper.properties.get("tags") or []
+                        if extraction.tags:
+                            seen_tags = {t.lower().strip() for t in existing_tags}
+                            merged_tags = list(existing_tags)
+                            for t in extraction.tags:
+                                t_clean = t.strip()
+                                if t_clean.lower() not in seen_tags:
+                                    merged_tags.append(t_clean)
+                                    seen_tags.add(t_clean.lower())
+                            paper.properties["tags"] = merged_tags
 
-                nodes_to_write, edges_to_write = await self._build_graph_writes_async(
-                    paper=paper,
-                    extraction=extraction,
-                    full_text=full_text,
-                    is_markdown=is_markdown,
-                    refs_or_links=refs_or_links,
-                    api_references=api_references,
-                    api_citations=api_citations
-                )
+                        nodes_to_write, edges_to_write = await self._build_graph_writes_async(
+                            paper=paper,
+                            extraction=extraction,
+                            full_text=full_text,
+                            is_markdown=is_markdown,
+                            refs_or_links=refs_or_links,
+                            api_references=api_references,
+                            api_citations=api_citations
+                        )
 
-                def _write_bulk_db():
-                    with self.graph_repo.transaction():
-                        self.graph_repo.save_nodes_bulk(nodes_to_write)
-                        self.graph_repo.save_edges_bulk(edges_to_write)
-                    if chunks:
-                        self.vector_repo.save_chunks_bulk(chunks)
+                        def _write_bulk_db():
+                            with self.graph_repo.transaction():
+                                self.graph_repo.save_nodes_bulk(nodes_to_write)
+                                self.graph_repo.save_edges_bulk(edges_to_write)
+                            if chunks:
+                                self.vector_repo.save_chunks_bulk(chunks)
 
-                await asyncio.to_thread(_write_bulk_db)
+                        await asyncio.to_thread(_write_bulk_db)
 
-                trace_info["stages"]["Graph & Vector Persistence"] = time.perf_counter() - t0_db
-                trace_info["authors_count"] = len(paper.authors)
-                trace_info["concepts_count"] = len(extraction.concepts)
-                trace_info["tags_count"] = len(paper.properties.get("tags") or [])
-                trace_info["references_count"] = len(edges_to_write)
-                trace_info["success"] = True
+                        trace_info["stages"]["Graph & Vector Persistence"] = time.perf_counter() - t0_db
+                        trace_info["authors_count"] = len(paper.authors)
+                        trace_info["concepts_count"] = len(extraction.concepts)
+                        trace_info["tags_count"] = len(paper.properties.get("tags") or [])
+                        trace_info["references_count"] = len(edges_to_write)
+                        trace_info["success"] = True
 
-                session_traces.append(trace_info)
-                con.success(f"Indexed [bold]{(paper.title or paper.id)[:70]}[/bold] (ID: {paper.id[:12]}…)")
-            except Exception as e:
-                con.error(f"Failed to write to database for {paper.id}: {e}")
-                trace_info["success"] = False
-                session_traces.append(trace_info)
+                        session_traces.append(trace_info)
+                        con.success(f"Indexed [bold]{(paper.title or paper.id)[:70]}[/bold] (ID: {paper.id[:12]}…)")
+                    except Exception as e:
+                        con.error(f"Failed to write to database for {paper.id}: {e}")
+                        trace_info["success"] = False
+                        session_traces.append(trace_info)
+                    finally:
+                        progress.advance(task, 1)
 
         return session_traces

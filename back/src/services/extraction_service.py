@@ -73,17 +73,22 @@ class ExtractionService:
             current_loop = None
 
         if self._sem is None or getattr(self, "_sem_loop", None) != current_loop:
-            if self._chunk_pool_size is not None:
+            is_cloud = False
+            if self.llm_engine:
+                is_cloud = (
+                    getattr(self.llm_engine, "use_cloud", False)
+                    or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1"
+                    or config.llm_provider in ("openai", "openai-compatible")
+                    or self.llm_engine.__class__.__name__ == "OpenAILLMEngine"
+                )
+
+            if config.llm_effective_mtp_mode:
+                if self._chunk_pool_size is not None and self._chunk_pool_size > 1:
+                    con.warning("Speculative decoding (MTP) is active on local server. Overriding chunk pool concurrency to 1 to run sequentially.")
+                limit = 1
+            elif self._chunk_pool_size is not None:
                 limit = self._chunk_pool_size
             else:
-                is_cloud = False
-                if self.llm_engine:
-                    is_cloud = (
-                        getattr(self.llm_engine, "use_cloud", False)
-                        or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1"
-                        or config.llm_provider in ("openai", "openai-compatible")
-                        or self.llm_engine.__class__.__name__ == "OpenAILLMEngine"
-                    )
                 if is_cloud:
                     cfg_val = getattr(config, "llm_chunk_pool_size", 50)
                     limit = cfg_val if cfg_val > 4 else 50
