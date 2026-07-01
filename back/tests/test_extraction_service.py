@@ -183,6 +183,7 @@ class TestExtractionService(unittest.TestCase):
             use_cloud = False
         
         with patch("src.services.extraction_service.config") as mock_config:
+            mock_config.llm_effective_mtp_mode = False
             mock_config.llm_provider = "mlx"
             mock_config.llm_chunk_pool_size = 4
             service = ExtractionService(llm_engine=MockMlxEngine())
@@ -194,6 +195,7 @@ class TestExtractionService(unittest.TestCase):
             use_cloud = True
 
         with patch("src.services.extraction_service.config") as mock_config:
+            mock_config.llm_effective_mtp_mode = False
             mock_config.llm_provider = "openai"
             mock_config.llm_chunk_pool_size = 4
             service = ExtractionService(llm_engine=OpenAILLMEngine())

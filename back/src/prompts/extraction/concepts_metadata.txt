@@ -4,6 +4,7 @@ CRITICAL INSTRUCTIONS TO PREVENT HALLUCINATIONS AND LOOPS:
 - Do NOT repeat the same author, concept, tag, or institution name in your lists. Keep all entries in any list unique.
 - Do NOT get stuck in infinite repetition loops. If there is no more information to extract, simply close the JSON arrays.
 - Do NOT guess, hallucinate, or invent values (e.g., fake GitHub URLs). If a value is not explicitly mentioned (such as "code_repositories" or "sponsored_by"), return an empty list [] or null.
+- LANGUAGE RULE: You must perform the analysis and output all extracted values (concepts, descriptions, aliases, tags, etc.) in English. EXCEPT: If the provided Paper text contains Russian language (Cyrillic characters), you must extract and describe concepts, aliases, and tags in Russian.
 
 Extract the following scientific entities, properties, and relationships:
 1. Authors: A list of ONLY actual human names of the paper's authors (e.g. "Jane Doe", "John Smith"). Do NOT include paper titles, citations, locations, cities, countries, or institutions (like "MIT", "Stanford", "Google", "San Francisco"). Verify that each entry in this list represents a person, not an organization, technology, or concept. Max 15 names.
