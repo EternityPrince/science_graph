@@ -35,6 +35,7 @@ DEFAULT_CONFIG = {
         # Nested split configurations
         "local": {
             "model_path": str(Path.home() / "models" / "llm" / "gemma-3-text-12b-it-4bit"),
+            "rag_model_path": str(Path.home() / "models" / "llm" / "gemma-3-text-12b-it-4bit"),
         },
         "gguf": {
             "n_gpu_layers": -1,
@@ -44,6 +45,7 @@ DEFAULT_CONFIG = {
             "provider": "openai",
             "model_name": "google/gemini-2.5-flash",
             "cheap_model_name": "google/gemini-2.5-flash",
+            "rag_model_name": "google/gemini-2.5-flash",
             "api_key": "",
             "base_url": "https://openrouter.ai/api/v1",
         },
@@ -489,11 +491,25 @@ hyperparameters:
         return self.data["llm"].get("model_path", "")
 
     @property
+    def llm_local_rag_model_path(self) -> str:
+        local_cfg = self.data["llm"].get("local", {})
+        if isinstance(local_cfg, dict):
+            return local_cfg.get("rag_model_path", self.llm_local_model_path)
+        return self.llm_local_model_path
+
+    @property
     def llm_cloud_model_name(self) -> str:
         cloud_cfg = self.data["llm"].get("cloud", {})
         if isinstance(cloud_cfg, dict):
             return cloud_cfg.get("model_name", self.data["llm"].get("model_path", ""))
         return self.data["llm"].get("model_path", "")
+
+    @property
+    def llm_cloud_rag_model_name(self) -> str:
+        cloud_cfg = self.data["llm"].get("cloud", {})
+        if isinstance(cloud_cfg, dict):
+            return cloud_cfg.get("rag_model_name", self.llm_cloud_model_name)
+        return self.llm_cloud_model_name
 
     @property
     def llm_cloud_api_key(self) -> str:

@@ -586,3 +586,12 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
     con.success(f"Stage transition complete. Retrieved contexts saved to: {output_path.resolve()}")
 
+    if not getattr(args, "no_unique_dir", False):
+        try:
+            import shutil
+            original_output_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(output_path, original_output_path)
+            con.success(f"Copied output file to: {original_output_path.resolve()}")
+        except Exception as e:
+            con.warning(f"Could not copy output file to {original_output_path}: {e}")
+

@@ -17,6 +17,8 @@ from src.llm_engine.factory import LLMEngine
 
 _local_engine_singleton = None
 _cloud_engine_singleton = None
+_local_rag_engine_singleton = None
+_cloud_rag_engine_singleton = None
 
 __all__ = [
     "LLMEngine",

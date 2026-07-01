@@ -8,6 +8,7 @@ from src.web_app import (
     get_graph_repo,
     get_vector_repo,
     get_embedding_engine,
+    get_llm_engine,
     get_default_llm_engine,
     get_rag_service,
     get_note_service
@@ -28,6 +29,7 @@ class TestWebAppEndpoints:
         app.dependency_overrides[get_graph_repo] = lambda: self.mock_graph_repo
         app.dependency_overrides[get_vector_repo] = lambda: self.mock_vector_repo
         app.dependency_overrides[get_embedding_engine] = lambda: self.mock_embedding_engine
+        app.dependency_overrides[get_llm_engine] = lambda: self.mock_llm_engine
         app.dependency_overrides[get_default_llm_engine] = lambda: self.mock_llm_engine
         app.dependency_overrides[get_rag_service] = lambda: self.mock_rag_service
         app.dependency_overrides[get_note_service] = lambda: self.mock_note_service

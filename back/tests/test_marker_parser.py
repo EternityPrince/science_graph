@@ -1,6 +1,12 @@
+import sys
+from unittest.mock import MagicMock, patch
 import unittest
-from unittest.mock import patch
 
+# Mock marker module and its submodules to prevent loading heavy dependencies (like torch/transformers)
+# and system libraries (like libmagic) during unit testing.
+sys.modules["marker"] = MagicMock()
+sys.modules["marker.convert"] = MagicMock()
+sys.modules["marker.models"] = MagicMock()
 
 from src.models import Paper
 from src.parsers.marker_parser import MarkerPDFParser, get_marker_models

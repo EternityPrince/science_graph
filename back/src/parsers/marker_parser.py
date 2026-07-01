@@ -1,11 +1,13 @@
 import os
 import re
 import logging
+import sys
+import types
+import threading
+import contextlib
 
 # Monkeypatch huggingface_hub.dataclasses.strict and mock missing transformers module
 # to ensure compatibility between marker-pdf 0.1.3 and transformers v5
-import sys
-import types
 if "transformers.utils.model_parallel_utils" not in sys.modules:
     mod = types.ModuleType("transformers.utils.model_parallel_utils")
     mod.get_device_map = lambda *a, **k: None
@@ -15,6 +17,7 @@ if "transformers.utils.model_parallel_utils" not in sys.modules:
 try:
     import huggingface_hub.dataclasses
     huggingface_hub.dataclasses.strict = lambda cls=None, *args, **kwargs: (lambda c: c) if cls is None else cls
+    huggingface_hub.dataclasses.type_validator = lambda *a, **k: None
 except ImportError:
     pass
 
@@ -64,6 +67,8 @@ logger = logging.getLogger(__name__)
 
 # Cached marker models loaded on demand
 _marker_models = None
+_marker_session_depth = 0
+_marker_session_lock = threading.Lock()
 
 def get_marker_models():
     global _marker_models
@@ -74,55 +79,71 @@ def get_marker_models():
         con.success("Marker models loaded successfully.")
     return _marker_models
 
+def shutdown_marker():
+    global _marker_models
+    if _marker_models is not None:
+        con.info("Unloading Marker models...")
+        del _marker_models
+        _marker_models = None
+        import gc
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if hasattr(torch, "mps") and torch.mps.is_available():
+                torch.mps.empty_cache()
+        except ImportError:
+            pass
+        con.success("Marker models unloaded successfully.")
+
+@contextlib.contextmanager
+def marker_session():
+    global _marker_session_depth
+    with _marker_session_lock:
+        _marker_session_depth += 1
+    try:
+        yield
+    finally:
+        with _marker_session_lock:
+            _marker_session_depth -= 1
+            if _marker_session_depth == 0:
+                shutdown_marker()
+
 class MarkerPDFParser(BaseParser):
     def parse(self, source: str) -> Tuple[Paper, List[str], str]:
         """
         Parses a PDF file using the Marker engine to produce high-quality Markdown text,
         falling back to Fitz if Marker fails or has issues.
         """
-        if not os.path.exists(source):
-            raise FileNotFoundError(f"PDF file not found: {source}")
+        with marker_session():
+            if not os.path.exists(source):
+                raise FileNotFoundError(f"PDF file not found: {source}")
 
-        # 1. Use the legacy Fitz-based parser first to get clean metadata
-        legacy_parser = PDFParser()
-        try:
-            paper, references, legacy_text = legacy_parser.parse(source)
-        except Exception as e:
-            logger.warning(f"Legacy parser failed to extract metadata from {source}: {e}")
-            paper = Paper(
-                id=slugify(os.path.basename(source)),
-                title=os.path.basename(source).replace(".pdf", ""),
-                authors=[],
-                year=2026,
-                doi=None,
-                abstract="",
-                file_path=source
-            )
-            references = []
-            legacy_text = ""
+            # 1. Use the legacy Fitz-based parser first to get clean metadata
+            legacy_parser = PDFParser()
+            try:
+                paper, references, legacy_text = legacy_parser.parse(source)
+            except Exception as e:
+                logger.warning(f"Legacy parser failed to extract metadata from {source}: {e}")
+                paper = Paper(
+                    id=slugify(os.path.basename(source)),
+                    title=os.path.basename(source).replace(".pdf", ""),
+                    authors=[],
+                    year=2026,
+                    doi=None,
+                    abstract="",
+                    file_path=source
+                )
+                references = []
+                legacy_text = ""
 
-        # 2. Extract rich Markdown text using Marker
-        try:
-            models = get_marker_models()
-            con.info(f"Extracting Markdown text from {os.path.basename(source)} using Marker...")
-            
-            from marker.convert import convert_single_pdf
-            
-            # Request Russian to enable eng+rus OCR via Tesseract
-            full_text, out_metadata = convert_single_pdf(
-                source,
-                models,
-                metadata={"language": "Russian"},
-                parallel_factor=1
-            )
-            
-            full_text = full_text.strip()
-            
-            # Extract references from the Marker-generated Markdown text
-            marker_references = self._extract_references_from_markdown(full_text)
-            if marker_references:
-                references = marker_references
+            # 2. Extract rich Markdown text using Marker
+            try:
+                models = get_marker_models()
+                con.info(f"Extracting Markdown text from {os.path.basename(source)} using Marker...")
                 
+<<<<<<< HEAD
             paper.properties["pdf_parser"] = "marker"
                 
         except Exception as e:
@@ -132,10 +153,33 @@ class MarkerPDFParser(BaseParser):
             paper.properties["pdf_parser"] = "fitz"
             paper.properties["pdf_parser_fallback"] = True
             paper.properties["pdf_parser_error"] = str(e)
+=======
+                from marker.convert import convert_single_pdf
+                
+                # Request Russian to enable eng+rus OCR via Tesseract
+                full_text, out_metadata = convert_single_pdf(
+                    source,
+                    models,
+                    metadata={"language": "Russian"},
+                    parallel_factor=1
+                )
+                
+                full_text = full_text.strip()
+                
+                # Extract references from the Marker-generated Markdown text
+                marker_references = self._extract_references_from_markdown(full_text)
+                if marker_references:
+                    references = marker_references
+                    
+            except Exception as e:
+                con.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.")
+                logger.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.", exc_info=True)
+                full_text = legacy_text
+>>>>>>> 50b4a15 (divide LLMs to RAG/index)
 
-        # Update paper file path and return
-        paper.file_path = source
-        return paper, references, full_text
+            # Update paper file path and return
+            paper.file_path = source
+            return paper, references, full_text
 
     def _extract_references_from_markdown(self, markdown_text: str) -> List[str]:
         """Heuristic to extract clean references list from Marker's markdown output."""

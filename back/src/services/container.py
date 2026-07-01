@@ -24,6 +24,8 @@ class ServiceContainer:
 
         self._llm_engine_local: Optional[BaseLLMEngine] = None
         self._llm_engine_cloud: Optional[BaseLLMEngine] = None
+        self._llm_engine_rag_local: Optional[BaseLLMEngine] = None
+        self._llm_engine_rag_cloud: Optional[BaseLLMEngine] = None
 
         self._rag_service_local: Optional[RAGService] = None
         self._rag_service_cloud: Optional[RAGService] = None
@@ -44,20 +46,30 @@ class ServiceContainer:
             self._embedding_engine = EmbeddingEngine()
         return self._embedding_engine
 
-    def get_llm_engine(self, use_cloud: bool = False) -> BaseLLMEngine:
-        if use_cloud:
-            if self._llm_engine_cloud is None:
-                self._llm_engine_cloud = LLMEngine(use_cloud=True)
-            return self._llm_engine_cloud
+    def get_llm_engine(self, use_cloud: bool = False, purpose: str = "index") -> BaseLLMEngine:
+        if purpose == "rag":
+            if use_cloud:
+                if self._llm_engine_rag_cloud is None:
+                    self._llm_engine_rag_cloud = LLMEngine(use_cloud=True, purpose="rag")
+                return self._llm_engine_rag_cloud
+            else:
+                if self._llm_engine_rag_local is None:
+                    self._llm_engine_rag_local = LLMEngine(use_cloud=False, purpose="rag")
+                return self._llm_engine_rag_local
         else:
-            if self._llm_engine_local is None:
-                self._llm_engine_local = LLMEngine(use_cloud=False)
-            return self._llm_engine_local
+            if use_cloud:
+                if self._llm_engine_cloud is None:
+                    self._llm_engine_cloud = LLMEngine(use_cloud=True)
+                return self._llm_engine_cloud
+            else:
+                if self._llm_engine_local is None:
+                    self._llm_engine_local = LLMEngine(use_cloud=False)
+                return self._llm_engine_local
 
     def get_rag_service(self, use_cloud: bool = False, warmup: bool = True) -> RAGService:
         if use_cloud:
             if self._rag_service_cloud is None:
-                llm = self.get_llm_engine(use_cloud=True)
+                llm = self.get_llm_engine(use_cloud=True, purpose="rag")
                 self._rag_service_cloud = RAGService(
                     self.get_graph_repo(),
                     self.get_vector_repo(),
@@ -68,7 +80,7 @@ class ServiceContainer:
             return self._rag_service_cloud
         else:
             if self._rag_service_local is None:
-                llm = self.get_llm_engine(use_cloud=False)
+                llm = self.get_llm_engine(use_cloud=False, purpose="rag")
                 self._rag_service_local = RAGService(
                     self.get_graph_repo(),
                     self.get_vector_repo(),

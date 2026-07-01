@@ -27,6 +27,7 @@ from src.repository.base import GraphRepository, VectorRepository
 from src.services.extraction_service import ExtractionService, ExtractionResult
 from src.services.metadata_enricher import MetadataEnricher
 from src.parsers.factory import ParserFactory
+from src.parsers.marker_parser import marker_session
 from src.config import config
 from src import console as con
 
@@ -1242,12 +1243,13 @@ class Indexer:
         con.info(f"Starting metadata re-indexing for [bold]{len(candidates)}[/bold] papers …")
         
         success_count = 0
-        for paper_id in candidates:
-            try:
-                if self.reindex_metadata(paper_id, use_llm=use_llm):
-                    success_count += 1
-            except Exception as e:
-                con.error(f"Failed to re-index {paper_id}: {e}")
+        with marker_session():
+            for paper_id in candidates:
+                try:
+                    if self.reindex_metadata(paper_id, use_llm=use_llm):
+                        success_count += 1
+                except Exception as e:
+                    con.error(f"Failed to re-index {paper_id}: {e}")
 
         con.blank()
         con.success(f"Re-indexed {success_count}/{len(candidates)} papers successfully.")
@@ -1288,15 +1290,16 @@ class Indexer:
         con.info(f"Starting full re-indexing for [bold]{len(candidates)}[/bold] papers …")
         
         success_count = 0
-        for pid in candidates:
-            try:
-                kwargs = {}
-                if pdf_parser_type is not None:
-                    kwargs["pdf_parser_type"] = pdf_parser_type
-                if self.reindex_full(pid, **kwargs):
-                    success_count += 1
-            except Exception as e:
-                con.error(f"Failed to fully re-index {pid}: {e}")
+        with marker_session():
+            for pid in candidates:
+                try:
+                    kwargs = {}
+                    if pdf_parser_type is not None:
+                        kwargs["pdf_parser_type"] = pdf_parser_type
+                    if self.reindex_full(pid, **kwargs):
+                        success_count += 1
+                except Exception as e:
+                    con.error(f"Failed to fully re-index {pid}: {e}")
 
         con.blank()
         con.success(f"Fully re-indexed {success_count}/{len(candidates)} papers successfully.")
@@ -1441,134 +1444,135 @@ class Indexer:
 
         # Stage 1: Parsing
         parsed_items = []
-        for item in resolved_targets:
-            tgt = item["target"]
-            t = item["type"]
-            trace_info = {
-                "stages": {},
-                "tokens": {},
-                "success": False,
-                "name": os.path.basename(tgt) if t != "url" else tgt
-            }
+        with marker_session():
+            for item in resolved_targets:
+                tgt = item["target"]
+                t = item["type"]
+                trace_info = {
+                    "stages": {},
+                    "tokens": {},
+                    "success": False,
+                    "name": os.path.basename(tgt) if t != "url" else tgt
+                }
 
-            try:
-                if t == "pdf":
-                    con.info(f"Parsing [bold]{os.path.basename(tgt)}[/bold]")
-                    t0 = time.perf_counter()
-                    parser = ParserFactory.get_parser(tgt, pdf_parser_type=pdf_parser_type)
-                    paper, raw_references, full_text = await asyncio.to_thread(parser.parse, tgt)
-                    trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+                try:
+                    if t == "pdf":
+                        con.info(f"Parsing [bold]{os.path.basename(tgt)}[/bold]")
+                        t0 = time.perf_counter()
+                        parser = ParserFactory.get_parser(tgt, pdf_parser_type=pdf_parser_type)
+                        paper, raw_references, full_text = await asyncio.to_thread(parser.parse, tgt)
+                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
 
-                    archive_dir = Path(config.archive_dir)
-                    archive_path = archive_dir / f"{paper.id}.pdf"
-                    archive_path.parent.mkdir(parents=True, exist_ok=True)
-                    paper.file_path = str(archive_path)
-
-                    if len(paper.authors) < 2:
-                        t0_ner = time.perf_counter()
-                        paper.authors = await asyncio.to_thread(self._ner_fallback_authors, paper.authors, tgt)
-                        trace_info["stages"]["NER Author Fallback"] = time.perf_counter() - t0_ner
-
-                    def _archive(t_path=tgt, a_path=archive_path):
-                        self._archive_pdf(t_path, a_path)
-
-                    orig_size = 0
-                    if tgt and os.path.exists(tgt):
-                        orig_size = os.path.getsize(tgt)
-
-                    parsed_items.append({
-                        "item": item,
-                        "paper": paper,
-                        "full_text": full_text,
-                        "refs_or_links": raw_references,
-                        "is_markdown": False,
-                        "needs_enrichment": True,
-                        "archive_fn": _archive,
-                        "source_path": tgt,
-                        "orig_size": orig_size,
-                        "trace_info": trace_info
-                    })
-
-                elif t == "md":
-                    con.info(f"Parsing note [bold]{os.path.basename(tgt)}[/bold]")
-                    t0 = time.perf_counter()
-                    parser = ParserFactory.get_parser(tgt)
-                    paper, wiki_links, body = await asyncio.to_thread(parser.parse, tgt)
-                    trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
-
-                    orig_size = 0
-                    if tgt and os.path.exists(tgt):
-                        orig_size = os.path.getsize(tgt)
-
-                    parsed_items.append({
-                        "item": item,
-                        "paper": paper,
-                        "full_text": body,
-                        "refs_or_links": wiki_links,
-                        "is_markdown": True,
-                        "needs_enrichment": False,
-                        "archive_fn": None,
-                        "source_path": tgt,
-                        "orig_size": orig_size,
-                        "trace_info": trace_info
-                    })
-
-                elif t == "epub":
-                    con.info(f"Parsing EPUB [bold]{os.path.basename(tgt)}[/bold]")
-                    t0 = time.perf_counter()
-                    parser = ParserFactory.get_parser(tgt)
-                    paper, _, full_text = await asyncio.to_thread(parser.parse, tgt)
-                    trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
-
-                    orig_size = 0
-                    if tgt and os.path.exists(tgt):
-                        orig_size = os.path.getsize(tgt)
-
-                    parsed_items.append({
-                        "item": item,
-                        "paper": paper,
-                        "full_text": full_text,
-                        "refs_or_links": [],
-                        "is_markdown": False,
-                        "needs_enrichment": False,
-                        "archive_fn": None,
-                        "source_path": tgt,
-                        "orig_size": orig_size,
-                        "trace_info": trace_info
-                    })
-
-                elif t == "url":
-                    con.info(f"Parsing URL [bold]{tgt}[/bold]")
-                    t0 = time.perf_counter()
-                    parser = ParserFactory.get_parser(tgt)
-                    paper, web_links, body = await asyncio.to_thread(parser.parse, tgt)
-                    trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
-
-                    archive_dir = Path(config.archive_dir)
-                    archive_path = archive_dir / f"{paper.id}.md"
-                    archive_path.parent.mkdir(parents=True, exist_ok=True)
-                    try:
-                        await asyncio.to_thread(archive_path.write_text, body, encoding="utf-8")
+                        archive_dir = Path(config.archive_dir)
+                        archive_path = archive_dir / f"{paper.id}.pdf"
+                        archive_path.parent.mkdir(parents=True, exist_ok=True)
                         paper.file_path = str(archive_path)
-                        con.dim(f"Saved local archive of website to {archive_path}")
-                    except Exception as e:
-                        con.warning(f"Could not save local archive of website: {e}")
 
-                    parsed_items.append({
-                        "item": item,
-                        "paper": paper,
-                        "full_text": body,
-                        "refs_or_links": web_links,
-                        "is_markdown": True,
-                        "needs_enrichment": False,
-                        "archive_fn": None,
-                        "source_path": None,
-                        "trace_info": trace_info
-                    })
-            except Exception as e:
-                con.error(f"Failed to parse target {tgt}: {e}")
-                trace_info["success"] = False
-                session_traces.append(trace_info)
+                        if len(paper.authors) < 2:
+                            t0_ner = time.perf_counter()
+                            paper.authors = await asyncio.to_thread(self._ner_fallback_authors, paper.authors, tgt)
+                            trace_info["stages"]["NER Author Fallback"] = time.perf_counter() - t0_ner
+
+                        def _archive(t_path=tgt, a_path=archive_path):
+                            self._archive_pdf(t_path, a_path)
+
+                        orig_size = 0
+                        if tgt and os.path.exists(tgt):
+                            orig_size = os.path.getsize(tgt)
+
+                        parsed_items.append({
+                            "item": item,
+                            "paper": paper,
+                            "full_text": full_text,
+                            "refs_or_links": raw_references,
+                            "is_markdown": False,
+                            "needs_enrichment": True,
+                            "archive_fn": _archive,
+                            "source_path": tgt,
+                            "orig_size": orig_size,
+                            "trace_info": trace_info
+                        })
+
+                    elif t == "md":
+                        con.info(f"Parsing note [bold]{os.path.basename(tgt)}[/bold]")
+                        t0 = time.perf_counter()
+                        parser = ParserFactory.get_parser(tgt)
+                        paper, wiki_links, body = await asyncio.to_thread(parser.parse, tgt)
+                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+
+                        orig_size = 0
+                        if tgt and os.path.exists(tgt):
+                            orig_size = os.path.getsize(tgt)
+
+                        parsed_items.append({
+                            "item": item,
+                            "paper": paper,
+                            "full_text": body,
+                            "refs_or_links": wiki_links,
+                            "is_markdown": True,
+                            "needs_enrichment": False,
+                            "archive_fn": None,
+                            "source_path": tgt,
+                            "orig_size": orig_size,
+                            "trace_info": trace_info
+                        })
+
+                    elif t == "epub":
+                        con.info(f"Parsing EPUB [bold]{os.path.basename(tgt)}[/bold]")
+                        t0 = time.perf_counter()
+                        parser = ParserFactory.get_parser(tgt)
+                        paper, _, full_text = await asyncio.to_thread(parser.parse, tgt)
+                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+
+                        orig_size = 0
+                        if tgt and os.path.exists(tgt):
+                            orig_size = os.path.getsize(tgt)
+
+                        parsed_items.append({
+                            "item": item,
+                            "paper": paper,
+                            "full_text": full_text,
+                            "refs_or_links": [],
+                            "is_markdown": False,
+                            "needs_enrichment": False,
+                            "archive_fn": None,
+                            "source_path": tgt,
+                            "orig_size": orig_size,
+                            "trace_info": trace_info
+                        })
+
+                    elif t == "url":
+                        con.info(f"Parsing URL [bold]{tgt}[/bold]")
+                        t0 = time.perf_counter()
+                        parser = ParserFactory.get_parser(tgt)
+                        paper, web_links, body = await asyncio.to_thread(parser.parse, tgt)
+                        trace_info["stages"]["Document Parsing"] = time.perf_counter() - t0
+
+                        archive_dir = Path(config.archive_dir)
+                        archive_path = archive_dir / f"{paper.id}.md"
+                        archive_path.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            await asyncio.to_thread(archive_path.write_text, body, encoding="utf-8")
+                            paper.file_path = str(archive_path)
+                            con.dim(f"Saved local archive of website to {archive_path}")
+                        except Exception as e:
+                            con.warning(f"Could not save local archive of website: {e}")
+
+                        parsed_items.append({
+                            "item": item,
+                            "paper": paper,
+                            "full_text": body,
+                            "refs_or_links": web_links,
+                            "is_markdown": True,
+                            "needs_enrichment": False,
+                            "archive_fn": None,
+                            "source_path": None,
+                            "trace_info": trace_info
+                        })
+                except Exception as e:
+                    con.error(f"Failed to parse target {tgt}: {e}")
+                    trace_info["success"] = False
+                    session_traces.append(trace_info)
 
         # Duplicate checking & initial filtering
         filtered_parsed_items = []
