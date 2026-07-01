@@ -51,19 +51,23 @@ class ServiceContainer:
             if use_cloud:
                 if self._llm_engine_rag_cloud is None:
                     self._llm_engine_rag_cloud = LLMEngine(use_cloud=True, purpose="rag")
+                    con.info(f"Created LLMEngine rag cloud: id={id(self._llm_engine_rag_cloud)}, use_cloud=True, purpose=rag")
                 return self._llm_engine_rag_cloud
             else:
                 if self._llm_engine_rag_local is None:
                     self._llm_engine_rag_local = LLMEngine(use_cloud=False, purpose="rag")
+                con.info(f"Created LLMEngine rag local: id={id(self._llm_engine_rag_local)}, use_cloud=False, purpose=rag")
                 return self._llm_engine_rag_local
         else:
             if use_cloud:
                 if self._llm_engine_cloud is None:
                     self._llm_engine_cloud = LLMEngine(use_cloud=True)
+                con.model_msg(f"Created LLMEngine cloud: id={id(self._llm_engine_cloud)}, use_cloud=True, purpose=index")
                 return self._llm_engine_cloud
             else:
                 if self._llm_engine_local is None:
                     self._llm_engine_local = LLMEngine(use_cloud=False)
+                con.model_msg(f"Created LLMEngine local: id={id(self._llm_engine_local)}, use_cloud=False, purpose=index")
                 return self._llm_engine_local
 
     def get_rag_service(self, use_cloud: bool = False, warmup: bool = True) -> RAGService:
