@@ -1,12 +1,24 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import os
+import src.llm_engine
 from src.config import config
 from src.llm_engine.openai_impl import OpenAILLMEngine
 from src.llm_engine.factory import LLMEngine
 
 class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.orig_singletons = (
+            src.llm_engine._local_engine_singleton,
+            src.llm_engine._cloud_engine_singleton,
+            src.llm_engine._local_rag_engine_singleton,
+            src.llm_engine._cloud_rag_engine_singleton,
+        )
+        src.llm_engine._local_engine_singleton = None
+        src.llm_engine._cloud_engine_singleton = None
+        src.llm_engine._local_rag_engine_singleton = None
+        src.llm_engine._cloud_rag_engine_singleton = None
+
         self.orig_data = config.data
         config.data = {
             "llm": {
@@ -24,6 +36,10 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         }
 
     def tearDown(self):
+        src.llm_engine._local_engine_singleton = self.orig_singletons[0]
+        src.llm_engine._cloud_engine_singleton = self.orig_singletons[1]
+        src.llm_engine._local_rag_engine_singleton = self.orig_singletons[2]
+        src.llm_engine._cloud_rag_engine_singleton = self.orig_singletons[3]
         config.data = self.orig_data
 
     @patch("os.path.exists")
