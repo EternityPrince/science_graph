@@ -24,6 +24,8 @@ DEFAULT_CONFIG = {
         "hyde_enabled": False,
         "hyde_max_tokens": 300,
         "hyde_count": 1,
+        "enable_mtp": True,
+        "auto_disable_mtp_if_missing_files": True,
         # Task-specific input token limits
         "extraction_input_limit": 5000,
         "clustering_input_limit": 6000,
@@ -252,6 +254,12 @@ llm:
 
   # Number of hypothetical answers to generate
   hyde_count: 1
+
+  # Enable speculative decoding (MTP) mode for local OpenAI-compatible backends
+  enable_mtp: true
+
+  # Automatically disable MTP mode if speculative decoding files (e.g. mtp.safetensors) are missing
+  auto_disable_mtp_if_missing_files: true
 
   # Local model settings (used if provider is 'mlx' or 'gguf')
   # Note: For 'mlx', model_path is a directory; for 'gguf', model_path is a file path to the .gguf model.
@@ -505,8 +513,8 @@ hyperparameters:
     def llm_cloud_model_name(self) -> str:
         cloud_cfg = self.data["llm"].get("cloud", {})
         if isinstance(cloud_cfg, dict):
-            return cloud_cfg.get("model_name", self.data["llm"].get("model_path", ""))
-        return self.data["llm"].get("model_path", "")
+            return cloud_cfg.get("model_name", self.data["llm"].get("model_name", self.data["llm"].get("model_path", "")))
+        return self.data["llm"].get("model_name", self.data["llm"].get("model_path", ""))
 
     @property
     def llm_cloud_rag_model_name(self) -> str:
@@ -537,6 +545,44 @@ hyperparameters:
         return "google/gemini-2.5-flash"
 
     @property
+    def llm_enable_mtp(self) -> bool:
+        return bool(self.data["llm"].get("enable_mtp", True))
+
+    @property
+    def llm_auto_disable_mtp_if_missing_files(self) -> bool:
+        return bool(self.data["llm"].get("auto_disable_mtp_if_missing_files", True))
+
+    @property
+    def llm_mtp_file_found(self) -> bool:
+        model_path = self.llm_model_path
+        if not model_path:
+            return False
+        import os
+        try:
+            target = os.path.join(model_path, "mtp.safetensors")
+            return os.path.exists(target)
+        except Exception:
+            return False
+
+    @property
+    def llm_effective_mtp_mode(self) -> bool:
+        requested = self.llm_enable_mtp
+        if not requested:
+            return False
+        found = self.llm_mtp_file_found
+        if not found:
+            return False
+        return True
+
+    @property
+    def llm_expected_launch_command(self) -> str:
+        model_path = self.llm_model_path or ""
+        if self.llm_effective_mtp_mode:
+            return f"optiq serve --model {model_path} --mtp"
+        else:
+            return f"optiq serve --model {model_path}"
+
+    @property
     def llm_max_tokens(self) -> int:
         return self.data["llm"].get("max_tokens", 1000)
 
@@ -547,7 +593,7 @@ hyperparameters:
             return int(val)
         
         provider = self.llm_provider
-        if provider == "openai":
+        if provider in ("openai", "openai-compatible"):
             model_name = self.llm_cloud_model_name.lower()
             if "gpt-4o" in model_name:
                 return 128000

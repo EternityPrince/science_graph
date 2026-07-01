@@ -81,7 +81,7 @@ class ExtractionService:
                     is_cloud = (
                         getattr(self.llm_engine, "use_cloud", False)
                         or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1"
-                        or config.llm_provider == "openai"
+                        or config.llm_provider in ("openai", "openai-compatible")
                         or self.llm_engine.__class__.__name__ == "OpenAILLMEngine"
                     )
                 if is_cloud:

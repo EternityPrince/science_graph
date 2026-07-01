@@ -9,7 +9,7 @@ from src.llm_engine.base import BaseLLMEngine
 def LLMEngine(use_cloud: bool = False, purpose: str = "index", *args, **kwargs) -> BaseLLMEngine:
     """Factory for returning the correct LLM Engine based on config/parameters."""
     import src.llm_engine
-    is_cloud = use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1" or config.llm_provider == "openai"
+    is_cloud = use_cloud or os.environ.get("SCIENCE_GRAPH_USE_CLOUD") == "1" or config.llm_provider in ("openai", "openai-compatible")
     
     if purpose == "rag":
         if is_cloud:

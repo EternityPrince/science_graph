@@ -35,12 +35,37 @@ class OpenAILLMEngine(BaseLLMEngine):
     def __init__(self, model_name: str = None):
         import openai
         api_key = config.llm_cloud_api_key
+        if not api_key and config.llm_provider == "openai-compatible":
+            api_key = "dummy"
+
         base_url = config.llm_cloud_base_url
         self.model_name = model_name or config.llm_cloud_model_name
 
         if not api_key:
             con.error("API key is not configured for OpenAI/OpenRouter.")
             raise ValueError("Missing API key for OpenAI provider")
+
+        # Determine MTP details
+        mtp_requested = config.llm_enable_mtp
+        mtp_file_found = config.llm_mtp_file_found
+        mtp_effective = config.llm_effective_mtp_mode
+        model_path = config.llm_model_path
+        actual_base_url = base_url or "https://api.openai.com/v1"
+
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"MTP requested: {str(mtp_requested).lower()}")
+        logger.info(f"MTP file found: {str(mtp_file_found).lower()}")
+        logger.info(f"MTP effective mode: {'enabled' if mtp_effective else 'disabled'}")
+        logger.info(f"Model path: {model_path}")
+        logger.info(f"Backend base URL: {actual_base_url}")
+        logger.info("Request mode: one-shot")
+        logger.info("Token limits source: existing project config")
+        logger.info("Token estimation source: existing tiktoken mechanism")
+
+        if mtp_requested and not mtp_file_found:
+            logger.warning("MTP file (mtp.safetensors) is missing in model path. MTP will be disabled.")
+            con.warning("MTP file (mtp.safetensors) is missing in model path. MTP will be disabled.")
 
         client_args = {"api_key": api_key}
         if base_url:
