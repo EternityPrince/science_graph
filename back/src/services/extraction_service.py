@@ -89,6 +89,7 @@ class ExtractionService:
             elif self._chunk_pool_size is not None:
                 limit = self._chunk_pool_size
             else:
+
                 if is_cloud:
                     cfg_val = getattr(config, "llm_chunk_pool_size", 50)
                     limit = cfg_val if cfg_val > 4 else 50
