@@ -594,3 +594,4 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
             con.success(f"Copied output file to: {original_output_path.resolve()}")
         except Exception as e:
             con.warning(f"Could not copy output file to {original_output_path}: {e}")
+
