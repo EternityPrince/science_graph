@@ -83,7 +83,7 @@ class TestOptimizedRAG(unittest.TestCase):
             mock_mlx_clear.assert_called_once()
 
     def test_metric_merging_in_runner(self):
-        from benchmarks.rag.run_benchmarks import merge_evaluation_data
+        from benchmarks.rag.core.generation import merge_evaluation_data
         
         existing = {
             "metadata": {

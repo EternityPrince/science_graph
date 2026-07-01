@@ -283,13 +283,13 @@ def patch_config_for_custom(custom_comp: dict, custom_hype: dict):
     core.config.get_baseline_config = custom_get_baseline_config
     
     try:
-        import core.retrieval
-        core.retrieval.get_baseline_config = custom_get_baseline_config
+        import core.retrieval as core_retrieval
+        core_retrieval.get_baseline_config = custom_get_baseline_config
     except ImportError:
         pass
 
     try:
-        import core.generation
-        core.generation.get_baseline_config = custom_get_baseline_config
+        import core.generation as core_generation
+        core_generation.get_baseline_config = custom_get_baseline_config
     except ImportError:
         pass

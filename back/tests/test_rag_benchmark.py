@@ -3,7 +3,8 @@ from unittest.mock import MagicMock, patch
 import yaml
 from pathlib import Path
 
-from benchmarks.rag.run_benchmarks import get_baseline_config, run_query_on_baseline, BASELINES_INFO
+from benchmarks.rag.run_benchmarks import get_baseline_config, run_query_on_baseline
+from benchmarks.rag.core.config import BASELINES_INFO
 from src.config import config
 from src.services.rag_service import RAGService
 
@@ -121,7 +122,7 @@ class TestRagBenchmark(unittest.TestCase):
 
     def test_merge_evaluation_data(self):
         """Verifies that merge_evaluation_data successfully merges baseline reports."""
-        from benchmarks.rag.run_benchmarks import merge_evaluation_data
+        from benchmarks.rag.core.generation import merge_evaluation_data
         
         existing = {
             "metadata": {
@@ -174,7 +175,7 @@ class TestRagBenchmark(unittest.TestCase):
 
     def test_stats_collector(self):
         """Ensures BenchmarkStatsCollector records calls and timings correctly."""
-        from benchmarks.rag.run_benchmarks import BenchmarkStatsCollector
+        from benchmarks.rag.core.stats import BenchmarkStatsCollector
         
         mock_rag = MagicMock(spec=RAGService)
         mock_rag.emb_engine = MagicMock()
@@ -404,8 +405,8 @@ class TestRagBenchmark(unittest.TestCase):
             self.assertEqual(reader_det[1][:23], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", "", "", "", "", "", "", "", "", "", ""])
             self.assertEqual(reader_det[2][:23], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", "", "", "", "", "", "", "", "", "", ""])
 
-    @patch("benchmarks.rag.run_pipeline.subprocess.check_output")
-    @patch("benchmarks.rag.run_pipeline.subprocess.run")
+    @patch("subprocess.check_output")
+    @patch("subprocess.run")
     @patch("benchmarks.rag.run_pipeline.run_command_with_progress")
     def test_run_pipeline_orchestration(self, mock_run_progress, mock_run, mock_check_output):
         """Verifies that run_pipeline.py runs all three stages in sequence with correct arguments."""

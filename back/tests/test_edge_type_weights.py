@@ -20,7 +20,7 @@ from src.services.rag_service import RAGService
 
 # Ensure benchmarks module is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks" / "rag"))
-from run_custom_retrieve import (
+from config_creator import (
     build_custom_config,
     CUSTOM_PRESET_HYPERPARAMS,
     get_custom_preset_weights,

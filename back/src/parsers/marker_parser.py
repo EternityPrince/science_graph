@@ -143,17 +143,6 @@ class MarkerPDFParser(BaseParser):
                 models = get_marker_models()
                 con.info(f"Extracting Markdown text from {os.path.basename(source)} using Marker...")
                 
-<<<<<<< HEAD
-            paper.properties["pdf_parser"] = "marker"
-                
-        except Exception as e:
-            con.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.")
-            logger.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.", exc_info=True)
-            full_text = legacy_text
-            paper.properties["pdf_parser"] = "fitz"
-            paper.properties["pdf_parser_fallback"] = True
-            paper.properties["pdf_parser_error"] = str(e)
-=======
                 from marker.convert import convert_single_pdf
                 
                 # Request Russian to enable eng+rus OCR via Tesseract
@@ -170,12 +159,16 @@ class MarkerPDFParser(BaseParser):
                 marker_references = self._extract_references_from_markdown(full_text)
                 if marker_references:
                     references = marker_references
+                
+                paper.properties["pdf_parser"] = "marker"
                     
             except Exception as e:
                 con.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.")
                 logger.warning(f"Marker PDF parsing failed for {source}: {e}. Falling back to standard PDF parser.", exc_info=True)
                 full_text = legacy_text
->>>>>>> 50b4a15 (divide LLMs to RAG/index)
+                paper.properties["pdf_parser"] = "fitz"
+                paper.properties["pdf_parser_fallback"] = True
+                paper.properties["pdf_parser_error"] = str(e)
 
             # Update paper file path and return
             paper.file_path = source

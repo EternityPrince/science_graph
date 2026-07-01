@@ -257,6 +257,8 @@ llm:
   # Note: For 'mlx', model_path is a directory; for 'gguf', model_path is a file path to the .gguf model.
   local:
     model_path: "{DEFAULT_CONFIG['llm']['local']['model_path']}"
+    # Separate fine-tuned model path used specifically for RAG generation (optional)
+    rag_model_path: "{DEFAULT_CONFIG['llm']['local']['rag_model_path']}"
 
   # GGUF-specific settings (used if provider is 'gguf')
   gguf:
@@ -269,6 +271,8 @@ llm:
   cloud:
     provider: "openai"
     model_name: "google/gemini-2.5-flash"
+    # Separate model name used specifically for RAG generation (optional)
+    rag_model_name: "google/gemini-2.5-flash"
     api_key: ""
     base_url: "https://openrouter.ai/api/v1"
 
