@@ -19,6 +19,7 @@ import asyncio
 import threading
 import numpy as np
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
 from src.models import Paper, Author, Concept, slugify

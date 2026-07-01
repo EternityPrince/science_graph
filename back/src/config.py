@@ -520,8 +520,8 @@ hyperparameters:
     def llm_local_base_url(self) -> str:
         local_cfg = self.data["llm"].get("local", {})
         if isinstance(local_cfg, dict):
-            return local_cfg.get("base_url", "http://localhost:8080/v1")
-        return "http://localhost:8080/v1"
+            return local_cfg.get("rag_model_path", self.llm_local_model_path)
+        return self.llm_local_model_path
 
     @property
     def llm_cloud_model_name(self) -> str:
@@ -544,7 +544,7 @@ hyperparameters:
             default_name = "google/gemini-2.5-flash"
             if not rag_name or rag_name == model_name or rag_name == default_name:
                 return self.llm_cloud_model_name
-            return rag_name
+            return cloud_cfg.get("rag_model_name", self.llm_cloud_model_name)
         return self.llm_cloud_model_name
 
     @property

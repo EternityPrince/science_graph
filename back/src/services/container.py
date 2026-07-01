@@ -60,7 +60,7 @@ class ServiceContainer:
             else:
                 if self._llm_engine_rag_local is None:
                     self._llm_engine_rag_local = LLMEngine(use_cloud=False, purpose="rag")
-                con.info(f"Created LLMEngine rag local: id={id(self._llm_engine_rag_local)}, use_cloud=False, purpose=rag")
+                    con.info(f"Created LLMEngine rag local: id={id(self._llm_engine_rag_local)}, use_cloud=False, purpose=rag")
                 return self._llm_engine_rag_local
         else:
             if use_cloud:
