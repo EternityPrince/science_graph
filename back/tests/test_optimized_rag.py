@@ -94,7 +94,6 @@ class TestOptimizedRAG(unittest.TestCase):
         rag_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "benchmarks", "rag"))
         if rag_path not in sys.path:
             sys.path.insert(0, rag_path)
-            
         from benchmarks.rag.core.generation import merge_evaluation_data
         
         existing = {
