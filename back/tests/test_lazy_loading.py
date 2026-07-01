@@ -9,9 +9,8 @@ from src.llm_engine import MlxLLMEngine
 
 class TestLazyLoading(unittest.TestCase):
     @patch("sentence_transformers.SentenceTransformer")
-    @patch("torch.backends.mps.is_available")
-    def test_embedding_engine_lazy_loading(self, mock_mps_available, mock_sentence_transformer):
-        mock_mps_available.return_value = False
+    @patch.object(EmbeddingEngine, "_get_device", return_value="cpu")
+    def test_embedding_engine_lazy_loading(self, mock_get_device, mock_sentence_transformer):
         
         # 1. Instantiate the engine - model should NOT be loaded
         engine = EmbeddingEngine(model_name="all-MiniLM-L6-v2")

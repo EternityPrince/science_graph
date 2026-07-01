@@ -117,26 +117,21 @@ class TestVectorSearch:
                 os.remove(pdf_path)
 
     @patch("sentence_transformers.SentenceTransformer")
-    @patch("torch.backends.mps.is_available")
-    def test_embedding_engine_device_selection_mps(self, mock_mps_available, mock_sentence_transformer):
-        mock_mps_available.return_value = True
-        
+    @patch.object(EmbeddingEngine, "_get_device", return_value="mps")
+    def test_embedding_engine_device_selection_mps(self, mock_get_device, mock_sentence_transformer):
         engine = EmbeddingEngine(model_name="paraphrase-MiniLM")
         engine._ensure_model_loaded()
         
         mock_sentence_transformer.assert_called_once_with("paraphrase-MiniLM", device="mps")
 
     @patch("sentence_transformers.SentenceTransformer")
-    @patch("torch.backends.mps.is_available")
-    @patch("torch.cuda.is_available")
-    def test_embedding_engine_device_selection_cpu(self, mock_cuda_available, mock_mps_available, mock_sentence_transformer):
-        mock_mps_available.return_value = False
-        mock_cuda_available.return_value = False
-        
+    @patch.object(EmbeddingEngine, "_get_device", return_value="cpu")
+    def test_embedding_engine_device_selection_cpu(self, mock_get_device, mock_sentence_transformer):
         engine = EmbeddingEngine(model_name="paraphrase-MiniLM")
         engine._ensure_model_loaded()
         
         mock_sentence_transformer.assert_called_once_with("paraphrase-MiniLM", device="cpu")
+
 
     def test_bm25_incremental_indexing(self):
         corpus = [

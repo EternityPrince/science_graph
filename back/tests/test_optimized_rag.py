@@ -54,16 +54,16 @@ class TestOptimizedRAG(unittest.TestCase):
         # Should only encode the uncached "q2"
         mock_model.encode.assert_called_once_with(["q2"], convert_to_numpy=True, show_progress_bar=False)
 
-    def test_embedding_engine_unload(self):
+    @patch.object(EmbeddingEngine, "_empty_device_cache")
+    def test_embedding_engine_unload(self, mock_empty_cache):
         engine = EmbeddingEngine(model_name="sentence-transformers/all-MiniLM-L6-v2")
         engine.model = MagicMock()
+        engine.device = "mps"
         self.assertIsNotNone(engine.model)
 
-        with patch("torch.mps.empty_cache") as mock_mps_clear:
-            engine.unload_model()
-            self.assertIsNone(engine.model)
-            if torch.backends.mps.is_available():
-                mock_mps_clear.assert_called_once()
+        engine.unload_model()
+        self.assertIsNone(engine.model)
+        mock_empty_cache.assert_called_once_with("mps")
 
     @patch("mlx.core.clear_cache")
     def test_mlx_llm_engine_unload(self, mock_mlx_clear):
@@ -83,6 +83,13 @@ class TestOptimizedRAG(unittest.TestCase):
             mock_mlx_clear.assert_called_once()
 
     def test_metric_merging_in_runner(self):
+        import sys
+        import os
+        # Add benchmarks/rag to sys.path so 'core' module can be imported
+        rag_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "benchmarks", "rag"))
+        if rag_path not in sys.path:
+            sys.path.insert(0, rag_path)
+            
         from benchmarks.rag.core.generation import merge_evaluation_data
         
         existing = {

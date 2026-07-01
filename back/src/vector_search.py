@@ -10,7 +10,19 @@ class EmbeddingEngine:
     def __init__(self, model_name: str = None):
         self.model_name = model_name or config.embedding_model_name
         self.model = None
+        self.device = None
         self._query_cache = {}
+
+    def _get_device(self) -> str:
+        try:
+            import torch
+            if torch.backends.mps.is_available():
+                return "mps"
+            elif torch.cuda.is_available():
+                return "cuda"
+        except (ImportError, AttributeError):
+            pass
+        return "cpu"
 
     def _ensure_model_loaded(self):
         if self.model is None:
@@ -18,25 +30,29 @@ class EmbeddingEngine:
             short = self.model_name.split("/")[-1]
             con.model_msg(f"Loading embeddings [bold]{short}[/bold] …")
             with con.suppress_stderr(), con.suppress_stdout():
-                import torch
                 from sentence_transformers import SentenceTransformer
-                device = "mps" if torch.backends.mps.is_available() else "cpu"
-                self.model = SentenceTransformer(self.model_name, device=device)
-            con.success(f"Embeddings ready: [bold]{short}[/bold] on {device.upper()}")
+                self.device = self._get_device()
+                self.model = SentenceTransformer(self.model_name, device=self.device)
+            con.success(f"Embeddings ready: [bold]{short}[/bold] on {self.device.upper()}")
+
+    def _empty_device_cache(self, device: str):
+        try:
+            import torch
+            if device == "mps":
+                torch.mps.empty_cache()
+            elif device == "cuda":
+                torch.cuda.empty_cache()
+        except (ImportError, AttributeError):
+            pass
 
     def unload_model(self):
         if self.model is not None:
             import gc
             self.model = None
             gc.collect()
-            try:
-                import torch
-                if torch.backends.mps.is_available():
-                    torch.mps.empty_cache()
-                elif torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except ImportError:
-                pass
+            device_to_clear = self.device or self._get_device()
+            self._empty_device_cache(device_to_clear)
+            self.device = None
             from src import console as con
             con.success("EmbeddingEngine model unloaded and GPU cache cleared")
 
