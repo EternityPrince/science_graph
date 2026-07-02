@@ -139,9 +139,10 @@ def test_mcp_index_file_unsupported():
         assert res["status"] == "error"
         assert "supported" in res["message"]
 
+@patch("src.mcp_server.get_llm_engine")
 @patch("src.mcp_server.os.path.exists")
 @patch("src.mcp_server.Indexer")
-def test_mcp_index_file_success(mock_indexer_cls, mock_exists):
+def test_mcp_index_file_success(mock_indexer_cls, mock_exists, mock_get_llm):
     mock_exists.return_value = True
     mock_indexer = MagicMock()
     mock_indexer_cls.return_value = mock_indexer
@@ -162,9 +163,10 @@ def test_mcp_index_file_success(mock_indexer_cls, mock_exists):
     assert res_epub["status"] == "success"
     assert res_epub["id"] == "epub_id"
 
+@patch("src.mcp_server.get_llm_engine")
 @patch("src.mcp_server.os.path.exists")
 @patch("src.mcp_server.Indexer")
-def test_mcp_index_file_duplicate_error(mock_indexer_cls, mock_exists):
+def test_mcp_index_file_duplicate_error(mock_indexer_cls, mock_exists, mock_get_llm):
     mock_exists.return_value = True
     mock_indexer = MagicMock()
     mock_indexer_cls.return_value = mock_indexer
@@ -175,14 +177,16 @@ def test_mcp_index_file_duplicate_error(mock_indexer_cls, mock_exists):
     assert res["status"] == "error"
     assert "Duplicate document" in res["message"]
 
-def test_mcp_index_url_empty():
+@patch("src.mcp_server.get_llm_engine")
+def test_mcp_index_url_empty(mock_get_llm):
     res = index_url("")
     assert res["status"] == "error"
     assert "No URLs" in res["message"]
 
+@patch("src.mcp_server.get_llm_engine")
 @patch("src.mcp_server.Indexer")
 @patch("src.mcp_server.get_graph_repo")
-def test_mcp_index_url_success(mock_get_graph, mock_indexer_cls):
+def test_mcp_index_url_success(mock_get_graph, mock_indexer_cls, mock_get_llm):
     mock_repo = MagicMock()
     mock_get_graph.return_value = mock_repo
     from src.models import Paper

@@ -14,7 +14,7 @@ except ImportError:
 
 from src.config import config
 from src import console as con
-from src.llm_engine.base import BaseLLMEngine, strip_thinking_tokens
+from src.llm_engine.base import BaseLLMEngine, strip_thinking_tokens, _local_request_lock
 
 
 def build_mlx_tokenizer_data(tokenizer) -> Any:
@@ -106,6 +106,21 @@ class MlxLLMEngine(BaseLLMEngine):
             raise FileNotFoundError(
                 f"Local MLX model path not found: {self.model_path}\n"
                 f"  Run: python3 main.py config  to see configured paths."
+            )
+
+        # Detect OptiQ quantized models
+        optiq_meta = Path(self.model_path) / "optiq_metadata.json"
+        if optiq_meta.exists():
+            raise ValueError(
+                f"Directory '{self.model_path}' is an OptiQ-quantized model.\n"
+                "OptiQ models cannot be loaded directly in-process via provider='mlx'.\n"
+                "To use this model, please run standard OptiQ server in your terminal:\n"
+                "   optiq serve --model " + self.model_path + " --mtp\n"
+                "And set your configuration in config.yaml:\n"
+                "   llm:\n"
+                "     provider: openai-compatible\n"
+                "     local:\n"
+                "       base_url: http://localhost:8080/v1"
             )
 
         # Force-import mlx_lm.generate on the current (main) thread so that
@@ -253,14 +268,15 @@ class MlxLLMEngine(BaseLLMEngine):
         from mlx_lm.sample_utils import make_sampler
         sampler = make_sampler(temp=temp)
 
-        response = generate(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            prompt=formatted_prompt,
-            max_tokens=resolved_max_tokens,
-            sampler=sampler,
-            verbose=False,
-        )
+        with _local_request_lock:
+            response = generate(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                prompt=formatted_prompt,
+                max_tokens=resolved_max_tokens,
+                sampler=sampler,
+                verbose=False,
+            )
         return strip_thinking_tokens(response)
 
     def generate_json(
@@ -316,15 +332,16 @@ class MlxLLMEngine(BaseLLMEngine):
         from mlx_lm.sample_utils import make_sampler
         sampler = make_sampler(temp=temp)
 
-        response = generate(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            prompt=formatted_prompt,
-            max_tokens=resolved_max_tokens,
-            sampler=sampler,
-            verbose=False,
-            logits_processors=[logits_processor],
-        )
+        with _local_request_lock:
+            response = generate(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                prompt=formatted_prompt,
+                max_tokens=resolved_max_tokens,
+                sampler=sampler,
+                verbose=False,
+                logits_processors=[logits_processor],
+            )
         return strip_thinking_tokens(response)
 
     async def generate_response_async(

@@ -230,3 +230,37 @@ class TestOpenAILLMEngine(unittest.IsolatedAsyncioTestCase):
         res = await engine.generate_json_async("get bob info", schema_class=MockSchema)
         self.assertEqual(res, '{"name": "Bob", "age": 25}')
         mock_client.chat.completions.create.assert_called_once()
+
+    @patch("openai.OpenAI")
+    @patch("subprocess.Popen")
+    @patch("time.sleep")
+    def test_openai_engine_starts_local_server(self, mock_sleep, mock_popen, mock_openai):
+        # Setup mocks
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        
+        # Make the first list() fail to simulate server offline, and second succeed
+        mock_client.models.list.side_effect = [Exception("offline"), MagicMock()]
+        
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+        
+        # Temporarily remove PYTEST_CURRENT_TEST to trigger lifecycle logic
+        import os
+        orig_test = os.environ.get("PYTEST_CURRENT_TEST")
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            del os.environ["PYTEST_CURRENT_TEST"]
+            
+        try:
+            # We must set provider to openai-compatible, base_url to localhost
+            with patch.dict(config.data, {"llm": {"provider": "openai-compatible", "local": {"base_url": "http://localhost:8080/v1", "model_path": "optiq-model"}}}):
+                engine = OpenAILLMEngine(base_url="http://localhost:8080/v1")
+                
+                # Check subprocess was spawned
+                mock_popen.assert_called_once()
+                self.assertIsNotNone(engine.server_process)
+        finally:
+            # Restore environment variable
+            if orig_test:
+                os.environ["PYTEST_CURRENT_TEST"] = orig_test

@@ -7,7 +7,11 @@ import re
 import functools
 import inspect
 import asyncio
+import threading
 from typing import Optional, Type, Any
+
+# Global lock to serialize all local LLM requests to prevent GPU memory/KV cache contention
+_local_request_lock = threading.Lock()
 
 from pydantic import BaseModel, ValidationError
 from src.config import config
