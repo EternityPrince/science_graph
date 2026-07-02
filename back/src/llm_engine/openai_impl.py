@@ -147,6 +147,21 @@ class OpenAILLMEngine(BaseLLMEngine):
         self._is_local = is_local
         self.rate_limiter = AsyncRateLimiter(config.llm_request_delay)
 
+        # Auto-discover the actual model name from the local server.
+        # Local servers (optiq, ollama, vLLM) expose loaded models via /v1/models.
+        # Using the wrong name causes the server to try downloading from HuggingFace.
+        if is_local and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                models_response = self.client.models.list()
+                available = [m.id for m in models_response.data]
+                if available:
+                    discovered = available[0]
+                    if discovered != self.model_name:
+                        con.info(f"Auto-discovered local model name: [bold]{discovered}[/bold] (was: {self.model_name})")
+                        self.model_name = discovered
+            except Exception:
+                pass  # Fall back to configured model_name
+
         try:
             import tiktoken
             self.tokenizer = tiktoken.encoding_for_model(self.model_name)
