@@ -559,8 +559,14 @@ hyperparameters:
             return False
         import os
         try:
-            target = os.path.join(model_path, "mtp.safetensors")
-            return os.path.exists(target)
+            if os.path.exists(os.path.join(model_path, "mtp.safetensors")) or os.path.exists(os.path.join(model_path, "mtp.safetensor")):
+                return True
+            
+            if os.path.isdir(model_path):
+                for f in os.listdir(model_path):
+                    if f.startswith("mtp") and (f.endswith(".safetensors") or f.endswith(".safetensor")):
+                        return True
+            return False
         except Exception:
             return False
 
@@ -569,9 +575,36 @@ hyperparameters:
         requested = self.llm_enable_mtp
         if not requested:
             return False
-        found = self.llm_mtp_file_found
-        if not found:
-            return False
+        
+        provider = self.llm_provider
+        is_local = provider in ("mlx", "gguf")
+        
+        if is_local or self.llm_auto_disable_mtp_if_missing_files:
+            is_local_server = False
+            base_url = self.llm_cloud_base_url
+            if base_url:
+                from urllib.parse import urlparse
+                try:
+                    parsed = urlparse(base_url)
+                    hostname = parsed.hostname
+                    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+                        is_local_server = True
+                except Exception:
+                    pass
+            
+            model_path = self.llm_model_path
+            path_exists = False
+            if model_path:
+                try:
+                    import os
+                    path_exists = os.path.exists(model_path)
+                except Exception:
+                    pass
+
+            if is_local or is_local_server or path_exists:
+                found = self.llm_mtp_file_found
+                if not found:
+                    return False
         return True
 
     @property
