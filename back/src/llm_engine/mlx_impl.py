@@ -101,6 +101,11 @@ class MlxLLMEngine(BaseLLMEngine):
         self.tokenizer = None
 
         con.debug(f"MLX_INIT pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
+        print("MLX_INIT", {
+            "pid": os.getpid(),
+            "self_id": id(self),
+            "model_path": self.model_path,
+        })
 
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(
@@ -134,6 +139,12 @@ class MlxLLMEngine(BaseLLMEngine):
 
     def unload_model(self):
         con.debug(f"MLX_UNLOAD pid={os.getpid()} self_id={id(self)} model_path={self.model_path} model_was_none={self.model is None}")
+        print("MLX_UNLOAD", {
+            "pid": os.getpid(),
+            "self_id": id(self),
+            "model_path": self.model_path,
+            "model_was_none": self.model is None,
+        })
         
         if self.model is not None:
             import gc
@@ -153,12 +164,24 @@ class MlxLLMEngine(BaseLLMEngine):
 
     def _ensure_model_loaded(self):
         con.debug(f"MLX_ENSURE_BEFORE pid={os.getpid()} self_id={id(self)} model_path={self.model_path} model_is_none={self.model is None} tokenizer_is_none={self.tokenizer is None}")
+        print("MLX_ENSURE_BEFORE", {
+            "pid": os.getpid(),
+            "self_id": id(self),
+            "model_path": self.model_path,
+            "model_is_none": self.model is None,
+            "tokenizer_is_none": self.tokenizer is None,
+        })
         
         if self.model is None:
             model_name = Path(self.model_path).name
             con.model_msg(f"Loading MLX LLM [bold]{model_name}[/bold] …")
 
             con.debug(f"MLX_REAL_LOAD_START pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
+            print("MLX_REAL_LOAD_START", {
+                "pid": os.getpid(),
+                "self_id": id(self),
+                "model_path": self.model_path,
+            })
 
             # Try to import optiq or mlx_optiq to register custom models at runtime
             optiq_loaded = False
@@ -228,6 +251,11 @@ class MlxLLMEngine(BaseLLMEngine):
                 self.model, self.tokenizer = load(self.model_path, tokenizer_config={"fix_mistral_regex": True})
 
             con.debug(f"MLX_REAL_LOAD_DONE pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
+            print("MLX_REAL_LOAD_DONE", {
+                "pid": os.getpid(),
+                "self_id": id(self),
+                "model_path": self.model_path,
+            })
 
             con.success(f"MLX LLM ready: [bold]{model_name}[/bold]")
 
