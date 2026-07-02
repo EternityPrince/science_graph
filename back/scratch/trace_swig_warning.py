@@ -1,4 +1,5 @@
 import warnings
+import sys
 
 # Trace imports
 class ImportTracer:
@@ -29,30 +30,36 @@ warnings.simplefilter("always", DeprecationWarning)
 # Let's import key libraries to see which one triggers it
 try:
     print("Importing usearch...")
+    import usearch
 except Exception as e:
     print("usearch import failed:", e)
 
 try:
     print("Importing ebooklib...")
+    import ebooklib
 except Exception as e:
     print("ebooklib import failed:", e)
 
 try:
     print("Importing curl_cffi...")
+    import curl_cffi
 except Exception as e:
     print("curl_cffi import failed:", e)
 
 try:
     print("Importing spacy...")
+    import spacy
 except Exception as e:
     print("spacy import failed:", e)
 
 try:
     print("Importing faster_whisper...")
+    import faster_whisper
 except Exception as e:
     print("faster_whisper import failed:", e)
 
 try:
     print("Importing marker...")
+    import marker
 except Exception as e:
     print("marker import failed:", e)
