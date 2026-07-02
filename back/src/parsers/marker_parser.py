@@ -73,15 +73,18 @@ _marker_session_lock = threading.Lock()
 def get_marker_models():
     global _marker_models
     if _marker_models is None:
+        print("MARKER_LOAD_START", {"pid": os.getpid()})
         con.info("Loading Marker OCR/Layout models into memory (Mac Mini M4)...")
         from marker.models import load_all_models
         _marker_models = load_all_models()
         con.success("Marker models loaded successfully.")
+        print("MARKER_LOAD_DONE", {"pid": os.getpid()})
     return _marker_models
 
 def shutdown_marker():
     global _marker_models
     if _marker_models is not None:
+        print("MARKER_UNLOAD", {"pid": os.getpid()})
         con.info("Unloading Marker models...")
         del _marker_models
         _marker_models = None
