@@ -32,13 +32,13 @@ class AsyncRateLimiter:
 
 
 class OpenAILLMEngine(BaseLLMEngine):
-    def __init__(self, model_name: str = None):
+    def __init__(self, model_name: str = None, api_key: str = None, base_url: str = None):
         import openai
-        api_key = config.llm_cloud_api_key
+        api_key = api_key or config.llm_cloud_api_key
         if not api_key and config.llm_provider == "openai-compatible":
             api_key = "dummy"
 
-        base_url = config.llm_cloud_base_url
+        base_url = base_url or config.llm_cloud_base_url
         self.model_name = model_name or config.llm_cloud_model_name
 
         if not api_key:

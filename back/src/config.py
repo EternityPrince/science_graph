@@ -517,6 +517,13 @@ hyperparameters:
         return self.llm_local_model_path
 
     @property
+    def llm_local_base_url(self) -> str:
+        local_cfg = self.data["llm"].get("local", {})
+        if isinstance(local_cfg, dict):
+            return local_cfg.get("base_url", "http://localhost:8080/v1")
+        return "http://localhost:8080/v1"
+
+    @property
     def llm_cloud_model_name(self) -> str:
         cloud_cfg = self.data["llm"].get("cloud", {})
         if isinstance(cloud_cfg, dict):

@@ -8,10 +8,16 @@ class TestLocalModelArgsLoad(unittest.TestCase):
         Runs only if the configured local model path actually exists on this device.
         Verifies that MlxLLMEngine can load the model without encountering the ModelArgs.__init__() TypeError.
         """
-        model_path = config.llm_local_model_path
+        # Reload the actual user configuration from disk, bypassing the reset_config fixture
+        from src.config import config, Config
+        real_config = Config()
+        model_path = real_config.llm_local_model_path
+        
         if not model_path or not os.path.isdir(model_path):
             self.skipTest(f"Configured local model path '{model_path}' does not exist on this device. Skipping validation.")
             
+        orig_data = config.data
+        config.data = real_config.data
         try:
             from src.llm_engine.mlx_impl import MlxLLMEngine
             engine = MlxLLMEngine(model_path=model_path)
@@ -31,3 +37,5 @@ class TestLocalModelArgsLoad(unittest.TestCase):
             if "ModelArgs.__init__() missing" in err_str:
                 self.fail(f"Model failed to load due to ModelArgs configuration mismatch: {e}")
             raise e
+        finally:
+            config.data = orig_data
