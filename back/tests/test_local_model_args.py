@@ -9,7 +9,7 @@ class TestLocalModelArgsLoad(unittest.TestCase):
         Verifies that MlxLLMEngine can load the model without encountering the ModelArgs.__init__() TypeError.
         """
         # Reload the actual user configuration from disk, bypassing the reset_config fixture
-        from src.config import config, Config
+        from src.config import Config
         real_config = Config()
         model_path = real_config.llm_local_model_path
         
