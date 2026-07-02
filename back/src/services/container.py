@@ -6,7 +6,6 @@ import os
 from typing import Optional
 from src import console as con
 from src.config import config
-from src import console as con
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 from src.vector_search import EmbeddingEngine
 from src.llm_engine import LLMEngine, BaseLLMEngine
