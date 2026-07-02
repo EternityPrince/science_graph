@@ -37,7 +37,7 @@ class OpenAILLMEngine(BaseLLMEngine):
         import openai
         api_key = api_key or config.llm_cloud_api_key
         if not api_key and config.llm_provider == "openai-compatible":
-            api_key = "dummy"
+            api_key = "sk-optiq-local"
 
         base_url = base_url or config.llm_cloud_base_url
         self.model_name = model_name or config.llm_cloud_model_name
@@ -277,36 +277,41 @@ class OpenAILLMEngine(BaseLLMEngine):
             {"role": "user", "content": prompt}
         ]
 
-        # Try structured outputs
-        try:
-            response = self._call_completions_with_lock(
-                model=self.model_name,
-                messages=messages,
-                max_tokens=resolved_max_tokens,
-                temperature=temp,
-                response_format=schema_class,
-            )
-            return strip_thinking_tokens(response.choices[0].message.content)
-        except Exception:
-            # Fallback to JSON mode
+        # Local servers (optiq/ollama) don't support structured outputs (BaseModel as response_format)
+        # so skip that tier entirely and go straight to JSON mode / basic fallback.
+        if not self._is_local:
+            # Try structured outputs (cloud providers only)
             try:
                 response = self._call_completions_with_lock(
                     model=self.model_name,
                     messages=messages,
                     max_tokens=resolved_max_tokens,
                     temperature=temp,
-                    response_format={"type": "json_object"},
+                    response_format=schema_class,
                 )
                 return strip_thinking_tokens(response.choices[0].message.content)
             except Exception:
-                # Basic fallback
-                response = self._call_completions_with_lock(
-                    model=self.model_name,
-                    messages=messages,
-                    max_tokens=resolved_max_tokens,
-                    temperature=temp,
-                )
-                return strip_thinking_tokens(response.choices[0].message.content)
+                pass
+
+        # Try JSON mode
+        try:
+            response = self._call_completions_with_lock(
+                model=self.model_name,
+                messages=messages,
+                max_tokens=resolved_max_tokens,
+                temperature=temp,
+                response_format={"type": "json_object"},
+            )
+            return strip_thinking_tokens(response.choices[0].message.content)
+        except Exception:
+            # Basic fallback (no response_format)
+            response = self._call_completions_with_lock(
+                model=self.model_name,
+                messages=messages,
+                max_tokens=resolved_max_tokens,
+                temperature=temp,
+            )
+            return strip_thinking_tokens(response.choices[0].message.content)
 
     async def generate_json_async(
         self,
@@ -355,13 +360,18 @@ class OpenAILLMEngine(BaseLLMEngine):
                     await asyncio.sleep(sleep_time)
             raise last_err
 
-        # Try structured outputs
-        try:
-            return await _call_with_format(schema_class)
-        except Exception:
-            # Fallback to JSON mode
+        # Local servers (optiq/ollama) don't support structured outputs (BaseModel as response_format)
+        # so skip that tier entirely and go straight to JSON mode / basic fallback.
+        if not self._is_local:
+            # Try structured outputs (cloud providers only)
             try:
-                return await _call_with_format({"type": "json_object"})
+                return await _call_with_format(schema_class)
             except Exception:
-                # Basic fallback
-                return await _call_with_format(None)
+                pass
+
+        # Try JSON mode
+        try:
+            return await _call_with_format({"type": "json_object"})
+        except Exception:
+            # Basic fallback (no response_format)
+            return await _call_with_format(None)

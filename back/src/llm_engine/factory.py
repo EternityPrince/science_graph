@@ -33,7 +33,7 @@ def LLMEngine(use_cloud: bool = False, purpose: str = "index", *args, **kwargs) 
                     src.llm_engine._local_rag_engine_singleton = OpenAILLMEngine(
                         model_name=model_name,
                         base_url=base_url,
-                        api_key="dummy-key-for-local",
+                        api_key="sk-optiq-local",
                         *args, **kwargs
                     )
                 else:
@@ -61,7 +61,7 @@ def LLMEngine(use_cloud: bool = False, purpose: str = "index", *args, **kwargs) 
                     src.llm_engine._local_engine_singleton = OpenAILLMEngine(
                         model_name=model_name,
                         base_url=base_url,
-                        api_key="dummy-key-for-local",
+                        api_key="sk-optiq-local",
                         *args, **kwargs
                     )
                 else:
