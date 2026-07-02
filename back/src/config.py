@@ -497,13 +497,12 @@ hyperparameters:
 
     @property
     def llm_local_model_path(self) -> str:
-        top_model_path = self.data["llm"].get("model_path")
-        if top_model_path:
-            return top_model_path
         local_cfg = self.data["llm"].get("local", {})
         if isinstance(local_cfg, dict):
-            return local_cfg.get("model_path", "")
-        return ""
+            nested_path = local_cfg.get("model_path")
+            if nested_path:
+                return nested_path
+        return self.data["llm"].get("model_path", "")
 
     @property
     def llm_local_rag_model_path(self) -> str:
@@ -519,13 +518,15 @@ hyperparameters:
 
     @property
     def llm_cloud_model_name(self) -> str:
+        cloud_cfg = self.data["llm"].get("cloud", {})
+        if isinstance(cloud_cfg, dict):
+            nested_name = cloud_cfg.get("model_name")
+            if nested_name:
+                return nested_name
         top_name = self.data["llm"].get("model_name")
         if top_name:
             return top_name
-        cloud_cfg = self.data["llm"].get("cloud", {})
-        if isinstance(cloud_cfg, dict):
-            return cloud_cfg.get("model_name", "")
-        return ""
+        return self.data["llm"].get("model_path", "")
 
     @property
     def llm_cloud_rag_model_name(self) -> str:
@@ -541,23 +542,21 @@ hyperparameters:
 
     @property
     def llm_cloud_api_key(self) -> str:
-        top_key = self.data["llm"].get("api_key")
-        if top_key:
-            return top_key
         cloud_cfg = self.data["llm"].get("cloud", {})
         if isinstance(cloud_cfg, dict):
-            return cloud_cfg.get("api_key", "")
-        return ""
+            nested_key = cloud_cfg.get("api_key")
+            if nested_key:
+                return nested_key
+        return self.data["llm"].get("api_key", "")
 
     @property
     def llm_cloud_base_url(self) -> str:
-        top_url = self.data["llm"].get("base_url")
-        if top_url:
-            return top_url
         cloud_cfg = self.data["llm"].get("cloud", {})
         if isinstance(cloud_cfg, dict):
-            return cloud_cfg.get("base_url", "")
-        return ""
+            nested_url = cloud_cfg.get("base_url")
+            if nested_url:
+                return nested_url
+        return self.data["llm"].get("base_url", "")
 
     @property
     def llm_cheap_model_name(self) -> str:
@@ -568,7 +567,14 @@ hyperparameters:
 
     @property
     def llm_enable_mtp(self) -> bool:
-        return bool(self.data["llm"].get("enable_mtp", True))
+        llm_cfg = self.data.get("llm", {})
+        if not isinstance(llm_cfg, dict):
+            return True
+        if "enable_mtp" in llm_cfg:
+            return bool(llm_cfg["enable_mtp"])
+        if "mtp" in llm_cfg:
+            return bool(llm_cfg["mtp"])
+        return True
 
     @property
     def llm_auto_disable_mtp_if_missing_files(self) -> bool:

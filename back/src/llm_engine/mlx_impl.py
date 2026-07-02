@@ -157,6 +157,35 @@ class MlxLLMEngine(BaseLLMEngine):
                 except ImportError:
                     pass
 
+            # Detect Qwen3/3.5/OptiQ models to prevent incorrect fallback and raise a helpful error
+            import json
+            model_type = None
+            config_json_path = os.path.join(self.model_path, "config.json")
+            if os.path.isfile(config_json_path):
+                try:
+                    with open(config_json_path, "r", encoding="utf-8") as f:
+                        model_cfg = json.load(f)
+                        model_type = model_cfg.get("model_type")
+                except Exception:
+                    pass
+
+            is_optiq_or_qwen3 = False
+            if model_type:
+                model_type_lower = str(model_type).lower()
+                if "qwen3" in model_type_lower or "optiq" in model_type_lower:
+                    is_optiq_or_qwen3 = True
+            
+            model_path_lower = os.path.basename(self.model_path).lower()
+            if "qwen3" in model_path_lower or "optiq" in model_path_lower:
+                is_optiq_or_qwen3 = True
+
+            if is_optiq_or_qwen3 and not optiq_loaded:
+                raise ImportError(
+                    f"Model type '{model_type or 'Qwen3.5/OptiQ'}' requires the 'mlx-optiq' package to be installed to run locally.\n"
+                    f"Please run 'pip install mlx-optiq' to run this model in-process, or configure provider='openai-compatible' "
+                    f"in config.yaml and start 'optiq serve --model {self.model_path}'."
+                )
+
             if not optiq_loaded:
                 try:
                     import mlx_lm.utils
@@ -166,7 +195,8 @@ class MlxLLMEngine(BaseLLMEngine):
                                 import importlib
                                 importlib.import_module(f"mlx_lm.models.{qwen_type}")
                             except ImportError:
-                                mlx_lm.utils.MODEL_REMAPPING[qwen_type] = "qwen2"
+                                # Do not remap qwen3/qwen3_5 to qwen2 as they are incompatible
+                                pass
                 except Exception:
                     pass
 
