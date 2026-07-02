@@ -521,8 +521,8 @@ def test_schema_parity(temp_db):
     assert success is True
     
     # Instantiate SQLiteGraphRepository on both databases to ensure they are initialized
-    repo_fresh = SQLiteGraphRepository(temp_db)
-    repo_migrated = SQLiteGraphRepository(migrated_db)
+    SQLiteGraphRepository(temp_db)
+    SQLiteGraphRepository(migrated_db)
     
     # Get schemas of fresh DB (which is temp_db, auto-initialized by GraphRepository/VectorRepository in conftest)
     conn_fresh = sqlite3.connect(temp_db)

@@ -85,7 +85,7 @@ def test_llm_engine_factory_selection(mock_mlx_cls, mock_openai_cls):
             del os.environ["SCIENCE_GRAPH_USE_CLOUD"]
             
         with patch("os.path.isdir", return_value=True):
-            engine = LLMEngine(use_cloud=False)
+            LLMEngine(use_cloud=False)
             mock_mlx_cls.assert_called_once()
             mock_openai_cls.assert_not_called()
             
@@ -108,7 +108,7 @@ def test_llm_engine_factory_selection(mock_mlx_cls, mock_openai_cls):
             }
         }
         
-        engine = LLMEngine()
+        LLMEngine()
         mock_openai_cls.assert_called_once()
         mock_mlx_cls.assert_not_called()
         
@@ -131,7 +131,7 @@ def test_llm_engine_factory_selection(mock_mlx_cls, mock_openai_cls):
             }
         }
         
-        engine = LLMEngine(use_cloud=True)
+        LLMEngine(use_cloud=True)
         mock_openai_cls.assert_called_once()
         mock_mlx_cls.assert_not_called()
         

@@ -199,7 +199,7 @@ def test_hf_token_environment_propagation():
     try:
         with patch.object(Config, "_load_or_create_config", return_value={"hf_token": "my_secret_token", "archive_dir": "/tmp"}):
             with patch("src.config.Path.mkdir"):
-                cfg = Config()
+                Config()
                 assert os.environ.get("HF_TOKEN") == "my_secret_token"
                 assert os.environ.get("HUGGINGFACE_HUB_TOKEN") == "my_secret_token"
     finally:

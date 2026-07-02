@@ -361,7 +361,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             description = BASELINES_INFO.get(baseline, "")
             con.dim(f"  Running {baseline}: {description.split('—')[0]}")
             
-            t0 = time.perf_counter()
+            time.perf_counter()
             raw_response = ""
             trace = None
             if args.consume_contexts:

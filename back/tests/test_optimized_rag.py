@@ -3,7 +3,6 @@ pytestmark = pytest.mark.llm
 
 import unittest
 from unittest.mock import MagicMock, patch
-import torch
 
 from src.vector_search import EmbeddingEngine
 from src.llm_engine.mlx_impl import MlxLLMEngine

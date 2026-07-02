@@ -101,10 +101,6 @@ class TestJaccardSimilarity(unittest.TestCase):
         self.assertEqual(result, expected)
 
     def test_deduplicate_chunks_paragraph_level_with_near_duplicate(self):
-        chunks = [
-            "This is the first paragraph with some details.\n\nThis is the second paragraph.",
-            "This is a different paragraph.\n\nThis is the second paragraph with slightly more details."
-        ]
         # "This is the second paragraph." and "This is the second paragraph with slightly more details."
         # Shingles for P1 (second para):
         # ("this", "is", "the"), ("is", "the", "second"), ("the", "second", "paragraph") -> 3 shingles

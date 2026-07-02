@@ -167,7 +167,7 @@ def test_analyze_metrics_in_place_dict_update():
             }
         ]
     }
-    res = analyze_metrics(data)
+    analyze_metrics(data)
     # Check that in-place updates were applied
     assert "eval_metrics" in data["results"][0]["baselines"]["B1"]
     assert "retrieval_recall" in data["results"][0]["baselines"]["B1"]["eval_metrics"]

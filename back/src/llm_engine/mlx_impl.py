@@ -87,7 +87,7 @@ class ConstrainedLogitsProcessor:
 
 
 class MlxLLMEngine(BaseLLMEngine):
-    def __init__(self, model_path: str = None):
+    def __init__(self, model_path: str = ""):
         self.model_path = model_path or config.llm_local_model_path
         self._tokenizer_data = None
         self.model = None

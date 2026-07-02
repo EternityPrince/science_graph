@@ -33,7 +33,6 @@ def test_metrics_aggregation_consistency():
             
         # Category breakdown check
         for cat in ['single-document', 'multi-hop']:
-            cat_label = 'Single-hop' if cat == 'single-document' else 'Multi-hop'
             core_cat_val = stats["category_stats"][cat][b].get(m, 0.0) * 100
             df_cat_val = df[(df["baseline"] == b) & (df["category"] == cat)][m].mean() * 100
             assert np.isclose(core_cat_val, df_cat_val), f"Category mismatch for {b} {cat} {m}: stats={core_cat_val:.4f}, df={df_cat_val:.4f}"

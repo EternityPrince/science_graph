@@ -66,7 +66,7 @@ def test_pdf_compression_nested_path():
     
     try:
         doc = fitz.open()
-        page = doc.new_page(width=100, height=100)
+        doc.new_page(width=100, height=100)
         doc.save(input_path)
         doc.close()
         
@@ -112,7 +112,7 @@ def test_pdf_compression_fallback_on_rewrite_error(monkeypatch):
 
     try:
         doc = fitz.open()
-        page = doc.new_page(width=100, height=100)
+        doc.new_page(width=100, height=100)
         doc.save(input_path)
         doc.close()
 

@@ -489,7 +489,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 if rag_service.expander and components_settings.get("graph_expansion", True):
                     enrichment_block = rag_service.expander.expand(query, trimmed_chunks)
 
-                elapsed_stage5 = time.perf_counter() - t_stage5_start
+                time.perf_counter() - t_stage5_start
                 stage5_metrics = collector.get_metrics()
 
                 # Merge Stage 3 + 5 metrics

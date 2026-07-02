@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import MagicMock, patch
-import os
 import src.llm_engine
 from src.config import config
 from src.llm_engine.openai_impl import OpenAILLMEngine
@@ -61,7 +60,7 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         with patch("logging.getLogger") as mock_get_logger:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
-            engine = OpenAILLMEngine()
+            OpenAILLMEngine()
             
             # Check warning was NOT logged
             mock_logger.warning.assert_not_called()
@@ -91,7 +90,7 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         with patch("logging.getLogger") as mock_get_logger:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
-            engine = OpenAILLMEngine()
+            OpenAILLMEngine()
             
             # Check warning was logged
             mock_logger.warning.assert_called_once()
@@ -122,7 +121,7 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         with patch("logging.getLogger") as mock_get_logger:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
-            engine = OpenAILLMEngine()
+            OpenAILLMEngine()
             
             mock_logger.warning.assert_not_called()
             mock_con.warning.assert_not_called()
@@ -199,7 +198,7 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict("sys.modules", {"tiktoken": mock_tiktoken}):
             engine = OpenAILLMEngine()
-            truncated = engine._truncate_to_context("hello prompt", max_input_tokens=2)
+            engine._truncate_to_context("hello prompt", max_input_tokens=2)
             mock_tokenizer.encode.assert_called_once_with("hello prompt")
             mock_tokenizer.decode.assert_called_once_with([1, 2])
             

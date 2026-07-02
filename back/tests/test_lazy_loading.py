@@ -51,7 +51,7 @@ class TestLazyLoading(unittest.TestCase):
         mock_load.assert_not_called()
 
         # 2. Call count_tokens - model should be loaded on demand
-        tokens_count = engine.count_tokens("hello")
+        engine.count_tokens("hello")
         mock_load.assert_called_once()
         self.assertIsNotNone(engine.model)
         self.assertIsNotNone(engine.tokenizer)

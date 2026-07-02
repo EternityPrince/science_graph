@@ -44,7 +44,7 @@ class TestPromptManager(unittest.TestCase):
 
     def test_caching(self):
         # Retrieve once to cache it
-        rendered_1 = self.manager.get_prompt("extraction", "concept", name="A")
+        self.manager.get_prompt("extraction", "concept", name="A")
         
         # Modify file directly on disk
         with open(os.path.join(self.extraction_dir, "concept.txt"), "w", encoding="utf-8") as f:

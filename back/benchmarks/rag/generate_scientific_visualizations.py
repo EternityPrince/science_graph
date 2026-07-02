@@ -430,8 +430,8 @@ def plot_token_stacked_bar_chart(stats: dict, run_dir: Path):
     fig, ax = plt.subplots(figsize=(7, 4.5))
     
     w = 0.45
-    p1 = ax.bar(BASELINES, ans_means, width=w, label='Answer Tokens', color='#3182CE', edgecolor='black', linewidth=0.5)
-    p2 = ax.bar(BASELINES, reas_means, bottom=ans_means, width=w, label='Reasoning Tokens', color='#ED8936', edgecolor='black', linewidth=0.5)
+    ax.bar(BASELINES, ans_means, width=w, label='Answer Tokens', color='#3182CE', edgecolor='black', linewidth=0.5)
+    ax.bar(BASELINES, reas_means, bottom=ans_means, width=w, label='Reasoning Tokens', color='#ED8936', edgecolor='black', linewidth=0.5)
     
     for i in range(len(BASELINES)):
         tot = ans_means[i] + reas_means[i]
@@ -841,9 +841,9 @@ def plot_multihop_coverage(df: pd.DataFrame, run_dir: Path):
     x_indices = np.arange(len(BASELINES))
     w = 0.5
     
-    p0 = ax.bar(x_indices, cov_df['No Expected (0/2)'], width=w, label='No Expected Papers (0/2)', color='#E53E3E', edgecolor='black', linewidth=0.5)
-    p1 = ax.bar(x_indices, cov_df['One Expected (1/2)'], bottom=cov_df['No Expected (0/2)'], width=w, label='One Expected Paper (1/2)', color='#ED8936', edgecolor='black', linewidth=0.5)
-    p2 = ax.bar(x_indices, cov_df['Both Expected (2/2)'], bottom=cov_df['No Expected (0/2)'] + cov_df['One Expected (1/2)'], width=w, label='Both Expected Papers (2/2)', color='#38A169', edgecolor='black', linewidth=0.5)
+    ax.bar(x_indices, cov_df['No Expected (0/2)'], width=w, label='No Expected Papers (0/2)', color='#E53E3E', edgecolor='black', linewidth=0.5)
+    ax.bar(x_indices, cov_df['One Expected (1/2)'], bottom=cov_df['No Expected (0/2)'], width=w, label='One Expected Paper (1/2)', color='#ED8936', edgecolor='black', linewidth=0.5)
+    ax.bar(x_indices, cov_df['Both Expected (2/2)'], bottom=cov_df['No Expected (0/2)'] + cov_df['One Expected (1/2)'], width=w, label='Both Expected Papers (2/2)', color='#38A169', edgecolor='black', linewidth=0.5)
     
     for i in range(len(BASELINES)):
         y_offset = 0.0

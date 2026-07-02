@@ -259,9 +259,9 @@ def main():
         pass
         
     if args.cloud:
-        llm_model_name = config.data["llm"]["cloud"]["model_name"]
+        config.data["llm"]["cloud"]["model_name"]
     else:
-        llm_model_name = config.data["llm"]["local"]["model_path"]
+        config.data["llm"]["local"]["model_path"]
         
     manifest = {
         "run_id": run_dir.name,

@@ -896,7 +896,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         self.vector_repo.search_similar_chunks.return_value = [(chunk1, 0.9)]
         self.vector_repo.search_text_fts5.return_value = []
         
-        res = self.service.retrieve_relevant_chunks("query", limit=1, hyde_responses=2)
+        self.service.retrieve_relevant_chunks("query", limit=1, hyde_responses=2)
         
         self.assertEqual(self.llm_engine.generate_response.call_count, 2)
         self.assertEqual(self.emb_engine.get_embedding.call_count, 3)

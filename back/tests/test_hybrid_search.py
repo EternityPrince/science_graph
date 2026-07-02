@@ -23,7 +23,7 @@ class TestHybridSearch(unittest.TestCase):
         # 1. Setup mock chunks
         c1 = Chunk(id="chunk_1", paper_id="paper_1", text_content="Attention mechanisms are widely used in transformer neural networks.", page_number=1)
         c2 = Chunk(id="chunk_2", paper_id="paper_1", text_content="Reinforcement learning relies on reward functions to train policy networks.", page_number=2)
-        c3 = Chunk(id="chunk_3", paper_id="paper_2", text_content="Contrastive learning is a self-supervised learning technique.", page_number=1)
+        Chunk(id="chunk_3", paper_id="paper_2", text_content="Contrastive learning is a self-supervised learning technique.", page_number=1)
         
         # 2. Setup mock dense and FTS5 search results
         self.vector_repo.search_similar_chunks.return_value = [

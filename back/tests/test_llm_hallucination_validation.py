@@ -46,7 +46,6 @@ def test_validate_no_hallucinations_repeating_cycles_in_list():
 def test_validate_no_hallucinations_low_uniqueness_ratio():
     """Verify ValueError is raised when uniqueness ratio in a large list is too low."""
     # List of size 12 with only 3 unique values (ratio = 3/12 = 0.25 < 0.4)
-    low_uniqueness = ["A", "B", "C", "A", "B", "C", "A", "B", "C", "A", "B", "C"]
     # Note: this also triggers the repeating cycle check.
     # Let's create one that does not trigger consecutive cycle of length <=4:
     # E.g. A, B, C, D, E, A, B, C, D, E, A, B (size 12, unique 5: ratio 5/12 = 0.41, let's make it lower)

@@ -72,7 +72,7 @@ class TestNEREngine(unittest.TestCase):
         mock_config.hf_token = None
         mock_cached.return_value = False
 
-        engine = NEREngine()
+        NEREngine()
         mock_pipeline.assert_called_once_with(
             "ner",
             model="uncached_model",
