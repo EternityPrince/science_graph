@@ -50,15 +50,7 @@ class ServiceContainer:
 
     def get_llm_engine(self, use_cloud: bool = False, purpose: str = "index") -> BaseLLMEngine:
         con.debug(f"LLM_GET_ENGINE pid={os.getpid()} container_id={id(self)} use_cloud={use_cloud} purpose={purpose} config_file={getattr(config, 'config_file', None)} llm_local_model_path={config.llm_local_model_path} llm_local_rag_model_path={config.llm_local_rag_model_path}")
-        print("LLM_GET_ENGINE", {
-            "pid": os.getpid(),
-            "container_id": id(self),
-            "use_cloud": use_cloud,
-            "purpose": purpose,
-            "config_file": getattr(config, "config_file", None),
-            "llm_local_model_path": config.llm_local_model_path,
-            "llm_local_rag_model_path": config.llm_local_rag_model_path,
-        })
+
         if purpose == "rag":
             if use_cloud:
                 if self._llm_engine_rag_cloud is None:

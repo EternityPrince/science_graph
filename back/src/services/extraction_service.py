@@ -653,15 +653,7 @@ class ExtractionService:
             return None
 
         con.debug(f"EXTRACTION_LLM_CALL pid={os.getpid()} service_id={id(self)} llm_engine_id={id(self.llm_engine)} llm_engine_class={self.llm_engine.__class__.__name__} llm_model_path={getattr(self.llm_engine, 'model_path', None)} doc_id={title[:50] if title else 'unknown'} stage=extraction")
-        print("EXTRACTION_LLM_CALL", {
-            "pid": os.getpid(),
-            "service_id": id(self),
-            "llm_engine_id": id(self.llm_engine),
-            "llm_engine_class": self.llm_engine.__class__.__name__,
-            "llm_model_path": getattr(self.llm_engine, "model_path", None),
-            "doc_id": title[:50] if title else "unknown",
-            "stage": "extraction",
-        })
+
 
         total_text = f"{title}\n\n{abstract}\n\n{full_text}"
         limit = config.llm_extraction_input_limit
@@ -703,11 +695,7 @@ class ExtractionService:
                     continue
 
                 con.debug(f"LLM_RAW_RESPONSE doc_id={title[:50] if title else 'unknown'} raw_type={type(llm_data).__name__} raw_preview={repr(llm_data)[:1000]}")
-                print("LLM_RAW_RESPONSE", {
-                    "doc_id": title[:50] if title else "unknown",
-                    "raw_type": type(llm_data).__name__,
-                    "raw_preview": repr(llm_data)[:1000],
-                })
+
                 
                 all_authors.extend(llm_data.get("authors", []))
                 
@@ -749,11 +737,7 @@ class ExtractionService:
                     return None
 
                 con.debug(f"LLM_RAW_RESPONSE doc_id={title[:50] if title else 'unknown'} raw_type={type(llm_data).__name__} raw_preview={repr(llm_data)[:1000]}")
-                print("LLM_RAW_RESPONSE", {
-                    "doc_id": title[:50] if title else "unknown",
-                    "raw_type": type(llm_data).__name__,
-                    "raw_preview": repr(llm_data)[:1000],
-                })
+
 
                 raw_concepts = llm_data.get("concepts", [])
                 concepts = []
@@ -831,11 +815,7 @@ class ExtractionService:
                 llm_data = await self._call_llm_extract_async(chunk_text, message=msg)
                 
                 con.debug(f"LLM_RAW_RESPONSE doc_id={title[:50] if title else 'unknown'} raw_type={type(llm_data).__name__} raw_preview={repr(llm_data)[:1000]}")
-                print("LLM_RAW_RESPONSE", {
-                    "doc_id": title[:50] if title else "unknown",
-                    "raw_type": type(llm_data).__name__,
-                    "raw_preview": repr(llm_data)[:1000],
-                })
+
                 
                 return llm_data, tokens_count
                 
@@ -913,11 +893,7 @@ class ExtractionService:
                     return None
 
                 con.debug(f"LLM_RAW_RESPONSE doc_id={title[:50] if title else 'unknown'} raw_type={type(llm_data).__name__} raw_preview={repr(llm_data)[:1000]}")
-                print("LLM_RAW_RESPONSE", {
-                    "doc_id": title[:50] if title else "unknown",
-                    "raw_type": type(llm_data).__name__,
-                    "raw_preview": repr(llm_data)[:1000],
-                })
+
 
                 raw_concepts = llm_data.get("concepts", [])
                 concepts = []
