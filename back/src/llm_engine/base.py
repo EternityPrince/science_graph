@@ -184,7 +184,7 @@ def retry_with_temp_decay(max_retries: int = 3):
                 
                 try:
                     return func(*bound.args, **bound.kwargs)
-                except (json.JSONDecodeError, ValueError, TypeError, ValidationError) as e:
+                except (json.JSONDecodeError, ValueError, TypeError, ValidationError, AttributeError) as e:
                     last_err = e
                     con.warning(
                         f"JSON extraction attempt {attempt + 1} failed: {e}. "
@@ -222,7 +222,7 @@ def retry_with_temp_decay_async(max_retries: int = 3):
                 
                 try:
                     return await func(*bound.args, **bound.kwargs)
-                except (json.JSONDecodeError, ValueError, TypeError, ValidationError) as e:
+                except (json.JSONDecodeError, ValueError, TypeError, ValidationError, AttributeError) as e:
                     last_err = e
                     con.warning(
                         f"JSON extraction attempt {attempt + 1} failed: {e}. "

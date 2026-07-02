@@ -59,7 +59,7 @@ class TestRefinements(unittest.TestCase):
         desc = self.indexer._extractor.get_concept_description("Custom AI term")
         self.assertEqual(desc, "Custom LLM Definition for AI")
         self.llm_engine.generate_response.assert_called_with(
-            "Provide a brief, one-sentence definition of the AI/ML concept or term: 'Custom AI term'. Do not write anything else. Keep it under 20 words.",
+            "Provide a brief, one-sentence definition of the AI/ML concept or term: 'Custom AI term' in English. Do not write anything else. Keep it under 20 words.\n\nEXCEPT: If the concept name 'Custom AI term' is in Russian (contains Cyrillic characters), provide the definition in Russian instead.",
             task="extraction"
         )
 

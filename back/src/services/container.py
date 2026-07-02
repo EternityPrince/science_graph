@@ -3,6 +3,7 @@ ServiceContainer — dependency injection container for Science Graph.
 """
 
 from typing import Optional
+from src import console as con
 from src.config import config
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 from src.vector_search import EmbeddingEngine

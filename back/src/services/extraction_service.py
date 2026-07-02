@@ -200,28 +200,30 @@ class ExtractionService:
             ExtractionResult with authors, concepts, and tags.
         """
         llm_result = None
-        if use_llm and self.llm_engine:
-            llm_result = self._extract_via_llm(title, abstract, full_text, trace_info=trace_info)
-
         regex_result = self._extract_via_regex(title, abstract, full_text)
 
-        if llm_result is not None:
-            # Merge regex concepts/tags into LLM result
-            # De-duplicate concepts by name (case-insensitive)
-            seen_concepts = {c["name"].lower().strip() for c in llm_result.concepts}
-            for c in regex_result.concepts:
-                name_key = c["name"].lower().strip()
-                if name_key not in seen_concepts:
-                    llm_result.concepts.append(c)
-                    seen_concepts.add(name_key)
+        if use_llm and self.llm_engine:
+            try:
+                llm_result = self._extract_via_llm(title, abstract, full_text, trace_info=trace_info)
+                if llm_result is not None:
+                    # Merge regex concepts/tags into LLM result
+                    # De-duplicate concepts by name (case-insensitive)
+                    seen_concepts = {c["name"].lower().strip() for c in llm_result.concepts}
+                    for c in regex_result.concepts:
+                        name_key = c["name"].lower().strip()
+                        if name_key not in seen_concepts:
+                            llm_result.concepts.append(c)
+                            seen_concepts.add(name_key)
 
-            # De-duplicate tags (case-insensitive)
-            seen_tags = {t.lower().strip() for t in llm_result.tags}
-            for t in regex_result.tags:
-                tag_key = t.lower().strip()
-                if tag_key not in seen_tags:
-                    llm_result.tags.append(t)
-            return self._normalize_extraction_result(llm_result)
+                    # De-duplicate tags (case-insensitive)
+                    seen_tags = {t.lower().strip() for t in llm_result.tags}
+                    for t in regex_result.tags:
+                        tag_key = t.lower().strip()
+                        if tag_key not in seen_tags:
+                            llm_result.tags.append(t)
+                    return self._normalize_extraction_result(llm_result)
+            except Exception as e:
+                con.warning(f"LLM extraction/normalization failed, falling back to regex: {e}")
 
         return self._normalize_extraction_result(regex_result)
 
@@ -250,30 +252,32 @@ class ExtractionService:
             return await asyncio.to_thread(self.extract, title, abstract, full_text, use_llm, trace_info)
 
         llm_result = None
-        if use_llm and self.llm_engine:
-            llm_result = await self._extract_via_llm_async(title, abstract, full_text, trace_info=trace_info)
-
         regex_result = self._extract_via_regex(title, abstract, full_text)
 
-        if llm_result is not None:
-            # Merge regex concepts/tags into LLM result
-            # De-duplicate concepts by name (case-insensitive)
-            seen_concepts = {c["name"].lower().strip() for c in llm_result.concepts}
-            for c in regex_result.concepts:
-                name_key = c["name"].lower().strip()
-                if name_key not in seen_concepts:
-                    llm_result.concepts.append(c)
-                    seen_concepts.add(name_key)
+        if use_llm and self.llm_engine:
+            try:
+                llm_result = await self._extract_via_llm_async(title, abstract, full_text, trace_info=trace_info)
+                if llm_result is not None:
+                    # Merge regex concepts/tags into LLM result
+                    # De-duplicate concepts by name (case-insensitive)
+                    seen_concepts = {c["name"].lower().strip() for c in llm_result.concepts}
+                    for c in regex_result.concepts:
+                        name_key = c["name"].lower().strip()
+                        if name_key not in seen_concepts:
+                            llm_result.concepts.append(c)
+                            seen_concepts.add(name_key)
 
-            # De-duplicate tags (case-insensitive)
-            seen_tags = {t.lower().strip() for t in llm_result.tags}
-            for t in regex_result.tags:
-                tag_key = t.lower().strip()
-                if tag_key not in seen_tags:
-                    llm_result.tags.append(t)
-                    seen_tags.add(tag_key)
+                    # De-duplicate tags (case-insensitive)
+                    seen_tags = {t.lower().strip() for t in llm_result.tags}
+                    for t in regex_result.tags:
+                        tag_key = t.lower().strip()
+                        if tag_key not in seen_tags:
+                            llm_result.tags.append(t)
+                            seen_tags.add(tag_key)
 
-            return self._normalize_extraction_result(llm_result)
+                    return self._normalize_extraction_result(llm_result)
+            except Exception as e:
+                con.warning(f"Async LLM extraction/normalization failed, falling back to regex: {e}")
 
         return self._normalize_extraction_result(regex_result)
 
