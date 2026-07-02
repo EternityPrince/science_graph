@@ -138,7 +138,7 @@ class MlxLLMEngine(BaseLLMEngine):
                 pass
             con.success("MLX LLM model unloaded and GPU cache cleared")
 
-def _ensure_model_loaded(self):
+    def _ensure_model_loaded(self):
         print("MLX_ENSURE_BEFORE", {
             "pid": os.getpid(),
             "self_id": id(self),
