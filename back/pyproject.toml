@@ -71,6 +71,13 @@ packages = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "strict"
+filterwarnings = [
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+    "ignore:Support for class-based `config` is deprecated:DeprecationWarning:marker.settings",
+    "ignore:Support for class-based `config` is deprecated:DeprecationWarning:texify.settings",
+]
 markers = [
     "llm: tests that require heavy LLM models, external LLM APIs, or slow model initialization",
 ]
