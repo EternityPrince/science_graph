@@ -3,7 +3,10 @@ from unittest.mock import MagicMock, patch
 import json
 import tempfile
 from pathlib import Path
-import mlx.core as mx
+try:
+    import mlx.core as mx
+except ImportError:
+    mx = None
 
 from src.cli import app
 from typer.testing import CliRunner
@@ -73,6 +76,7 @@ class TestPipelineRefactoring(unittest.TestCase):
         self.assertAlmostEqual(engine.temps[2], 0.2666666, places=4)
 
     # ── 3. Constrained Logits Processor ───────────────────────────────────────
+    @unittest.skipIf(mx is None, "mlx is not available")
     def test_constrained_logits_processor(self):
         """Verify ConstrainedLogitsProcessor masks invalid tokens."""
         mock_enforcer = MagicMock()
@@ -294,19 +298,20 @@ class TestPipelineRefactoring(unittest.TestCase):
             file_path.write_text("# My Awesome Document\n\nThis is a body paragraph about deep learning models.", encoding="utf-8")
             
             # Patch config taxonomy to avoid issues
-            with patch("src.cli.config") as mock_config:
-                mock_config.llm_extraction_input_limit = 4000
-                mock_config.taxonomy = {
-                    "concepts": {},
-                    "topics": {},
-                    "descriptions": {}
-                }
+            with patch("src.cli.config") as mock_cli_config, patch("src.services.extraction_service.config") as mock_ext_config:
+                for mock_config in (mock_cli_config, mock_ext_config):
+                    mock_config.llm_extraction_input_limit = 4000
+                    mock_config.taxonomy = {
+                        "concepts": {},
+                        "topics": {},
+                        "descriptions": {}
+                    }
                 
                 result = runner.invoke(app, ["extract-file", str(file_path)])
                 
                 self.assertEqual(result.exit_code, 0)
                 # Verify standard output contains the extracted JSON
-                stdout_data = json.loads(result.stdout)
+                stdout_data = json.loads(result.stdout_bytes.decode("utf-8"))
                 self.assertEqual(stdout_data["authors"], ["Alice Smith"])
                 self.assertEqual(stdout_data["tags"], ["Deep Learning"])
                 self.assertEqual(stdout_data["concepts"][0]["name"], "Transformer")

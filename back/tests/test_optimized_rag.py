@@ -4,6 +4,12 @@ pytestmark = pytest.mark.llm
 import unittest
 from unittest.mock import MagicMock, patch
 
+try:
+    import mlx.core as mx
+    has_mlx = True
+except ImportError:
+    has_mlx = False
+
 from src.vector_search import EmbeddingEngine
 from src.llm_engine.mlx_impl import MlxLLMEngine
 
@@ -64,10 +70,10 @@ class TestOptimizedRAG(unittest.TestCase):
         self.assertIsNone(engine.model)
         mock_empty_cache.assert_called_once_with("mps")
 
-    @patch("mlx.core.clear_cache")
-    def test_mlx_llm_engine_unload(self, mock_mlx_clear):
+    @unittest.skipUnless(has_mlx, "MLX is not available")
+    def test_mlx_llm_engine_unload(self):
         # Patch is_dir to pass init path checks
-        with patch("os.path.isdir", return_value=True):
+        with patch("os.path.isdir", return_value=True), patch("mlx.core.clear_cache") as mock_mlx_clear:
             # Pass a dummy path that looks valid
             engine = MlxLLMEngine(model_path="/dummy/path")
             engine.model = MagicMock()

@@ -871,7 +871,10 @@ def extract_file(
             "tags": result.tags,
         }
         
-        sys.stdout.write(json.dumps(output_dict, indent=2, ensure_ascii=False) + "\n")
+        try:
+            sys.stdout.buffer.write(json.dumps(output_dict, indent=2, ensure_ascii=False).encode("utf-8") + b"\n")
+        except AttributeError:
+            sys.stdout.write(json.dumps(output_dict, indent=2, ensure_ascii=False) + "\n")
     finally:
         con.console._file = old_file
 

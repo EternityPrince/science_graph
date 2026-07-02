@@ -2,6 +2,12 @@ import unittest
 from unittest.mock import MagicMock, patch
 from pydantic import BaseModel
 
+try:
+    import mlx.core as mx
+    has_mlx = True
+except ImportError:
+    has_mlx = False
+
 from src.config import config
 from src.llm_engine.mlx_impl import MlxLLMEngine, build_mlx_tokenizer_data, ConstrainedLogitsProcessor
 
@@ -11,6 +17,7 @@ class MockSchema(BaseModel):
     age: int
 
 
+@unittest.skipUnless(has_mlx, "MLX is not available")
 class TestMlxImpl(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.orig_data = config.data

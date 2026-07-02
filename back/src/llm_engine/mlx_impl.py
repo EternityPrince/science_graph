@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Optional, Type, List, Any
 
 from pydantic import BaseModel
-import mlx.core as mx
+try:
+    import mlx.core as mx
+except ImportError:
+    mx = None
 
 from src.config import config
 from src import console as con
@@ -65,7 +68,7 @@ class ConstrainedLogitsProcessor:
         self.token_enforcer = token_enforcer
         self.generated_tokens = []
 
-    def __call__(self, tokens: mx.array, logits: mx.array) -> mx.array:
+    def __call__(self, tokens: Any, logits: Any) -> Any:
         num_tokens = tokens.shape[0]
         current_len = len(self.generated_tokens)
         
@@ -87,7 +90,15 @@ class ConstrainedLogitsProcessor:
 
 
 class MlxLLMEngine(BaseLLMEngine):
+<<<<<<< HEAD
     def __init__(self, model_path: str = ""):
+=======
+    def __init__(self, model_path: str = None):
+        if mx is None:
+            raise ImportError(
+                "MLX is not installed. MlxLLMEngine is only supported on Apple Silicon macOS with the 'mlx' package installed."
+            )
+>>>>>>> 4756785 (fix test)
         self.model_path = model_path or config.llm_local_model_path
         self._tokenizer_data = None
         self.model = None

@@ -267,14 +267,21 @@ class TestLlmBase(unittest.IsolatedAsyncioTestCase):
         
         import os
         with patch.dict(os.environ, {"SCIENCE_GRAPH_USE_CLOUD": "0"}):
-            # Test MLX provider
-            with patch.dict(config.data, {"llm": {"provider": "mlx", "local": {"model_path": "/fake/path"}}}):
-                import src.llm_engine
-                src.llm_engine._local_engine_singleton = None
-                from src.llm_engine.factory import LLMEngine
-                engine = LLMEngine(use_cloud=False)
-                from src.llm_engine.mlx_impl import MlxLLMEngine
-                self.assertIsInstance(engine, MlxLLMEngine)
+            # Test MLX provider (only if mlx is available)
+            try:
+                import mlx.core
+                has_mlx = True
+            except ImportError:
+                has_mlx = False
+                
+            if has_mlx:
+                with patch.dict(config.data, {"llm": {"provider": "mlx", "local": {"model_path": "/fake/path"}}}):
+                    import src.llm_engine
+                    src.llm_engine._local_engine_singleton = None
+                    from src.llm_engine.factory import LLMEngine
+                    engine = LLMEngine(use_cloud=False)
+                    from src.llm_engine.mlx_impl import MlxLLMEngine
+                    self.assertIsInstance(engine, MlxLLMEngine)
 
             # Test GGUF provider
             with patch.dict(config.data, {"llm": {"provider": "gguf", "local": {"model_path": "/fake/path.gguf"}}}):
