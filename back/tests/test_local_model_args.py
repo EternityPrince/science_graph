@@ -15,6 +15,9 @@ class TestLocalModelArgsLoad(unittest.TestCase):
         
         if not model_path or not os.path.isdir(model_path):
             self.skipTest(f"Configured local model path '{model_path}' does not exist on this device. Skipping validation.")
+        
+        if os.path.exists(os.path.join(model_path, "optiq_metadata.json")):
+            self.skipTest(f"Configured model path '{model_path}' is an OptiQ model, which is not supported by standard MLX engine. Skipping.")
             
         orig_data = config.data
         config.data = real_config.data
