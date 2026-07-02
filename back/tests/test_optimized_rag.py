@@ -10,6 +10,12 @@ except ImportError:
     has_mlx = False
 import torch
 
+try:
+    import mlx.core as mx
+    has_mlx = True
+except ImportError:
+    has_mlx = False
+
 from src.vector_search import EmbeddingEngine
 from src.llm_engine.mlx_impl import MlxLLMEngine
 
