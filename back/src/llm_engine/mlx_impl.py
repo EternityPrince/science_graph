@@ -162,17 +162,30 @@ class MlxLLMEngine(BaseLLMEngine):
             con.model_msg(f"Loading MLX LLM [bold]{model_name}[/bold] …")
 
             con.debug(f"MLX_REAL_LOAD_START pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
+            # Try to import optiq or mlx_optiq to register custom models at runtime
+            optiq_loaded = False
             try:
-                import mlx_lm.utils
-                for qwen_type in ["qwen3", "qwen3_5"]:
-                    if qwen_type not in mlx_lm.utils.MODEL_REMAPPING:
-                        try:
-                            import importlib
-                            importlib.import_module(f"mlx_lm.models.{qwen_type}")
-                        except ImportError:
-                            mlx_lm.utils.MODEL_REMAPPING[qwen_type] = "qwen2"
-            except Exception:
-                pass
+                import optiq
+                optiq_loaded = True
+            except ImportError:
+                try:
+                    import mlx_optiq
+                    optiq_loaded = True
+                except ImportError:
+                    pass
+
+            if not optiq_loaded:
+                try:
+                    import mlx_lm.utils
+                    for qwen_type in ["qwen3", "qwen3_5"]:
+                        if qwen_type not in mlx_lm.utils.MODEL_REMAPPING:
+                            try:
+                                import importlib
+                                importlib.import_module(f"mlx_lm.models.{qwen_type}")
+                            except ImportError:
+                                mlx_lm.utils.MODEL_REMAPPING[qwen_type] = "qwen2"
+                except Exception:
+                    pass
 
             # Try to import optiq or mlx_optiq to register custom models at runtime
             optiq_loaded = False
