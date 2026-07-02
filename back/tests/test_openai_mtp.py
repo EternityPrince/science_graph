@@ -72,30 +72,16 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any("MTP file found: true" in call for call in info_calls))
             self.assertTrue(any("MTP effective mode: enabled" in call for call in info_calls))
 
-<<<<<<< HEAD
-||||||| parent of 56e45f1 (tryna fix error)
-=======
     @patch("os.listdir")
->>>>>>> 56e45f1 (tryna fix error)
     @patch("os.path.isdir")
     @patch("os.path.exists")
     @patch("openai.OpenAI")
     @patch("src.llm_engine.openai_impl.con")
-<<<<<<< HEAD
-    def test_mtp_disabled_missing_file(self, mock_con, mock_openai, mock_exists, mock_isdir):
-||||||| parent of 56e45f1 (tryna fix error)
-    def test_mtp_disabled_missing_file(self, mock_con, mock_openai, mock_exists):
-=======
     def test_mtp_disabled_missing_file(self, mock_con, mock_openai, mock_exists, mock_isdir, mock_listdir):
->>>>>>> 56e45f1 (tryna fix error)
         # 2. enable_mtp = true + mtp.safetensors is missing -> MTP disabled + warning logged.
         mock_exists.return_value = False
         mock_isdir.return_value = False
-<<<<<<< HEAD
-||||||| parent of 56e45f1 (tryna fix error)
-=======
         mock_listdir.return_value = []
->>>>>>> 56e45f1 (tryna fix error)
         
         self.assertTrue(config.llm_enable_mtp)
         self.assertFalse(config.llm_mtp_file_found)
