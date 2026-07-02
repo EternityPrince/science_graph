@@ -52,6 +52,94 @@ try:
 except Exception:
     pass
 
+# Monkeypatch marker to fix ZeroDivisionErrors in code.py and equations.py
+try:
+    import marker.cleaners.code as m_code
+    import fitz as pymupdf
+    from marker.schema import Span, Line
+
+    def patched_indent_blocks(blocks):
+        span_counter = 0
+        for page in blocks:
+            for block in page.blocks:
+                block_types = [span.block_type for line in block.lines for span in line.spans]
+                if "Code" not in block_types:
+                    continue
+
+                lines = []
+                min_left = 1000  # will contain x- coord of column 0
+                col_width = 0  # width of 1 char
+                for line in block.lines:
+                    text = ""
+                    min_left = min(line.bbox[0], min_left)
+                    for span in line.spans:
+                        if col_width == 0 and len(span.text) > 0:
+                            col_width = (span.bbox[2] - span.bbox[0]) / len(span.text)
+                        text += span.text
+                    lines.append((pymupdf.Rect(line.bbox), text))
+
+                if col_width <= 0:
+                    col_width = 1.0
+
+                block_text = ""
+                blank_line = False
+                for line in lines:
+                    text = line[1]
+                    prefix = " " * int((line[0].x0 - min_left) / col_width)
+                    current_line_blank = len(text.strip()) == 0
+                    if blank_line and current_line_blank:
+                        # Don't put multiple blank lines in a row
+                        continue
+
+                    block_text += prefix + text + "\n"
+                    blank_line = current_line_blank
+
+                new_span = Span(
+                    text=block_text,
+                    bbox=block.bbox,
+                    color=block.lines[0].spans[0].color,
+                    span_id=f"{span_counter}_fix_code",
+                    font=block.lines[0].spans[0].font,
+                    block_type="Code"
+                )
+                span_counter += 1
+                block.lines = [Line(spans=[new_span], bbox=block.bbox)]
+
+    m_code.indent_blocks = patched_indent_blocks
+except Exception:
+    pass
+
+try:
+    import marker.cleaners.equations as m_eq
+    from PIL import Image, ImageDraw
+
+    def patched_mask_bbox(png_image, bbox, selected_bboxes):
+        mask = Image.new('L', png_image.size, 0)  # 'L' mode for grayscale
+        draw = ImageDraw.Draw(mask)
+        first_x = bbox[0]
+        first_y = bbox[1]
+        bbox_height = max(bbox[3] - bbox[1], 1e-5)
+        bbox_width = max(bbox[2] - bbox[0], 1e-5)
+
+        for box in selected_bboxes:
+            # Fit the box to the selected region
+            new_box = (box[0] - first_x, box[1] - first_y, box[2] - first_x, box[3] - first_y)
+            # Fit mask to image bounds versus the pdf bounds
+            resized = (
+               new_box[0] / bbox_width * png_image.size[0],
+               new_box[1] / bbox_height * png_image.size[1],
+               new_box[2] / bbox_width * png_image.size[0],
+               new_box[3] / bbox_height * png_image.size[1]
+            )
+            draw.rectangle(resized, fill=255)
+
+        result = Image.composite(png_image, Image.new('RGBA', png_image.size, 'white'), mask)
+        return result
+
+    m_eq.mask_bbox = patched_mask_bbox
+except Exception:
+    pass
+
 # Suppress noisy debug logs from third-party libraries used by Marker
 logging.getLogger("ocrmypdf").setLevel(logging.WARNING)
 logging.getLogger("pdfminer").setLevel(logging.WARNING)

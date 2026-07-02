@@ -90,25 +90,17 @@ class ConstrainedLogitsProcessor:
 
 
 class MlxLLMEngine(BaseLLMEngine):
-<<<<<<< HEAD
-    def __init__(self, model_path: str = ""):
-=======
     def __init__(self, model_path: str = None):
         if mx is None:
             raise ImportError(
                 "MLX is not installed. MlxLLMEngine is only supported on Apple Silicon macOS with the 'mlx' package installed."
             )
->>>>>>> 4756785 (fix test)
         self.model_path = model_path or config.llm_local_model_path
         self._tokenizer_data = None
         self.model = None
         self.tokenizer = None
 
-        print("MLX_INIT", {
-            "pid": os.getpid(),
-            "self_id": id(self),
-            "model_path": self.model_path,
-        })
+        con.debug(f"MLX_INIT pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
 
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(
@@ -126,12 +118,7 @@ class MlxLLMEngine(BaseLLMEngine):
         import mlx_lm.generate  # noqa: F401
 
     def unload_model(self):
-        print("MLX_UNLOAD", {
-            "pid": os.getpid(),
-            "self_id": id(self),
-            "model_path": self.model_path,
-            "model_was_none": self.model is None,
-        })
+        con.debug(f"MLX_UNLOAD pid={os.getpid()} self_id={id(self)} model_path={self.model_path} model_was_none={self.model is None}")
         
         if self.model is not None:
             import gc
@@ -150,33 +137,31 @@ class MlxLLMEngine(BaseLLMEngine):
             con.success("MLX LLM model unloaded and GPU cache cleared")
 
     def _ensure_model_loaded(self):
-        print("MLX_ENSURE_BEFORE", {
-            "pid": os.getpid(),
-            "self_id": id(self),
-            "model_path": self.model_path,
-            "model_is_none": self.model is None,
-            "tokenizer_is_none": self.tokenizer is None,
-        })
+        con.debug(f"MLX_ENSURE_BEFORE pid={os.getpid()} self_id={id(self)} model_path={self.model_path} model_is_none={self.model is None} tokenizer_is_none={self.tokenizer is None}")
         
         if self.model is None:
             model_name = Path(self.model_path).name
             con.model_msg(f"Loading MLX LLM [bold]{model_name}[/bold] …")
 
-            print("MLX_REAL_LOAD_START", {
-                "pid": os.getpid(),
-                "self_id": id(self),
-                "model_path": self.model_path,
-            })
+            con.debug(f"MLX_REAL_LOAD_START pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
+
+            try:
+                import mlx_lm.utils
+                for qwen_type in ["qwen3", "qwen3_5"]:
+                    if qwen_type not in mlx_lm.utils.MODEL_REMAPPING:
+                        try:
+                            import importlib
+                            importlib.import_module(f"mlx_lm.models.{qwen_type}")
+                        except ImportError:
+                            mlx_lm.utils.MODEL_REMAPPING[qwen_type] = "qwen2"
+            except Exception:
+                pass
 
             from mlx_lm import load
             with con.suppress_stderr(), con.suppress_stdout():
                 self.model, self.tokenizer = load(self.model_path, tokenizer_config={"fix_mistral_regex": True})
 
-            print("MLX_REAL_LOAD_DONE", {
-                "pid": os.getpid(),
-                "self_id": id(self),
-                "model_path": self.model_path,
-            })
+            con.debug(f"MLX_REAL_LOAD_DONE pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
 
             con.success(f"MLX LLM ready: [bold]{model_name}[/bold]")
 
