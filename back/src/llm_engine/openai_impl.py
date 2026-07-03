@@ -121,7 +121,7 @@ class OpenAILLMEngine(BaseLLMEngine):
                     import time
                     ready = False
                     temp_client = openai.OpenAI(base_url=base_url, api_key=api_key, timeout=1.0)
-                    for i in range(60): # 30 seconds max
+                    for _ in range(60): # 30 seconds max
                         try:
                             temp_client.models.list()
                             ready = True
@@ -154,11 +154,13 @@ class OpenAILLMEngine(BaseLLMEngine):
             try:
                 models_response = self.client.models.list()
                 available = [m.id for m in models_response.data]
-                if available:
-                    discovered = available[0]
-                    if discovered != self.model_name:
-                        con.info(f"Auto-discovered local model name: [bold]{discovered}[/bold] (was: {self.model_name})")
-                        self.model_name = discovered
+                if config.llm_model_path in available and is_local and available:
+                    discovered = config.llm_model_path
+                else:
+                    discovered = available[-1]
+                if discovered != self.model_name:
+                    con.info(f"Auto-discovered local model name: [bold]{discovered}[/bold] (was: {self.model_name})")
+                    self.model_name = discovered
             except Exception:
                 pass  # Fall back to configured model_name
 
