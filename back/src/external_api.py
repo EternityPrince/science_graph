@@ -4,12 +4,16 @@ import json
 import logging
 import time
 import random
+import threading
 from typing import Dict, Any, Optional
 from src.config import config
 
 logger = logging.getLogger(__name__)
 
 SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
+
+_s2_lock = threading.Lock()
+_last_request_time = 0.0
 
 
 def fetch_paper_metadata(
@@ -31,6 +35,26 @@ def fetch_paper_metadata(
         - references (List[Dict[str, Any]]) - papers cited by this paper
         - citations (List[Dict[str, Any]]) - papers citing this paper
     """
+    global _last_request_time
+
+    # Enforce rate limiting to respect Semantic Scholar limits:
+    # - Without API Key: 100 requests per 5 minutes -> 3.0 seconds per request delay to be safe.
+    # - With API Key: 10 requests per second -> 0.15 seconds per request delay.
+    # Bypass delay during unit testing to maintain fast test execution.
+    import os
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        delay = 0.0
+    else:
+        s2_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY") or os.environ.get("S2_API_KEY")
+        delay = 0.15 if s2_api_key else 3.0
+
+    with _s2_lock:
+        now = time.monotonic()
+        elapsed = now - _last_request_time
+        if elapsed < delay:
+            time.sleep(delay - elapsed)
+        _last_request_time = time.monotonic()
+
     fields = "paperId,title,authors,year,abstract,externalIds,citations.title,citations.externalIds,references.title,references.externalIds"
     
     # 1. Decide on query URL
