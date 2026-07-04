@@ -184,17 +184,24 @@ class MlxLLMEngine(BaseLLMEngine):
                 except Exception:
                     pass
 
-            is_optiq_or_qwen3 = False
+            is_optiq_or_mtp = False
+            # Check for optiq_metadata.json
+            if os.path.exists(os.path.join(self.model_path, "optiq_metadata.json")):
+                is_optiq_or_mtp = True
+            # Check for mtp.safetensors
+            if os.path.exists(os.path.join(self.model_path, "mtp.safetensors")):
+                is_optiq_or_mtp = True
+
             if model_type:
                 model_type_lower = str(model_type).lower()
-                if "qwen3" in model_type_lower or "optiq" in model_type_lower:
-                    is_optiq_or_qwen3 = True
+                if "optiq" in model_type_lower or "mtp" in model_type_lower:
+                    is_optiq_or_mtp = True
             
             model_path_lower = os.path.basename(self.model_path).lower()
-            if "qwen3" in model_path_lower or "optiq" in model_path_lower:
-                is_optiq_or_qwen3 = True
+            if "optiq" in model_path_lower or "mtp" in model_path_lower:
+                is_optiq_or_mtp = True
 
-            if is_optiq_or_qwen3 and not optiq_loaded:
+            if is_optiq_or_mtp and not optiq_loaded:
                 raise ImportError(
                     f"Model type '{model_type or 'Qwen3.5/OptiQ'}' requires the 'mlx-optiq' package to be installed to run locally.\n"
                     f"Please run 'pip install mlx-optiq' to run this model in-process, or configure provider='openai-compatible' "
@@ -210,8 +217,9 @@ class MlxLLMEngine(BaseLLMEngine):
                                 import importlib
                                 importlib.import_module(f"mlx_lm.models.{qwen_type}")
                             except ImportError:
-                                # Do not remap qwen3/qwen3_5 to qwen2 as they are incompatible
-                                pass
+                                # For non-OptiQ/non-MTP qwen3 models, we fall back to remapping to qwen2
+                                # if the installed mlx_lm version doesn't support them natively.
+                                mlx_lm.utils.MODEL_REMAPPING[qwen_type] = "qwen2"
                 except Exception:
                     pass
 
