@@ -409,6 +409,8 @@ class TestRagBenchmark(unittest.TestCase):
 
     @patch("subprocess.check_output")
     @patch("subprocess.run")
+    @patch("benchmarks.rag.run_pipeline.subprocess.check_output")
+    @patch("benchmarks.rag.run_pipeline.subprocess.run")
     @patch("benchmarks.rag.run_pipeline.run_command_with_progress")
     def test_run_pipeline_orchestration(self, mock_run_progress, mock_run, mock_check_output):
         """Verifies that run_pipeline.py runs all three stages in sequence with correct arguments."""

@@ -223,10 +223,7 @@ def main():
     import os
     import yaml
     import hashlib
-<<<<<<< HEAD
-=======
     from datetime import datetime
->>>>>>> 7c7b22f (add trace into parse_metrica)
     
     # 1. Config snapshot
     with open(run_dir / "config_snapshot.yaml", "w", encoding="utf-8") as f:
@@ -243,8 +240,7 @@ def main():
         git_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
         status_out = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
         working_tree_dirty = bool(status_out.strip())
-<<<<<<< HEAD
-        
+    
         # Sanitize mock objects during unit testing
         if not isinstance(git_commit, str) or "Mock" in type(git_commit).__name__:
             git_commit = "unknown"
@@ -252,8 +248,6 @@ def main():
             git_branch = "unknown"
         if not isinstance(working_tree_dirty, bool) or "Mock" in type(working_tree_dirty).__name__:
             working_tree_dirty = False
-=======
->>>>>>> 7c7b22f (add trace into parse_metrica)
     except Exception:
         pass
         
@@ -266,15 +260,9 @@ def main():
         pass
         
     if args.cloud:
-<<<<<<< HEAD
         config.data["llm"]["cloud"]["model_name"]
     else:
-        config.data["llm"]["local"]["model_path"]
-=======
-        llm_model_name = config.data["llm"]["cloud"]["model_name"]
-    else:
         llm_model_name = config.data["llm"]["local"]["model_path"]
->>>>>>> 7c7b22f (add trace into parse_metrica)
         
     manifest = {
         "run_id": run_dir.name,

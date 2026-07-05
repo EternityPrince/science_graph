@@ -173,3 +173,6 @@ test_reports/
 back/science_graph.db
 back/science_graph.db*
 graphs/
+
+graphs/
+test_reports/
