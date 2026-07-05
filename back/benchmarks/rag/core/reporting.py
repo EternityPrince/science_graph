@@ -111,7 +111,10 @@ def print_rich_tables(stats: dict) -> None:
         row.append(f"{sr:.1f}%")
         
         for m in ALL_METRICS:
-            val = stats["summary"][b][m]["mean"]
+            if m not in stats["summary"][b]:
+                val = 0.0
+            else:
+                val = stats["summary"][b][m]["mean"]
             if m == "latency_sec":
                 row.append(f"{val:.2f}s")
             elif m in ("token_output", "token_answer", "token_reasoning"):
@@ -167,7 +170,10 @@ def print_rich_tables(stats: dict) -> None:
         table_det.add_column("Std Dev", justify="right")
         
         for m in ALL_METRICS:
-            m_stats = stats["summary"][b][m]
+            if m not in stats["summary"][b]:
+                m_stats = {"mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0}
+            else:
+                m_stats = stats["summary"][b][m]
             mean_val = m_stats["mean"]
             min_val = m_stats["min"]
             max_val = m_stats["max"]
@@ -264,7 +270,10 @@ def print_plain_tables(stats: dict) -> None:
         sr = stats["summary"][b]["success_rate"]
         row = [b, f"{sr:.1f}%"]
         for m in ALL_METRICS:
-            val = stats["summary"][b][m]["mean"]
+            if m not in stats["summary"][b]:
+                val = 0.0
+            else:
+                val = stats["summary"][b][m]["mean"]
             if m == "latency_sec":
                 row.append(f"{val:.2f}s")
             elif m in ("token_output", "token_answer", "token_reasoning"):
@@ -320,6 +329,8 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
     for m in ALL_METRICS:
         if m in ("token_output", "token_answer", "token_reasoning"):
             continue
+        if any(m not in stats["summary"][b] for b in stats["baselines"]):
+            continue
         if m == "latency_sec":
             best_val = min(stats["summary"][b][m]["mean"] for b in stats["baselines"])
             best_b = [b for b in stats["baselines"] if stats["summary"][b][m]["mean"] == best_val][0]
@@ -332,7 +343,10 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
         sr = stats["summary"][b]["success_rate"]
         row = [f"**{b}**", f"{sr:.1f}%"]
         for m in ALL_METRICS:
-            val = stats["summary"][b][m]["mean"]
+            if m not in stats["summary"][b]:
+                val = 0.0
+            else:
+                val = stats["summary"][b][m]["mean"]
             if m == "latency_sec":
                 cell_str = f"{val:.2f}s"
             elif m in ("token_output", "token_answer", "token_reasoning"):
@@ -356,7 +370,10 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
         lines.append("| :--- | ---: | ---: | ---: | ---: | ---: |")
         
         for m in ALL_METRICS:
-            m_stats = stats["summary"][b][m]
+            if m not in stats["summary"][b]:
+                m_stats = {"mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0}
+            else:
+                m_stats = stats["summary"][b][m]
             mean_val = m_stats["mean"]
             min_val = m_stats["min"]
             max_val = m_stats["max"]
@@ -680,8 +697,10 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
         writer = csv.writer(f)
         writer.writerow([
             "query_id", "category", "baseline", "status", "latency_sec",
+            "is_answerable",
             "retrieval_recall", "context_precision", "faithfulness",
             "answer_relevance", "citation_fidelity", "semantic_accuracy",
+            "ar_sa_f1",
             "token_output", "token_answer", "token_reasoning",
             "seed_chunks_from_lexical_dense", "seed_paper_id_list",
             "graph_neighbor_paper_id_list", "candidate_count_before_reranker",
@@ -746,18 +765,41 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                         return json.dumps(val, ensure_ascii=False)
                     return str(val)
 
+                is_ans = r.get("is_answerable")
+                if is_ans is None:
+                    is_ans = True
+                else:
+                    is_ans = bool(is_ans)
+                
+                ar_f1 = eval_metrics.get("ar_sa_f1")
+                if ar_f1 is None and is_ans:
+                    r_relevance = eval_metrics.get("answer_relevance")
+                    s_accuracy = eval_metrics.get("semantic_accuracy")
+                    if r_relevance is not None and s_accuracy is not None:
+                        try:
+                            r_val = float(r_relevance)
+                            s_val = float(s_accuracy)
+                            if r_val + s_val > 0:
+                                ar_f1 = round(2.0 * (r_val * s_val) / (r_val + s_val), 4)
+                            else:
+                                ar_f1 = 0.0
+                        except (ValueError, TypeError):
+                            ar_f1 = 0.0
+
                 row_vals = [
                     q_id,
                     category,
                     b,
                     status,
                     latency if latency is not None else "",
+                    is_ans,
                     get_metric("retrieval_recall"),
                     get_metric("context_precision"),
                     get_metric("faithfulness"),
                     get_metric("answer_relevance"),
                     get_metric("citation_fidelity"),
                     get_metric("semantic_accuracy"),
+                    ar_f1 if ar_f1 is not None else "",
                     get_metric("token_output"),
                     get_metric("token_answer"),
                     get_metric("token_reasoning"),

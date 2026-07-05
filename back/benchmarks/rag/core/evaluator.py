@@ -284,7 +284,8 @@ async def evaluate_baseline_case(
     baseline_data: Dict[str, Any],
     checkpoint_data: Dict[str, Any],
     checkpoint_path: Path,
-    max_input_token: int = 10000
+    max_input_token: int = 10000,
+    is_answerable: bool = True
 ) -> Dict[str, Any]:
     """Evaluates a single test case for a baseline, checking checkpoint first."""
     from src import console as con
@@ -338,6 +339,15 @@ async def evaluate_baseline_case(
             save_checkpoint(checkpoint_path, checkpoint_data)
         
         res = dict(cached_metrics)
+        if is_answerable:
+            r_relevance = res.get("answer_relevance", 0.0)
+            s_accuracy = res.get("semantic_accuracy", 0.0)
+            if r_relevance + s_accuracy > 0:
+                res["ar_sa_f1"] = round(2.0 * (r_relevance * s_accuracy) / (r_relevance + s_accuracy), 4)
+            else:
+                res["ar_sa_f1"] = 0.0
+        else:
+            res["ar_sa_f1"] = None
         res["eval_details"] = cached_details
         return res
 
@@ -492,6 +502,16 @@ async def evaluate_baseline_case(
             eval_metrics[m] = cached_metrics.get(m, 0.0)
             eval_details[m] = cached_details.get(m, {})
 
+    if is_answerable:
+        r_relevance = eval_metrics.get("answer_relevance", 0.0)
+        s_accuracy = eval_metrics.get("semantic_accuracy", 0.0)
+        if r_relevance + s_accuracy > 0:
+            eval_metrics["ar_sa_f1"] = round(2.0 * (r_relevance * s_accuracy) / (r_relevance + s_accuracy), 4)
+        else:
+            eval_metrics["ar_sa_f1"] = 0.0
+    else:
+        eval_metrics["ar_sa_f1"] = None
+
     # Save to checkpoint
     checkpoint_data[checkpoint_key] = {
         "metrics": eval_metrics,
@@ -639,7 +659,8 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                     baseline_data,
                     checkpoint_data,
                     checkpoint_path,
-                    max_input_token=max_tokens_val
+                    max_input_token=max_tokens_val,
+                    is_answerable=case.get("is_answerable", True)
                 )
             ))
 
@@ -674,6 +695,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
             "query": query,
             "golden_answer": golden_answer,
             "expected_papers": expected_papers,
+            "is_answerable": case.get("is_answerable", True),
             "baselines": {}
         }
 
@@ -696,6 +718,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                     "citation_fidelity": [],
                     "semantic_accuracy": [],
                     "context_fillness": [],
+                    "ar_sa_f1": [],
                     "token_output": [],
                     "token_answer": [],
                     "token_reasoning": [],
@@ -709,6 +732,8 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                 if baseline_name == "B0" and k in ("faithfulness", "citation_fidelity", "context_precision"):
                     continue
                 if baseline_name != "B0" and not baseline_data.get("retrieved_chunks") and k in ("faithfulness", "citation_fidelity", "context_precision"):
+                    continue
+                if k == "ar_sa_f1" and (not case.get("is_answerable", True) or val is None):
                     continue
                 summary_stats[baseline_name][k].append(val)
 
@@ -771,6 +796,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                         "query_id": case_id,
                         "baseline": baseline_name,
                         "category": category,
+                        "is_answerable": is_ans,
                         "retrieval_recall": metrics.get("retrieval_recall"),
                         "context_precision": metrics.get("context_precision"),
                         "faithfulness": metrics.get("faithfulness"),
@@ -778,6 +804,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                         "citation_fidelity": metrics.get("citation_fidelity"),
                         "semantic_accuracy": metrics.get("semantic_accuracy"),
                         "context_fillness": metrics.get("context_fillness"),
+                        "ar_sa_f1": metrics.get("ar_sa_f1"),
                         "latency_sec": b_data.get("latency_sec"),
                         "judge_model": model_name,
                         "token_output": metrics.get("token_output"),

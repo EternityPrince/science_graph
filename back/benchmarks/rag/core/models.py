@@ -63,6 +63,7 @@ class TestCaseOutput(BaseModel):
     category: str = "default"
     golden_answer: Optional[str] = ""
     expected_papers: List[str] = Field(default_factory=list)
+    is_answerable: bool = True
     baselines: Dict[str, BaselineOutput] = Field(default_factory=dict)
 
 

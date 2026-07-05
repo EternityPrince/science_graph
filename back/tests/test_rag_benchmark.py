@@ -391,10 +391,12 @@ class TestRagBenchmark(unittest.TestCase):
                 reader_det = list(csv.reader(f))
                 
             self.assertEqual(len(reader_det), 3) # Header + Q01_B0 + Q01_B1
-            self.assertEqual(reader_det[0][:23], [
+            self.assertEqual(reader_det[0][:25], [
                 "query_id", "category", "baseline", "status", "latency_sec",
+                "is_answerable",
                 "retrieval_recall", "context_precision", "faithfulness",
                 "answer_relevance", "citation_fidelity", "semantic_accuracy",
+                "ar_sa_f1",
                 "token_output", "token_answer", "token_reasoning",
                 "seed_chunks_from_lexical_dense", "seed_paper_id_list",
                 "graph_neighbor_paper_id_list", "candidate_count_before_reranker",
@@ -402,8 +404,8 @@ class TestRagBenchmark(unittest.TestCase):
                 "final_context_token_count", "whether_graph_neighbor_chunk_survived_into_final_context",
                 "answer_token_count"
             ])
-            self.assertEqual(reader_det[1][:23], ["Q01", "general", "B0", "success", "5.432", "", "", "", "0.8", "", "0.75", "", "", "", "", "", "", "", "", "", "", "", ""])
-            self.assertEqual(reader_det[2][:23], ["Q01", "general", "B1", "success", "12.345", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "", "", "", "", "", "", "", "", "", "", "", ""])
+            self.assertEqual(reader_det[1][:25], ["Q01", "general", "B0", "success", "5.432", "True", "", "", "", "0.8", "", "0.75", "0.7742", "", "", "", "", "", "", "", "", "", "", "", ""])
+            self.assertEqual(reader_det[2][:25], ["Q01", "general", "B1", "success", "12.345", "True", "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "0.8899", "", "", "", "", "", "", "", "", "", "", "", ""])
 
     @patch("subprocess.check_output")
     @patch("subprocess.run")

@@ -109,6 +109,7 @@ def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42
                 "category": "sciq",
                 "query": q_data["q"],
                 "golden_answer": q_data["a"],
+                "is_answerable": True,
                 "c": q_data["c"]  # temporary context string storage
             })
             

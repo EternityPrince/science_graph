@@ -65,6 +65,7 @@ def save_generation_baseline_result(file_path: Path, case_id: str, case_info: di
                 "query": case_info.get("query"),
                 "golden_answer": case_info.get("golden_answer", "").strip(),
                 "expected_papers": case_info.get("expected_papers", []),
+                "is_answerable": case_info.get("is_answerable", True),
                 "baselines": {}
             }
             results.append(case_item)
@@ -95,6 +96,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                 "query": case_info.get("query"),
                 "golden_answer": case_info.get("golden_answer", "").strip(),
                 "expected_papers": case_info.get("expected_papers", []),
+                "is_answerable": case_info.get("is_answerable", True),
                 "baselines": {}
             }
             results.append(case_item)
@@ -129,6 +131,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                         "citation_fidelity": [],
                         "semantic_accuracy": [],
                         "context_fillness": [],
+                        "ar_sa_f1": [],
                         "token_output": [],
                         "token_answer": [],
                         "token_reasoning": [],
@@ -142,6 +145,8 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                     if b_name == "B0" and k in ("faithfulness", "citation_fidelity", "context_precision"):
                         continue
                     if b_name != "B0" and not b_val.get("retrieved_chunks") and k in ("faithfulness", "citation_fidelity", "context_precision"):
+                        continue
+                    if k == "ar_sa_f1" and (not r.get("is_answerable", True) or val is None):
                         continue
                     summary_stats[b_name][k].append(val)
                     
@@ -598,7 +603,8 @@ async def run_pipelined_stage_async(
                         baseline_data,
                         checkpoint_data,
                         checkpoint_path,
-                        max_input_token=max_tokens_val
+                        max_input_token=max_tokens_val,
+                        is_answerable=case_info.get("is_answerable", True)
                     )
                     
                     save_evaluation_baseline_result(

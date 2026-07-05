@@ -15,7 +15,8 @@ QUALITY_METRICS = [
     "answer_relevance",
     "citation_fidelity",
     "semantic_accuracy",
-    "context_fillness"
+    "context_fillness",
+    "ar_sa_f1"
 ]
 
 ALL_METRICS = QUALITY_METRICS + ["latency_sec", "token_output", "token_answer", "token_reasoning"]
@@ -28,6 +29,7 @@ METRIC_LABELS = {
     "citation_fidelity": "Citation Fidelity",
     "semantic_accuracy": "Semantic Accuracy",
     "context_fillness": "Context Fillness",
+    "ar_sa_f1": "AR-SA F1",
     "latency_sec": "Latency (sec)",
     "token_output": "Token Output",
     "token_answer": "Token Answer",
@@ -253,6 +255,26 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 eval_metrics["token_output"] = token_output
                 eval_metrics["token_answer"] = token_answer
                 eval_metrics["token_reasoning"] = token_reasoning
+
+            # 5. ar_sa_f1
+            is_ans = r.get("is_answerable", True)
+            if is_ans:
+                r_relevance = eval_metrics.get("answer_relevance")
+                s_accuracy = eval_metrics.get("semantic_accuracy")
+                if r_relevance is not None and s_accuracy is not None:
+                    try:
+                        r_val = float(r_relevance)
+                        s_val = float(s_accuracy)
+                        if r_val + s_val > 0:
+                            eval_metrics["ar_sa_f1"] = round(2.0 * (r_val * s_val) / (r_val + s_val), 4)
+                        else:
+                            eval_metrics["ar_sa_f1"] = 0.0
+                    except (ValueError, TypeError):
+                        eval_metrics["ar_sa_f1"] = 0.0
+                else:
+                    eval_metrics["ar_sa_f1"] = None
+            else:
+                eval_metrics["ar_sa_f1"] = None
 
     # If the input was originally a mutable dict or list, update it in-place to propagate changes
     if isinstance(data, dict):

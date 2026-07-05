@@ -225,11 +225,33 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     headers = [
         "query_id", "baseline", "category", "judge_model", "latency_sec",
         "retrieval_recall", "context_precision", "faithfulness",
-        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness"
+        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness",
+        "ar_sa_f1", "is_answerable"
     ]
 
     csv_rows = []
     for r in rows:
+        is_ans = r.get("is_answerable")
+        if is_ans is None:
+            is_ans = True
+        else:
+            is_ans = str(is_ans).lower() == "true"
+            
+        ar_f1 = r.get("ar_sa_f1")
+        if ar_f1 is None and is_ans:
+            r_relevance = r.get("answer_relevance")
+            s_accuracy = r.get("semantic_accuracy")
+            if r_relevance is not None and s_accuracy is not None:
+                try:
+                    r_val = float(r_relevance)
+                    s_val = float(s_accuracy)
+                    if r_val + s_val > 0:
+                        ar_f1 = round(2.0 * (r_val * s_val) / (r_val + s_val), 4)
+                    else:
+                        ar_f1 = 0.0
+                except (ValueError, TypeError):
+                    ar_f1 = 0.0
+
         csv_rows.append({
             "query_id": r.get("query_id") or r.get("id"),
             "baseline": r.get("baseline"),
@@ -242,7 +264,9 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
             "answer_relevance": r.get("answer_relevance"),
             "citation_fidelity": r.get("citation_fidelity"),
             "semantic_accuracy": r.get("semantic_accuracy"),
-            "context_fillness": r.get("context_fillness")
+            "context_fillness": r.get("context_fillness"),
+            "ar_sa_f1": ar_f1,
+            "is_answerable": is_ans
         })
 
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
@@ -258,11 +282,15 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     metrics_summary = {}
     metric_names = [
         "retrieval_recall", "context_precision", "faithfulness",
-        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness"
+        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness",
+        "ar_sa_f1"
     ]
 
     for m in metric_names:
-        vals = [r[m] for r in csv_rows if r.get(m) is not None and r[m] != ""]
+        if m == "ar_sa_f1":
+            vals = [r[m] for r in csv_rows if r.get("is_answerable") is True and r.get(m) is not None and r[m] != ""]
+        else:
+            vals = [r[m] for r in csv_rows if r.get(m) is not None and r[m] != ""]
         if vals:
             metrics_summary[m] = {
                 "mean": round(statistics.mean(vals), 4),
@@ -423,6 +451,27 @@ def main():
                 if not b_data:
                     continue
                 eval_metrics = b_data.get("eval_metrics", {})
+                is_ans = r.get("is_answerable")
+                if is_ans is None:
+                    is_ans = True
+                else:
+                    is_ans = str(is_ans).lower() == "true"
+                    
+                ar_f1 = eval_metrics.get("ar_sa_f1")
+                if ar_f1 is None and is_ans:
+                    r_relevance = eval_metrics.get("answer_relevance")
+                    s_accuracy = eval_metrics.get("semantic_accuracy")
+                    if r_relevance is not None and s_accuracy is not None:
+                        try:
+                            r_val = float(r_relevance)
+                            s_val = float(s_accuracy)
+                            if r_val + s_val > 0:
+                                ar_f1 = round(2.0 * (r_val * s_val) / (r_val + s_val), 4)
+                            else:
+                                ar_f1 = 0.0
+                        except (ValueError, TypeError):
+                            ar_f1 = 0.0
+
                 metrics_rows.append({
                     "query_id": q_id,
                     "category": category,
@@ -436,6 +485,8 @@ def main():
                     "citation_fidelity": eval_metrics.get("citation_fidelity"),
                     "semantic_accuracy": eval_metrics.get("semantic_accuracy"),
                     "context_fillness": eval_metrics.get("context_fillness"),
+                    "ar_sa_f1": ar_f1,
+                    "is_answerable": is_ans,
                     "token_output": eval_metrics.get("token_output"),
                     "token_answer": eval_metrics.get("token_answer"),
                     "token_reasoning": eval_metrics.get("token_reasoning")
@@ -459,10 +510,32 @@ def main():
         if not q_id or not base:
             continue
         key = (q_id, base)
+        is_ans = r.get("is_answerable")
+        if is_ans is None or is_ans == "":
+            is_ans = True
+        else:
+            is_ans = str(is_ans).lower() == "true"
+            
+        ar_f1 = r.get("ar_sa_f1")
+        if (ar_f1 is None or ar_f1 == "") and is_ans:
+            r_relevance = r.get("answer_relevance")
+            s_accuracy = r.get("semantic_accuracy")
+            if r_relevance is not None and s_accuracy is not None and r_relevance != "" and s_accuracy != "":
+                try:
+                    r_val = float(r_relevance)
+                    s_val = float(s_accuracy)
+                    if r_val + s_val > 0:
+                        ar_f1 = round(2.0 * (r_val * s_val) / (r_val + s_val), 4)
+                    else:
+                        ar_f1 = 0.0
+                except (ValueError, TypeError):
+                    ar_f1 = 0.0
+
         joined_data[key] = {
             "query_id": q_id,
             "baseline": base,
             "category": r.get("category", "general"),
+            "is_answerable": is_ans,
             "retrieval_recall": r.get("retrieval_recall"),
             "context_precision": r.get("context_precision"),
             "faithfulness": r.get("faithfulness"),
@@ -470,6 +543,7 @@ def main():
             "citation_fidelity": r.get("citation_fidelity"),
             "semantic_accuracy": r.get("semantic_accuracy"),
             "context_fillness": r.get("context_fillness"),
+            "ar_sa_f1": ar_f1,
             "latency_sec": r.get("latency_sec"),
             "token_output": r.get("token_output"),
             "token_answer": r.get("token_answer"),
@@ -513,16 +587,16 @@ def main():
                     "baseline": base,
                     "category": r.get("category", "general")
                 }
-            for m in ["retrieval_recall", "context_precision", "faithfulness", "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness", "latency_sec"]:
+            for m in ["retrieval_recall", "context_precision", "faithfulness", "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "is_answerable", "latency_sec"]:
                 if r.get(m) is not None and (joined_data[key].get(m) is None or joined_data[key].get(m) == ""):
                     joined_data[key][m] = r[m]
 
     # Write per_query_joined.csv
     joined_csv_path = parsed_dir / "per_query_joined.csv"
     joined_headers = [
-        "query_id", "baseline", "category",
+        "query_id", "baseline", "category", "is_answerable",
         "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
-        "citation_fidelity", "semantic_accuracy", "context_fillness", "latency_sec",
+        "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "latency_sec",
         "token_output", "token_answer", "token_reasoning",
         "graph_retrieval_enabled", "graph_retrieval_skip_reason",
         "base_candidates_count", "graph_neighbor_paper_ids_count",
@@ -559,9 +633,13 @@ def main():
     for b in run_summary["baselines"]:
         b_rows = [row for row in joined_data.values() if row["baseline"] == b]
         run_summary["metrics"][b] = {}
-        for m in ["semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall", "context_precision", "answer_relevance"]:
+        for m in ["semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall", "context_precision", "answer_relevance", "ar_sa_f1"]:
             vals = []
             for row in b_rows:
+                if m == "ar_sa_f1":
+                    is_ans = row.get("is_answerable")
+                    if is_ans is None or str(is_ans).lower() != "true":
+                        continue
                 val = row.get(m)
                 if val is not None and val != "":
                     try:
@@ -605,6 +683,7 @@ def main():
             run_summary["by_category"][cat][b] = {}
             
             sem_vals = []
+            ar_sa_vals = []
             for row in b_cat_rows:
                 s_acc = row.get("semantic_accuracy")
                 if s_acc is not None and s_acc != "":
@@ -612,8 +691,19 @@ def main():
                         sem_vals.append(float(s_acc))
                     except ValueError:
                         pass
+                        
+                is_ans = row.get("is_answerable")
+                if is_ans is not None and str(is_ans).lower() == "true":
+                    val = row.get("ar_sa_f1")
+                    if val is not None and val != "":
+                        try:
+                            ar_sa_vals.append(float(val))
+                        except ValueError:
+                            pass
             if sem_vals:
                 run_summary["by_category"][cat][b]["semantic_accuracy_mean"] = round(statistics.mean(sem_vals), 4)
+            if ar_sa_vals:
+                run_summary["by_category"][cat][b]["ar_sa_f1_mean"] = round(statistics.mean(ar_sa_vals), 4)
 
             g_cat_rows = [row for row in b_cat_rows if row.get("graph_retrieval_enabled") is not None]
             if g_cat_rows:
@@ -696,11 +786,11 @@ def main():
 
     if run_summary["metrics"]:
         print("\nQuality Metrics:")
-        header_fmt = "| {:<10} | {:<12} | {:<14} | {:<12} | {:<12} | {:<17} | {:<12} |"
-        row_fmt = "| {:<10} | {:<12.4f} | {:<14.4f} | {:<12.4f} | {:<12.4f} | {:<17.4f} | {:<11.3f}s |"
-        sep = "+" + "-"*12 + "+" + "-"*14 + "+" + "-"*16 + "+" + "-"*14 + "+" + "-"*14 + "+" + "-"*19 + "+" + "-"*14 + "+"
+        header_fmt = "| {:<10} | {:<12} | {:<14} | {:<12} | {:<12} | {:<17} | {:<12} | {:<12} |"
+        row_fmt = "| {:<10} | {:<12.4f} | {:<14.4f} | {:<12.4f} | {:<12.4f} | {:<17.4f} | {:<12.4f} | {:<11.3f}s |"
+        sep = "+" + "-"*12 + "+" + "-"*14 + "+" + "-"*16 + "+" + "-"*14 + "+" + "-"*14 + "+" + "-"*19 + "+" + "-"*14 + "+" + "-"*14 + "+"
         print(sep)
-        print(header_fmt.format("Baseline", "Mean Recall", "Mean Precision", "Faithfulness", "Relevance", "Semantic Accuracy", "Mean Latency"))
+        print(header_fmt.format("Baseline", "Mean Recall", "Mean Precision", "Faithfulness", "Relevance", "Semantic Accuracy", "AR-SA F1", "Mean Latency"))
         print(sep)
         for b in run_summary["baselines"]:
             b_metrics = run_summary["metrics"].get(b, {})
@@ -709,8 +799,9 @@ def main():
             faithfulness = b_metrics.get("faithfulness_mean", 0.0)
             relevance = b_metrics.get("answer_relevance_mean", 0.0)
             semantic = b_metrics.get("semantic_accuracy_mean", 0.0)
+            ar_sa_f1 = b_metrics.get("ar_sa_f1_mean", 0.0)
             latency = b_metrics.get("latency_sec_mean", 0.0)
-            print(row_fmt.format(b, recall, precision, faithfulness, relevance, semantic, latency))
+            print(row_fmt.format(b, recall, precision, faithfulness, relevance, semantic, ar_sa_f1, latency))
         print(sep)
 
     if run_summary["graph_retrieval"]:

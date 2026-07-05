@@ -346,6 +346,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             "query": query,
             "golden_answer": case.get("golden_answer", "").strip(),
             "expected_papers": case.get("expected_papers", []),
+            "is_answerable": case.get("is_answerable", True),
             "baselines": {}
         }
         
