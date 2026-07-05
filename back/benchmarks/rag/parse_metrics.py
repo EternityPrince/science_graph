@@ -239,7 +239,6 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
         "retrieval_recall", "context_precision", "faithfulness",
         "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness",
         "ar_sa_f1", "is_answerable"
-        "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness"
     ]
 
     csv_rows = []

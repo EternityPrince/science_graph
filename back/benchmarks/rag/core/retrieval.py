@@ -45,9 +45,11 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     original_output_path = Path(args.output) if getattr(args, "output", None) else Path("reports/retrieved_contexts.yaml")
     
     if args.cloud:
-        llm_model = config.data.get("llm", {}).get("cloud", {}).get("model_name", "cloud_model")
+        cloud_val = getattr(config, "llm_cloud_rag_model_name", None)
+        llm_model = cloud_val if isinstance(cloud_val, str) else config.data.get("llm", {}).get("cloud", {}).get("model_name", "cloud_model")
     else:
-        llm_model = config.data.get("llm", {}).get("local", {}).get("model_path", "local_model")
+        local_val = getattr(config, "llm_local_rag_model_path", None)
+        llm_model = local_val if isinstance(local_val, str) else config.data.get("llm", {}).get("local", {}).get("model_path", "local_model")
         
     if getattr(args, "no_unique_dir", False):
         output_path = original_output_path

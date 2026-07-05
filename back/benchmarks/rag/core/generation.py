@@ -218,10 +218,12 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
 
     llm_provider = config.data["llm"]["provider"]
     if args.cloud:
-        llm_model = config.data["llm"]["cloud"]["model_name"]
+        cloud_val = getattr(config, "llm_cloud_rag_model_name", None)
+        llm_model = cloud_val if isinstance(cloud_val, str) else config.data["llm"]["cloud"]["model_name"]
         llm_provider_detail = f"cloud ({config.data['llm']['cloud'].get('provider', 'openai')})"
     else:
-        llm_model = config.data["llm"]["local"]["model_path"]
+        local_val = getattr(config, "llm_local_rag_model_path", None)
+        llm_model = local_val if isinstance(local_val, str) else config.data["llm"]["local"]["model_path"]
         llm_provider_detail = f"local ({llm_provider})"
 
     original_output_path = Path(args.output)
@@ -289,7 +291,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             "baselines": baselines_to_run,
             "model": {
                 "provider": config.data["llm"]["provider"],
-                "local_model_path": config.data["llm"]["local"]["model_path"],
+                "local_model_path": local_val if isinstance(local_val, str) else config.data["llm"]["local"]["model_path"],
                 "model_max_context": config.llm_model_max_context,
                 "max_tokens": config.data["llm"].get("max_tokens")
             },

@@ -148,19 +148,24 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                 
                 metrics = b_val.get("eval_metrics", {})
                 for k, val in metrics.items():
+                    if k not in summary_stats[b_name]:
+                        continue
                     if b_name == "B0" and k in ("faithfulness", "citation_fidelity", "context_precision"):
                         continue
                     if b_name != "B0" and not b_val.get("retrieved_chunks") and k in ("faithfulness", "citation_fidelity", "context_precision"):
                         continue
                     if k == "ar_sa_f1" and (not r.get("is_answerable", True) or val is None):
                         continue
+                    if val is None:
+                        continue
                     summary_stats[b_name][k].append(val)
                     
         for b_name, metrics in summary_stats.items():
             summary[b_name] = {}
             for m_name, values in metrics.items():
-                if values:
-                    summary[b_name][f"avg_{m_name}"] = round(sum(values) / len(values), 4)
+                numeric = [v for v in values if v is not None]
+                if numeric:
+                    summary[b_name][f"avg_{m_name}"] = round(sum(numeric) / len(numeric), 4)
                 else:
                     summary[b_name][f"avg_{m_name}"] = 0.0
                     
@@ -441,10 +446,12 @@ async def run_pipelined_stage_async(
     # Metadata Setup
     llm_provider = config.data["llm"]["provider"]
     if args.cloud:
-        llm_model = config.data["llm"]["cloud"]["model_name"]
+        cloud_val = getattr(config, "llm_cloud_rag_model_name", None)
+        llm_model = cloud_val if isinstance(cloud_val, str) else config.data["llm"]["cloud"]["model_name"]
         llm_provider_detail = f"cloud ({config.data['llm']['cloud'].get('provider', 'openai')})"
     else:
-        llm_model = config.data["llm"]["local"]["model_path"]
+        local_val = getattr(config, "llm_local_rag_model_path", None)
+        llm_model = local_val if isinstance(local_val, str) else config.data["llm"]["local"]["model_path"]
         llm_provider_detail = f"local ({llm_provider})"
         
     embedding_model = config.data["embedding"]["model_name"]

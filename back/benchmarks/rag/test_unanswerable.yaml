@@ -1,0 +1,31 @@
+# Test dataset with answerable + unanswerable questions
+# Used to verify is_answerable: false pipeline handling
+
+- id: "WIN_SINGLE_Q01"
+  is_answerable: true
+  category: "single-document"
+  query: "Каким образом в статье адаптируется классический метод Винограда для вейвлет-фильтрации с децимацией, какие конкретно базовые конфигурации обеспечили наилучшую эффективность по метрике площади-задержки и каковы итоговые показатели снижения вычислительной задержки?"
+  golden_answer: |
+    Классический метод Винограда ориентирован на вычисление групп соседних пикселей, что не учитывает операцию децимации (понижения частоты дискретизации), характерную для вейвлет-преобразований. Для адаптации предложен обобщенный метод $K(a,q,s)$, где входной поток данных разделяется на четные и нечетные группа отсчетов, а вычисления разбиваются на параллельные каналы. В общем случае фильтрация с уменьшением частоты дискретизации в $s$ раз описывается как $K(a,q,s) = b_2 \times K(a,b_1+1) + (s-b_2) \times K(a,b_1)$, где $b_1$ и $b_2$ — неполное частное и остаток от деления порядка вейвлет-фильтра $q$ на шаг децимации $s$. 
+
+    В ходе аппаратного моделирования на FPGA семейства Virtex 7 наилучшую эффективность по произведению «площадь-задержка» продемонстрировали конфигурации $K(3,4,2)$ для вейвлет-фильтров 4-го порядка и $K(5,6,2)$ для фильтров 6-го порядка. Применение метода Винограда позволило снизить вычислительную задержку на 34–63% для вейвлетов 4-го порядка и на 39–66% для вейвлетов 6-го порядка по сравнению с прямым методом.
+  expected_papers:
+    - "10.21869/2223-1560-2025-29-2-130-145"
+
+- id: "clip_unanswerable_001"
+  is_answerable: false
+  category: "unanswerable-missing-metric"
+  query: "In Table 1's comparison of CLIP with Visual N-Grams, what ImageNet top-5 accuracy is reported for Visual N-Grams, and how does it compare numerically with CLIP's top-5 accuracy?"
+  golden_answer: null
+  expected_papers:
+  - learning_transferable_visual_models_from_natural_language_supervision
+  description: "Tests refusal when a plausible top-5 metric is requested for the Table 1 Visual N-Grams comparison, although only top-1 accuracies are tabulated there."
+
+- id: "clip_unanswerable_003"
+  is_answerable: false
+  category: "unanswerable-missing-implementation-detail"
+  query: "In the WIT dataset construction process, what exact search-volume cutoff was used to decide which Wikipedia article names were added to the 500,000-query list?"
+  golden_answer: null
+  expected_papers:
+  - learning_transferable_visual_models_from_natural_language_supervision
+  description: "Tests refusal on a concrete dataset-construction parameter that is alluded to but not specified."

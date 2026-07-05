@@ -142,9 +142,11 @@ def main():
             output_dir = (project_root / output_dir).resolve()
             
         if args.cloud:
-            llm_model = config.data["llm"]["cloud"]["model_name"]
+            cloud_val = getattr(config, "llm_cloud_rag_model_name", None)
+            llm_model = cloud_val if isinstance(cloud_val, str) else config.data["llm"]["cloud"]["model_name"]
         else:
-            llm_model = config.data["llm"]["local"]["model_path"]
+            local_val = getattr(config, "llm_local_rag_model_path", None)
+            llm_model = local_val if isinstance(local_val, str) else config.data["llm"]["local"]["model_path"]
             
         from core.config import create_graph_run_dir
         run_dir = create_graph_run_dir(output_dir, model_name=llm_model)
@@ -257,11 +259,9 @@ def main():
     except Exception:
         pass
         
-    if args.cloud:
-        config.data["llm"]["cloud"]["model_name"]
-    else:
-        config.data["llm"]["local"]["model_path"]
-        
+    cloud_val = getattr(config, "llm_cloud_rag_model_name", None)
+    local_val = getattr(config, "llm_local_rag_model_path", None)
+    
     manifest = {
         "run_id": run_dir.name,
         "created_at": datetime.now().isoformat(),
@@ -271,7 +271,7 @@ def main():
         "baselines": baselines_to_run,
         "model": {
             "provider": config.data["llm"]["provider"],
-            "local_model_path": config.data["llm"]["local"]["model_path"],
+            "local_model_path": local_val if isinstance(local_val, str) else config.data["llm"]["local"]["model_path"],
             "model_max_context": config.llm_model_max_context,
             "max_tokens": config.data["llm"].get("max_tokens")
         },

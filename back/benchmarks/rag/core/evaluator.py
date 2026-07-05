@@ -789,11 +789,15 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                 summary_stats[baseline_name]["latency_sec"].append(latency)
 
             for k, val in eval_metrics.items():
+                if k not in summary_stats[baseline_name]:
+                    continue
                 if baseline_name == "B0" and k in ("faithfulness", "citation_fidelity", "context_precision"):
                     continue
                 if baseline_name != "B0" and not baseline_data.get("retrieved_chunks") and k in ("faithfulness", "citation_fidelity", "context_precision"):
                     continue
                 if k == "ar_sa_f1" and (not case.get("is_answerable", True) or val is None):
+                    continue
+                if val is None:
                     continue
                 summary_stats[baseline_name][k].append(val)
 
@@ -821,8 +825,9 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
     for baseline, metrics in summary_stats.items():
         final_summary[baseline] = {}
         for m_name, values in metrics.items():
-            if values:
-                final_summary[baseline][f"avg_{m_name}"] = round(sum(values) / len(values), 4)
+            numeric = [v for v in values if v is not None]
+            if numeric:
+                final_summary[baseline][f"avg_{m_name}"] = round(sum(numeric) / len(numeric), 4)
             else:
                 final_summary[baseline][f"avg_{m_name}"] = 0.0
 
