@@ -459,3 +459,57 @@
   - context_engineering_20_the_context_of_context_engineering
   - agent_learning_via_early_experience
   description: Analysis of the degradation of reasoning with an increase in the number of alternative actions (K) through the prism of the problem of memory verification (Challenge IV).
+- id: "clip_unanswerable_001"
+  is_answerable: false
+  category: "unanswerable-missing-metric"
+  query: "In Table 1's comparison of CLIP with Visual N-Grams, what ImageNet top-5 accuracy is reported for Visual N-Grams, and how does it compare numerically with CLIP's top-5 accuracy?"
+  golden_answer: null
+  expected_papers:
+
+  - identifier: "arXiv:2103.00020"
+    title: "Learning Transferable Visual Models From Natural Language Supervision"
+    description: "Tests refusal when a plausible top-5 metric is requested for the Table 1 Visual N-Grams comparison, although only top-1 accuracies are tabulated there."
+
+- id: "clip_unanswerable_002"
+  is_answerable: false
+  category: "unanswerable-missing-figure-detail"
+  query: "For Figure 7, what confidence intervals or standard errors are reported for the estimated number of labeled examples per class needed to match zero-shot CLIP on CIFAR10 and FER2013?"
+  golden_answer: null
+  expected_papers:
+
+  - identifier: "arXiv:2103.00020"
+    title: "Learning Transferable Visual Models From Natural Language Supervision"
+    description: "Tests whether the system avoids inventing uncertainty estimates for Figure 7's data-efficiency values."
+
+- id: "clip_unanswerable_003"
+  is_answerable: false
+  category: "unanswerable-missing-implementation-detail"
+  query: "In the WIT dataset construction process, what exact search-volume cutoff was used to decide which Wikipedia article names were added to the 500,000-query list?"
+  golden_answer: null
+  expected_papers:
+
+  - identifier: "arXiv:2103.00020"
+    title: "Learning Transferable Visual Models From Natural Language Supervision"
+    description: "Tests refusal on a concrete dataset-construction parameter that is alluded to but not specified."
+
+- id: "clip_unanswerable_004"
+  is_answerable: false
+  category: "unanswerable-missing-ablation"
+  query: "What zero-shot ImageNet accuracy did CLIP achieve when using the non-linear projection head that the authors considered, and how many percentage points did it differ from the linear projection version?"
+  golden_answer: null
+  expected_papers:
+
+  - identifier: "arXiv:2103.00020"
+    title: "Learning Transferable Visual Models From Natural Language Supervision"
+    description: "Tests refusal on a plausible ablation result where the paper mentions the design choice but does not report the requested accuracy numbers."
+
+- id: "clip_unanswerable_005"
+  is_answerable: false
+  category: "unanswerable-missing-experimental-detail"
+  query: "In the Figure 17 data-overlap analysis, what per-dataset duplicate-detection similarity threshold was selected for Country211 to obtain the reported 21.5% detected overlap?"
+  golden_answer: null
+  expected_papers:
+
+  - identifier: "arXiv:2103.00020"
+    title: "Learning Transferable Visual Models From Natural Language Supervision"
+    description: "Tests refusal when a specific threshold from the duplicate-detection procedure is requested but not reported in the paper."

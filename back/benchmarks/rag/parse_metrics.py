@@ -12,6 +12,16 @@ import statistics
 import yaml
 from pathlib import Path
 
+# Increase CSV field size limit to handle large context blocks safely
+max_limit = sys.maxsize
+while True:
+    try:
+        csv.field_size_limit(max_limit)
+        break
+    except OverflowError:
+        max_limit = int(max_limit / 2)
+
+
 # Set up python path to resolve src and core imports correctly
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -314,6 +324,158 @@ def parse_eval_trace(traces_dir: Path, parsed_dir: Path):
     return csv_rows, summary_data
 
 
+def print_confusion_matrix_and_metrics_tables(data):
+    """
+    Computes and prints confusion matrix and classification quality metrics
+    for all baselines based on model refusals and semantic accuracy scores.
+    """
+    if not data or "results" not in data or not data["results"]:
+        print("Warning: No results data available to compute confusion matrix.")
+        return
+
+    import re
+    import math
+
+    results = data["results"]
+    baselines = sorted(list(results[0].get("baselines", {}).keys()))
+
+    def is_refusal(text):
+        text_lower = text.lower()
+        refusal_keywords = [
+            "информация отсутствует", "информации отсутствует", "отсутствует информация", "отсутствуют сведения", 
+            "не содержит информации", "не содержит сведений", "не содержат информации", "не содержится информации",
+            "не содержится сведений", "нет сведений", "нет информации", "нет данных", "нет описания", "нет упоминания",
+            "невозможно ответить", "невозможно определить", "не представляется возможным",
+            "отказываемся от", "не может быть описано", "не приводятся", "не упоминаются", "не упоминается",
+            "не приводится", "не описывается", "не сообщается", "не указано", "не указана", "не указаны",
+            "в предоставленном тексте нет", "в предоставленном контексте нет", "в предоставленных материалах нет",
+            "в статье нет", "в тексте не содержится", "в контексте не содержится", "в материалах не содержится",
+            "не удается найти", "не удалось найти", "не удается определить", "не удалось определить",
+            "нельзя сделать вывод", "нельзя ответить", "не представляется возможным ответить",
+            "no information", "does not contain", "cannot answer", "not mention", "do not have",
+            "not available", "unable to answer", "insufficient information", "not specify", "not specified",
+            "not described", "not defined", "not found"
+        ]
+        for kw in refusal_keywords:
+            if kw in text_lower:
+                return True
+                
+        if re.search(r"не\s+(?:упоминает|упомяну|приводит|описывает|содержит|находится|обнаружено|указано)", text_lower):
+            if any(w in text_lower for w in ["текст", "контекст", "источник", "стать", "материал", "информац", "сведен", "данн"]):
+                return True
+        if "отсутств" in text_lower:
+            if any(w in text_lower for w in ["текст", "контекст", "источник", "стать", "материал", "информац", "сведен", "данн"]):
+                return True
+        if "нет" in text_lower:
+            if re.search(r"\bнет\s+(?:упоминания|описания|сведений|информации|данных|деталей|подробностей|сведений|указания)\b", text_lower):
+                return True
+        if "не упоминается" in text_lower and any(w in text_lower for w in ["предоставлен", "контекст", "текст", "стать"]):
+            return True
+            
+        return False
+
+    classification = {}
+    for b in baselines:
+        classification[b] = {"TP": 0, "FP": 0, "TN": 0, "FN": 0}
+        
+    for r in results:
+        is_ans = r.get("is_answerable")
+        if is_ans is None:
+            is_ans = True
+        else:
+            is_ans = str(is_ans).lower() == "true"
+            
+        for b in baselines:
+            b_data = r.get("baselines", {}).get(b, {})
+            gen_ans = b_data.get("generated_answer", "")
+            eval_metrics = b_data.get("eval_metrics", {})
+            sem_acc = eval_metrics.get("semantic_accuracy", 0.0)
+            if sem_acc is None:
+                sem_acc = 0.0
+                
+            ref = is_refusal(gen_ans)
+            
+            if is_ans:
+                if ref:
+                    classification[b]["FN"] += 1
+                else:
+                    if sem_acc > 0.0:
+                        classification[b]["TP"] += 1
+                    else:
+                        classification[b]["FN"] += 1
+            else:
+                if ref:
+                    classification[b]["TN"] += 1
+                else:
+                    classification[b]["FP"] += 1
+
+    # Print Confusion Matrix Table
+    print("\nConfusion Matrix:")
+    cm_header = "| {:<10} | {:<18} | {:<19} | {:<18} | {:<18} |"
+    cm_row = "| {:<10} | {:<18d} | {:<19d} | {:<18d} | {:<18d} |"
+    cm_sep = "+" + "-"*12 + "+" + "-"*20 + "+" + "-"*21 + "+" + "-"*20 + "+" + "-"*20 + "+"
+    print(cm_sep)
+    print(cm_header.format("Baseline", "True Positive (TP)", "False Positive (FP)", "True Negative (TN)", "False Negative (FN)"))
+    print(cm_sep)
+    for b in baselines:
+        stats_b = classification[b]
+        print(cm_row.format(b, stats_b["TP"], stats_b["FP"], stats_b["TN"], stats_b["FN"]))
+    print(cm_sep)
+
+    # Print Classification Metrics Table
+    print("\nClassification Quality Metrics:")
+    metrics_header = "| {:<10} | {:<8} | {:<9} | {:<8} | {:<8} | {:<11} | {:<8} | {:<8} | {:<18} | {:<11} | {:<16} |"
+    metrics_row = "| {:<10} | {:<8} | {:<9} | {:<8} | {:<8} | {:<11} | {:<8} | {:<8} | {:<18} | {:<11} | {:<16} |"
+    metrics_sep = "+" + "-"*12 + "+" + "-"*10 + "+" + "-"*11 + "+" + "-"*10 + "+" + "-"*10 + "+" + "-"*13 + "+" + "-"*10 + "+" + "-"*10 + "+" + "-"*20 + "+" + "-"*13 + "+" + "-"*18 + "+"
+    print(metrics_sep)
+    print(metrics_header.format(
+        "Baseline", "Accuracy", "Precision", "Recall", "F1 Score", 
+        "Specificity", "FPR", "FNR", "Hallucination Rate", "Ans Rate", "Abstention Rate"
+    ))
+    print(metrics_sep)
+
+    def format_val(val, is_pct=False):
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return "N/A"
+        if is_pct:
+            return f"{val * 100:.1f}%"
+        return f"{val:.4f}"
+
+    total_q = len(results)
+    for b in baselines:
+        stats_b = classification[b]
+        tp = stats_b["TP"]
+        fp = stats_b["FP"]
+        tn = stats_b["TN"]
+        fn = stats_b["FN"]
+        
+        accuracy = (tp + tn) / (tp + fp + tn + fn) if (tp + fp + tn + fn) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else float('nan')
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else float('nan')
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else float('nan')
+        fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
+        hallucination_rate = fp / (fp + tn) if (fp + tn) > 0 else float('nan')
+        answer_rate = (tp + fp) / total_q
+        abstention_rate = (tn + fn) / total_q
+
+        print(metrics_row.format(
+            b,
+            format_val(accuracy, True),
+            format_val(precision, True),
+            format_val(recall, True),
+            format_val(f1, False),
+            format_val(specificity, True),
+            format_val(fpr, True),
+            format_val(fnr, True),
+            format_val(hallucination_rate, True),
+            format_val(answer_rate, True),
+            format_val(abstention_rate, True)
+        ))
+    print(metrics_sep)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Parse RAG quality metrics and generate reports")
     parser.add_argument(
@@ -343,6 +505,10 @@ def main():
     parser.add_argument(
         "--include-traces", action="store_true",
         help="Included for CLI compatibility (traces are parsed by default if present)."
+    )
+    parser.add_argument(
+        "--confusion", "--confusion-matrix", action="store_true",
+        help="Calculate and print confusion matrix and classification quality metrics."
     )
     args = parser.parse_args()
 
@@ -391,10 +557,51 @@ def main():
         trace_path = run_dir / "traces" / "graph_retrieval_trace.jsonl"
     trace_map = load_graph_retrieval_trace(trace_path)
 
-    # 2. Parse result_metrics.yaml
-    input_path = Path(args.file) if args.file else run_dir / "result_metrics.yaml"
-    if not input_path.is_absolute():
-        input_path = (project_root / input_path).resolve()
+    # 2. Parse result_metrics.yaml or the best available benchmark report file
+    preferred_files = [
+        "result_metrics.yaml",
+        "result_metrics_judge.yaml",
+        "evaluation_results.yaml",
+        "evaluation_results_judge.yaml",
+        "retrieved_contexts.yaml"
+    ]
+
+    input_path = None
+    if args.file:
+        file_path = Path(args.file)
+        if not file_path.is_absolute():
+            file_path = (project_root / file_path).resolve()
+        # If user explicitly passed a yaml report, use it
+        if file_path.is_file() and file_path.suffix in (".yaml", ".yml"):
+            input_path = file_path
+
+    if not input_path:
+        # Search run_dir in preference order
+        for filename in preferred_files:
+            candidate = run_dir / filename
+            if candidate.exists():
+                input_path = candidate
+                break
+
+    # If still not found, search run_dir for any other yaml files
+    if not input_path:
+        yaml_files = list(run_dir.glob("*.yaml")) + list(run_dir.glob("*.yml"))
+        yaml_files = [f for f in yaml_files if f.name not in ("run_manifest.yaml", "config_snapshot.yaml", "temp_custom_config.yaml")]
+        if yaml_files:
+            input_path = yaml_files[0]
+
+    # Fallback default
+    if not input_path:
+        input_path = run_dir / "result_metrics.yaml"
+
+    # Automatically redirect from raw evaluation_results.yaml to evaluated result_metrics.yaml if it exists
+    if input_path.name == "evaluation_results.yaml":
+        candidate_path = input_path.parent / "result_metrics.yaml"
+        if candidate_path.exists():
+            print(f"Redirecting from evaluation_results.yaml to result_metrics.yaml (reusing evaluated metrics)")
+            input_path = candidate_path
+
+    print(f"Resolved report file to parse: {input_path}")
 
     data = None
     stats = None
@@ -433,15 +640,9 @@ def main():
 
     # 4. Detailed Metrics Rows
     metrics_rows = []
-    if csv_details_path.exists():
-        try:
-            with open(csv_details_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                metrics_rows = list(reader)
-        except Exception as e:
-            print(f"Warning: Could not read metrics_details.csv: {e}")
-
-    if not metrics_rows and data and "results" in data:
+    
+    # If we have fresh YAML data, always use it to build metrics_rows
+    if data and "results" in data:
         baselines = stats["baselines"] if stats else list(data["results"][0].get("baselines", {}).keys())
         for r in data["results"]:
             q_id = r.get("id", "UNKNOWN")
@@ -491,6 +692,14 @@ def main():
                     "token_answer": eval_metrics.get("token_answer"),
                     "token_reasoning": eval_metrics.get("token_reasoning")
                 })
+    # Otherwise (e.g. traces-only mode), fall back to loading from the existing CSV details
+    elif csv_details_path.exists():
+        try:
+            with open(csv_details_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                metrics_rows = list(reader)
+        except Exception as e:
+            print(f"Warning: Could not read metrics_details.csv: {e}")
 
     # Write metrics_details.parsed.csv
     if metrics_rows:
@@ -836,6 +1045,9 @@ def main():
     print(f"  - {parsed_dir / 'run_summary.yaml'}")
     if (parsed_dir / "graph_retrieval_trace.summary.json").exists():
         print(f"  - {parsed_dir / 'graph_retrieval_trace.summary.json'}")
+
+    if args.confusion:
+        print_confusion_matrix_and_metrics_tables(data)
 
 
 if __name__ == "__main__":
