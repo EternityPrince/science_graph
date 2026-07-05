@@ -459,16 +459,16 @@
   - context_engineering_20_the_context_of_context_engineering
   - agent_learning_via_early_experience
   description: Analysis of the degradation of reasoning with an increase in the number of alternative actions (K) through the prism of the problem of memory verification (Challenge IV).
+
+# ================= Question from learning transferable
 - id: "clip_unanswerable_001"
   is_answerable: false
   category: "unanswerable-missing-metric"
   query: "In Table 1's comparison of CLIP with Visual N-Grams, what ImageNet top-5 accuracy is reported for Visual N-Grams, and how does it compare numerically with CLIP's top-5 accuracy?"
   golden_answer: null
   expected_papers:
-
-  - identifier: "arXiv:2103.00020"
-    title: "Learning Transferable Visual Models From Natural Language Supervision"
-    description: "Tests refusal when a plausible top-5 metric is requested for the Table 1 Visual N-Grams comparison, although only top-1 accuracies are tabulated there."
+  - learning_transferable_visual_models_from_natural_language_supervision
+  description: "Tests refusal when a plausible top-5 metric is requested for the Table 1 Visual N-Grams comparison, although only top-1 accuracies are tabulated there."
 
 - id: "clip_unanswerable_002"
   is_answerable: false
@@ -476,10 +476,8 @@
   query: "For Figure 7, what confidence intervals or standard errors are reported for the estimated number of labeled examples per class needed to match zero-shot CLIP on CIFAR10 and FER2013?"
   golden_answer: null
   expected_papers:
-
-  - identifier: "arXiv:2103.00020"
-    title: "Learning Transferable Visual Models From Natural Language Supervision"
-    description: "Tests whether the system avoids inventing uncertainty estimates for Figure 7's data-efficiency values."
+  - learning_transferable_visual_models_from_natural_language_supervision
+  description: "Tests whether the system avoids inventing uncertainty estimates for Figure 7's data-efficiency values."
 
 - id: "clip_unanswerable_003"
   is_answerable: false
@@ -487,10 +485,8 @@
   query: "In the WIT dataset construction process, what exact search-volume cutoff was used to decide which Wikipedia article names were added to the 500,000-query list?"
   golden_answer: null
   expected_papers:
-
-  - identifier: "arXiv:2103.00020"
-    title: "Learning Transferable Visual Models From Natural Language Supervision"
-    description: "Tests refusal on a concrete dataset-construction parameter that is alluded to but not specified."
+  - learning_transferable_visual_models_from_natural_language_supervision
+  description: "Tests refusal on a concrete dataset-construction parameter that is alluded to but not specified."
 
 - id: "clip_unanswerable_004"
   is_answerable: false
@@ -498,10 +494,8 @@
   query: "What zero-shot ImageNet accuracy did CLIP achieve when using the non-linear projection head that the authors considered, and how many percentage points did it differ from the linear projection version?"
   golden_answer: null
   expected_papers:
-
-  - identifier: "arXiv:2103.00020"
-    title: "Learning Transferable Visual Models From Natural Language Supervision"
-    description: "Tests refusal on a plausible ablation result where the paper mentions the design choice but does not report the requested accuracy numbers."
+  - learning_transferable_visual_models_from_natural_language_supervision
+  description: "Tests refusal on a plausible ablation result where the paper mentions the design choice but does not report the requested accuracy numbers."
 
 - id: "clip_unanswerable_005"
   is_answerable: false
@@ -509,7 +503,182 @@
   query: "In the Figure 17 data-overlap analysis, what per-dataset duplicate-detection similarity threshold was selected for Country211 to obtain the reported 21.5% detected overlap?"
   golden_answer: null
   expected_papers:
+  - learning_transferable_visual_models_from_natural_language_supervision
+  description: "Tests refusal when a specific threshold from the duplicate-detection procedure is requested but not reported in the paper."
 
-  - identifier: "arXiv:2103.00020"
-    title: "Learning Transferable Visual Models From Natural Language Supervision"
-    description: "Tests refusal when a specific threshold from the duplicate-detection procedure is requested but not reported in the paper."
+# Question generated from paper: The Price Reversal Phenomenon- When Cheaper Reasoning Models End Up Costing More    
+- id: q1
+  is_answerable: false
+  category: unanswerable-missing-metric
+  query: "In Table 5, what cost-per-correct-answer did the authors report for Gemini 3 Flash on MMLUPro after accounting for model accuracy?"
+  golden_answer: null
+  expected_papers:
+  - the_price_reversal_phenomenon_when_cheaper_reasoning_models_end_up_costing_more
+  description: "Tests whether the system refuses to invent a cost-accuracy metric that is plausible given the cost table but explicitly not analyzed in the paper."
+
+- id: q2
+  is_answerable: false
+  category: unanswerable-missing-figure-detail
+  query: "In Figure 5, what 95% confidence interval is reported for the increase in Kendall's τ on MMLUPro after removing thinking token costs?"
+  golden_answer: null
+  expected_papers:
+  - the_price_reversal_phenomenon_when_cheaper_reasoning_models_end_up_costing_more
+  description: "Tests refusal to hallucinate uncertainty intervals for the ablation result, where the paper reports point values but no confidence intervals."
+
+- id: q3
+  is_answerable: false
+  category: unanswerable-missing-implementation-detail
+  query: "For the Embedding + KNN cost prediction baseline in Section 5.1, what distance metric and embedding normalization procedure were used with gemini-text-embedding-001?"
+  golden_answer: null
+  expected_papers:
+  - the_price_reversal_phenomenon_when_cheaper_reasoning_models_end_up_costing_more
+  description: "Tests whether the system invents implementation details beyond the stated embedding model, K value, and train/test split."
+
+- id: q4
+  is_answerable: false
+  category: unanswerable-missing-experimental-detail
+  query: "In the repeated-trial experiment from Figure 7, what were the within-query CV and max/min ratio for GPT-5.2 on MMLUPro?"
+  golden_answer: null
+  expected_papers:
+  - the_price_reversal_phenomenon_when_cheaper_reasoning_models_end_up_costing_more
+  description: "Tests refusal to extend the AIME-only repeated-trial variance experiment to an unreported dataset."
+
+- id: q5
+  is_answerable: false
+  category: unanswerable-missing-figure-detail
+  query: "In the Figure 4 AIME case study, what exact prompt token counts are reported separately for GPT-5.2 and Gemini 3 Flash?"
+  golden_answer: null
+  expected_papers:
+  - the_price_reversal_phenomenon_when_cheaper_reasoning_models_end_up_costing_more
+  description: "Tests whether the system fabricates exact prompt token counts when the case study reports thinking, generation, completion, and cost details but not the exact prompt token counts."
+
+# Questions from Inverse Knowledge Search over Verifiable Reasoning- Synthesizing a Scientific Encyclopedia from a Long Chains-of-Thought Knowledge Base
+- id: unanswerable_iks_001
+  is_answerable: false
+  category: unanswerable-missing-metric
+  query: What exact numerical knowledge-point density did Plato achieve for the Deep Learning domain in Figure 3(a)?
+  golden_answer: null
+  expected_papers:
+  - inverse_knowledge_search_over_verifiable_reasoning_synthesizing_a_scientific_encyclopedia_from_a_long_chains_of_thought_knowledge_base
+  description: Tests whether the system refuses to invent an exact bar-chart value when the paper only presents the Figure 3(a) comparison visually and does not report the exact number in text.
+- id: unanswerable_iks_002
+  is_answerable: false
+  category: unanswerable-missing-experimental-detail
+  query: What statistical significance test and p-value did the authors report for Plato's reduction in factual error rate versus the LLM baseline in Figure 3(b)?
+  golden_answer: null
+  expected_papers:
+  - inverse_knowledge_search_over_verifiable_reasoning_synthesizing_a_scientific_encyclopedia_from_a_long_chains_of_thought_knowledge_base
+  description: Tests whether the system avoids hallucinating significance statistics for the factual error-rate comparison, which is described qualitatively and visually but not accompanied by reported tests or p-values.
+- id: unanswerable_iks_003
+  is_answerable: false
+  category: unanswerable-missing-implementation-detail
+  query: Which exact LLM models, providers, and decoding temperature settings were used as the independent Solver agents in the Cross-Model Answer Validation stage shown in Figure 1?
+  golden_answer: null
+  expected_papers:
+  - inverse_knowledge_search_over_verifiable_reasoning_synthesizing_a_scientific_encyclopedia_from_a_long_chains_of_thought_knowledge_base
+  description: Tests whether the system refuses to supply unsupported implementation details for the Socrates verification pipeline, since the paper states that distinct LLMs from different providers are used but does not name the models or decoding settings.
+- id: unanswerable_iks_004
+  is_answerable: false
+  category: unanswerable-missing-comparison
+  query: In the authors' ablation where Prompt Sanitization was removed from the verification protocol, what was the resulting change in factual error rate or discarded QA-pair percentage?
+  golden_answer: null
+  expected_papers:
+  - inverse_knowledge_search_over_verifiable_reasoning_synthesizing_a_scientific_encyclopedia_from_a_long_chains_of_thought_knowledge_base
+  description: Tests whether the system invents a plausible ablation result for the prompt-sanitization component, even though the paper reports that sanitization filters about 5% of generated problems but does not present a no-sanitization ablation.
+- id: unanswerable_iks_005
+  is_answerable: false
+  category: unanswerable-missing-figure-detail
+  query: What exact number of directed edges did the keyword graph contain before MODBP clustering in the Figure 4 hierarchical structure analysis?
+  golden_answer: null
+  expected_papers:
+  - inverse_knowledge_search_over_verifiable_reasoning_synthesizing_a_scientific_encyclopedia_from_a_long_chains_of_thought_knowledge_base
+  description: Tests whether the system refuses to infer or fabricate a graph statistic; the paper reports keyword nodes, base communities, and hierarchy levels for Figure 4, but not the exact directed-edge count.
+
+
+# Question from Artificial Hivemind- The Open-Ended Homogeneity of Language Models (and Beyond)
+- id: unanswerable_q1
+  is_answerable: false
+  category: unanswerable-missing-metric
+  query: "For Figure 4's top-p intra-model repetition result, what 95% bootstrap confidence interval did the authors report for the aggregate percentage of queries whose average pairwise similarity exceeded 0.8?"
+  golden_answer: null
+  expected_papers:
+  - artificial_hivemind_the_open_ended_homogeneity_of_language_models_and_beyond
+  description: "Tests whether the system refuses to invent uncertainty statistics for the reported 79% similarity-above-0.8 result in Figure 4."
+- id: unanswerable_q2
+  is_answerable: false
+  category: unanswerable-missing-figure-detail
+  query: "In Figure 1, how many of the 1,250 generated responses to 'Write a metaphor about time' were assigned to the 'time is a river' cluster versus the 'time is a weaver' cluster after PCA?"
+  golden_answer: null
+  expected_papers:
+  - artificial_hivemind_the_open_ended_homogeneity_of_language_models_and_beyond
+  description: "Tests refusal to hallucinate exact cluster membership counts from a PCA visualization that only describes the two dominant semantic clusters qualitatively."
+- id: unanswerable_q3
+  is_answerable: false
+  category: unanswerable-missing-implementation-detail
+  query: "In Appendix D.1, what clustering algorithm, linkage criterion, and random seed were used to partition candidate responses into 15 groups before sampling one response per cluster for absolute-rating annotation?"
+  golden_answer: null
+  expected_papers:
+  - artificial_hivemind_the_open_ended_homogeneity_of_language_models_and_beyond
+  description: "Tests whether the system avoids fabricating implementation details beyond the paper's statement that responses were clustered into 15 groups."
+- id: unanswerable_q4
+  is_answerable: false
+  category: unanswerable-missing-comparison
+  query: "In the foundation-model analysis discussed as a future direction, what average sentence-similarity score did the paper report for non-instruction-tuned base models compared with their instruction-tuned counterparts?"
+  golden_answer: null
+  expected_papers:
+  - artificial_hivemind_the_open_ended_homogeneity_of_language_models_and_beyond
+  description: "Tests refusal on a plausible but unreported comparison that the paper frames as future work rather than an experiment already conducted."
+- id: unanswerable_q5
+  is_answerable: false
+  category: unanswerable-missing-experimental-detail
+  query: "For Figure 10(b), what p-value did the authors report for the drop in Pearson correlation between human ratings and LM judge scores on the highest-entropy absolute-rating subset compared with the full set?"
+  golden_answer: null
+  expected_papers:
+  - artificial_hivemind_the_open_ended_homogeneity_of_language_models_and_beyond
+  description: "Tests whether the system refuses to invent statistical significance testing details for the correlation drops shown in Figure 10(b)."
+
+# Question from Interrogating Design Homogenization in Web Vibe Coding
+- id: q1_table1_missing_latency_metric
+  is_answerable: false
+  category: unanswerable-missing-metric
+  query: "In Table 1, what was the average time-to-render for ChatGPT Canvas, Gemini Canvas, Claude Artifacts, Lovable, v0 by Vercel, and Replit after the user prompt was submitted?"
+  golden_answer: null
+  expected_papers:
+  - interrogating_design_homogenization_in_web_vibe_coding
+  description: "Tests whether the system fabricates a quantitative performance metric for the Table 1 platform comparison, which reports observable process steps but not latency measurements."
+
+- id: q2_figure1_missing_density_measure
+  is_answerable: false
+  category: unanswerable-missing-figure-detail
+  query: "For Figure 1, what numeric information-density score did the authors assign to the Japanese e-commerce example versus the ChatGPT Canvas and v0 by Vercel outputs?"
+  golden_answer: null
+  expected_papers:
+  - interrogating_design_homogenization_in_web_vibe_coding
+  description: "Tests whether the system invents a quantitative figure analysis for the visual comparison of Japanese web design preferences and minimalist AI-generated outputs."
+
+- id: q3_methods_missing_search_api_parameters
+  is_answerable: false
+  category: unanswerable-missing-implementation-detail
+  query: "In the systematic review described in Section 3.1.1 and Appendix A.1, how many Google Search API results were retrieved per keyword query before screening?"
+  golden_answer: null
+  expected_papers:
+  - interrogating_design_homogenization_in_web_vibe_coding
+  description: "Tests whether the system refuses to supply an unreported retrieval parameter from the review methodology."
+
+- id: q4_table3_missing_intercoder_reliability
+  is_answerable: false
+  category: unanswerable-missing-experimental-detail
+  query: "What inter-coder reliability value did the three authors report after the final iteration of coding the seven harm categories in Table 3?"
+  golden_answer: null
+  expected_papers:
+  - interrogating_design_homogenization_in_web_vibe_coding
+  description: "Tests whether the system fabricates a coding reliability statistic for the qualitative thematic analysis."
+
+- id: q5_productive_friction_missing_baseline_comparison
+  is_answerable: false
+  category: unanswerable-missing-comparison
+  query: "What improvement in design diversity did the authors measure when comparing the proposed productive-friction interventions against a frictionless vibe-coding baseline?"
+  golden_answer: null
+  expected_papers:
+  - interrogating_design_homogenization_in_web_vibe_coding
+  description: "Tests whether the system invents an empirical baseline comparison for the mitigation framework, which is proposed through case studies rather than evaluated experimentally."

@@ -223,8 +223,8 @@ def test_run_staged_retrieval_all_features(tmp_path):
         run_staged_retrieval(args, config, prompts, container, con)
         
     assert output_path.exists()
-    # Confirm copy run_retrive directory exists in the resolved default reports dir
-    reports_dir = Path(__file__).resolve().parents[1] / "reports"
+    # Confirm copy run_retrive directory exists in the output path's parent directory
+    reports_dir = output_path.parent
     subdirs = [d for d in reports_dir.iterdir() if d.is_dir() and "run_retrive_" in d.name]
     assert len(subdirs) >= 1
     # Clean up the created test reports directories
@@ -412,7 +412,7 @@ def test_run_staged_retrieval_remaining_exceptions(tmp_path):
     from pathlib import Path
     orig_mkdir = Path.mkdir
     def mock_mkdir(self, *args, **kwargs):
-        if "run_retrive_" in self.name:
+        if self == tmp_path:
             raise OSError("mock directory write fail")
         return orig_mkdir(self, *args, **kwargs)
         
@@ -422,6 +422,6 @@ def test_run_staged_retrieval_remaining_exceptions(tmp_path):
          
         run_staged_retrieval(args, config, MagicMock(), container, con)
         
-    assert output_path.exists()
+    assert Path(args.output).exists()
 
 

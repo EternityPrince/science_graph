@@ -1,1 +1,3 @@
 figures/
+.ctx-codegraph/
+.ctx_*/
