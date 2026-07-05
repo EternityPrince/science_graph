@@ -7,7 +7,14 @@ from typing import Dict, List, Any, Tuple
 
 from core.config import BASELINES_INFO, get_baseline_config, get_safe_model_name
 from core.stats import BenchmarkStatsCollector
-from core.metrics import calculate_retrieval_recall, calculate_context_precision
+from core.metrics import (
+    calculate_retrieval_recall,
+    calculate_context_precision,
+    normalize_optional_text,
+    get_is_answerable,
+    detect_abstention,
+    classify_answerability
+)
 from core.reporting import save_judge_report, save_individual_judge_reports
 
 
@@ -344,9 +351,9 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
             "id": case_id,
             "category": case.get("category", "general"),
             "query": query,
-            "golden_answer": case.get("golden_answer", "").strip(),
+            "golden_answer": normalize_optional_text(case.get("golden_answer")),
             "expected_papers": case.get("expected_papers", []),
-            "is_answerable": case.get("is_answerable", True),
+            "is_answerable": get_is_answerable(case),
             "baselines": {}
         }
         
@@ -550,7 +557,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 "context_fillness": context_fillness,
                 "retrieval_recall": recall_val,
                 "context_precision": precision_val,
-                "generated_answer": raw_response.strip() if raw_response else answer.strip(),
+                "generated_answer": normalize_optional_text(raw_response if raw_response else answer),
                 "retrieved_chunks": chunks,
                 "trace": trace
             }

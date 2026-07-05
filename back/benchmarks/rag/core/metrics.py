@@ -12,6 +12,81 @@ except ImportError:
 _embedding_engine = None
 
 
+def normalize_optional_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def get_is_answerable(case: dict) -> bool:
+    is_ans = case.get("is_answerable")
+    if is_ans is None:
+        return True
+    if isinstance(is_ans, str):
+        return is_ans.lower() == "true"
+    return bool(is_ans)
+
+
+def detect_abstention(generated_answer: str, final_answer: str | None = None) -> bool:
+    ABSTENTION_MARKERS = [
+        "unanswerable",
+        "cannot answer",
+        "can't answer",
+        "not enough information",
+        "not enough info",
+        "insufficient information",
+        "not provided in the context",
+        "not contained in the context",
+        "does not contain",
+        "do not contain",
+        "no information",
+        "missing information",
+        "нет информации",
+        "недостаточно информации",
+        "невозможно ответить",
+        "нельзя ответить",
+    ]
+    gen_lower = generated_answer.lower() if generated_answer else ""
+    final_lower = final_answer.lower() if final_answer else ""
+    
+    try:
+        from core.sanitization import extract_clean_answer
+        status, extracted_final = extract_clean_answer(generated_answer)
+        if status == "UNANSWERABLE":
+            return True
+        if not final_answer:
+            final_lower = extracted_final.lower()
+    except Exception:
+        pass
+
+    # Clean up non-refusal contexts and quotes to avoid false positives
+    for text_to_clean in ["previously unanswerable", "not unanswerable", "'unanswerable'", '"unanswerable"', '“unanswerable”']:
+        gen_lower = gen_lower.replace(text_to_clean, "")
+        final_lower = final_lower.replace(text_to_clean, "")
+
+    for marker in ABSTENTION_MARKERS:
+        if marker in gen_lower:
+            return True
+        if final_lower and marker in final_lower:
+            return True
+
+    if not gen_lower.strip():
+        return True
+        
+    return False
+
+
+def classify_answerability(is_answerable: bool, predicted_abstained: bool) -> str:
+    if is_answerable and not predicted_abstained:
+        return "TP"
+    if is_answerable and predicted_abstained:
+        return "FN"
+    if not is_answerable and predicted_abstained:
+        return "TN"
+    return "FP"
+
+
+
 def get_embedding_engine():
     """Lazily loads and returns the EmbeddingEngine from the parent src codebase."""
     global _embedding_engine

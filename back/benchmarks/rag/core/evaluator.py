@@ -19,7 +19,11 @@ from core.limiter import AsyncRateLimiter
 from core.metrics import (
     calculate_retrieval_recall,
     calculate_context_precision,
-    estimate_prompt_tokens
+    estimate_prompt_tokens,
+    normalize_optional_text,
+    get_is_answerable,
+    detect_abstention,
+    classify_answerability
 )
 
 class CloudEvaluator:
@@ -319,9 +323,27 @@ async def evaluate_baseline_case(
         else:
             cached_metrics = cached
             cached_details = cached.get("eval_details", {})
-        has_all_required = all(cached_metrics.get(r) is not None for r in required)
+        
+        if "answerability_outcome" in cached_metrics:
+            has_all_required = True
+        else:
+            has_all_required = all(cached_metrics.get(r) is not None for r in required)
     
     if checkpoint_key in checkpoint_data and has_all_required:
+        if "answerability_outcome" not in cached_metrics:
+            generated_answer = baseline_data.get("generated_answer", "")
+            judge_answer = get_clean_judge_answer(generated_answer)
+            predicted_abstained = detect_abstention(generated_answer, judge_answer)
+            outcome = classify_answerability(is_answerable, predicted_abstained)
+            cached_metrics["is_answerable"] = is_answerable
+            cached_metrics["predicted_abstained"] = predicted_abstained
+            cached_metrics["answerability_outcome"] = outcome
+            checkpoint_data[checkpoint_key] = {
+                "metrics": cached_metrics,
+                "details": cached_details
+            }
+            save_checkpoint(checkpoint_path, checkpoint_data)
+
         if "token_output" not in cached_metrics:
             from core.metrics import count_text_tokens
             generated_answer = baseline_data.get("generated_answer", "")
@@ -342,8 +364,11 @@ async def evaluate_baseline_case(
         if is_answerable:
             r_relevance = res.get("answer_relevance", 0.0)
             s_accuracy = res.get("semantic_accuracy", 0.0)
-            if r_relevance + s_accuracy > 0:
-                res["ar_sa_f1"] = round(2.0 * (r_relevance * s_accuracy) / (r_relevance + s_accuracy), 4)
+            if r_relevance is not None and s_accuracy is not None:
+                if r_relevance + s_accuracy > 0:
+                    res["ar_sa_f1"] = round(2.0 * (r_relevance * s_accuracy) / (r_relevance + s_accuracy), 4)
+                else:
+                    res["ar_sa_f1"] = 0.0
             else:
                 res["ar_sa_f1"] = 0.0
         else:
@@ -351,7 +376,15 @@ async def evaluate_baseline_case(
         res["eval_details"] = cached_details
         return res
 
+    generated_answer = baseline_data.get("generated_answer", "")
+    judge_answer = get_clean_judge_answer(generated_answer)
+    predicted_abstained = detect_abstention(generated_answer, judge_answer)
+    outcome = classify_answerability(is_answerable, predicted_abstained)
+
     eval_metrics = {
+        "is_answerable": is_answerable,
+        "predicted_abstained": predicted_abstained,
+        "answerability_outcome": outcome,
         "retrieval_recall": cached_metrics.get("retrieval_recall", 0.0),
         "context_precision": cached_metrics.get("context_precision", 0.0),
         "faithfulness": cached_metrics.get("faithfulness", 0.0),
@@ -375,11 +408,6 @@ async def evaluate_baseline_case(
         res = dict(eval_metrics)
         res["eval_details"] = eval_details
         return res
-
-    generated_answer = baseline_data.get("generated_answer", "")
-    
-    # For LLM-as-a-judge, extract only the clean answer without technical tags
-    judge_answer = get_clean_judge_answer(generated_answer)
 
     retrieved_papers = baseline_data.get("retrieved_papers", [])
 
@@ -423,6 +451,38 @@ async def evaluate_baseline_case(
         eval_metrics["token_output"] = token_output
         eval_metrics["token_answer"] = token_answer
         eval_metrics["token_reasoning"] = token_reasoning
+
+    if outcome in ("TN", "FN", "FP"):
+        if outcome == "TN":
+            eval_metrics["faithfulness"] = None
+            eval_metrics["answer_relevance"] = None
+            eval_metrics["citation_fidelity"] = None
+            eval_metrics["semantic_accuracy"] = None
+            eval_metrics["ar_sa_f1"] = None
+        else: # FN or FP
+            eval_metrics["faithfulness"] = 0.0
+            eval_metrics["answer_relevance"] = 0.0
+            eval_metrics["citation_fidelity"] = 0.0
+            eval_metrics["semantic_accuracy"] = 0.0
+            eval_metrics["ar_sa_f1"] = 0.0
+
+        checkpoint_data[checkpoint_key] = {
+            "metrics": eval_metrics,
+            "details": eval_details
+        }
+        save_checkpoint(checkpoint_path, checkpoint_data)
+        
+        con.info(
+            f"  Evaluated {case_id} [{baseline_name}]: (Abstention/Answerability Outcome: {outcome}) "
+            f"Recall={eval_metrics['retrieval_recall']:.2f}, "
+            f"Faithfulness={eval_metrics['faithfulness']}, "
+            f"Relevance={eval_metrics['answer_relevance']}, "
+            f"Semantic={eval_metrics['semantic_accuracy']}"
+        )
+        
+        res = dict(eval_metrics)
+        res["eval_details"] = eval_details
+        return res
 
     # If clean answer is missing, skip LLM calls
     if not judge_answer.strip():
@@ -631,7 +691,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
     for case in cases:
         case_id = case.get("id")
         query = case.get("query")
-        golden_answer = case.get("golden_answer")
+        golden_answer = normalize_optional_text(case.get("golden_answer"))
         expected_papers = case.get("expected_papers", [])
 
         for baseline_name, baseline_data in case.get("baselines", {}).items():
@@ -686,7 +746,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
     for case in cases:
         case_id = case.get("id")
         query = case.get("query")
-        golden_answer = case.get("golden_answer")
+        golden_answer = normalize_optional_text(case.get("golden_answer"))
         expected_papers = case.get("expected_papers", [])
 
         case_output = {
@@ -695,7 +755,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
             "query": query,
             "golden_answer": golden_answer,
             "expected_papers": expected_papers,
-            "is_answerable": case.get("is_answerable", True),
+            "is_answerable": get_is_answerable(case),
             "baselines": {}
         }
 
@@ -740,6 +800,9 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
             case_output["baselines"][baseline_name] = {
                 "status": baseline_data.get("status", "success"),
                 "latency_sec": latency,
+                "is_answerable": eval_metrics.get("is_answerable", get_is_answerable(case)),
+                "predicted_abstained": eval_metrics.get("predicted_abstained", False),
+                "answerability_outcome": eval_metrics.get("answerability_outcome", "TP"),
                 "retrieved_papers": baseline_data.get("retrieved_papers", []),
                 "eval_metrics": eval_metrics,
                 "eval_details": eval_details,

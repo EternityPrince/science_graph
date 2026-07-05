@@ -13,6 +13,12 @@ except ImportError:
     HAS_FCNTL = False
 
 from src import console as con
+from core.metrics import (
+    normalize_optional_text,
+    get_is_answerable,
+    detect_abstention,
+    classify_answerability
+)
 
 thread_lock = threading.Lock()
 
@@ -63,9 +69,9 @@ def save_generation_baseline_result(file_path: Path, case_id: str, case_info: di
                 "id": case_id,
                 "category": case_info.get("category", "general"),
                 "query": case_info.get("query"),
-                "golden_answer": case_info.get("golden_answer", "").strip(),
+                "golden_answer": normalize_optional_text(case_info.get("golden_answer")),
                 "expected_papers": case_info.get("expected_papers", []),
-                "is_answerable": case_info.get("is_answerable", True),
+                "is_answerable": get_is_answerable(case_info),
                 "baselines": {}
             }
             results.append(case_item)
@@ -94,9 +100,9 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                 "id": case_id,
                 "category": case_info.get("category", "general"),
                 "query": case_info.get("query"),
-                "golden_answer": case_info.get("golden_answer", "").strip(),
+                "golden_answer": normalize_optional_text(case_info.get("golden_answer")),
                 "expected_papers": case_info.get("expected_papers", []),
-                "is_answerable": case_info.get("is_answerable", True),
+                "is_answerable": get_is_answerable(case_info),
                 "baselines": {}
             }
             results.append(case_item)
@@ -364,7 +370,7 @@ def generate_baseline_case(
         "context_fillness": context_fillness,
         "retrieval_recall": recall_val,
         "context_precision": precision_val,
-        "generated_answer": raw_response.strip() if raw_response else answer.strip(),
+        "generated_answer": normalize_optional_text(raw_response if raw_response else answer),
         "retrieved_chunks": chunks,
         "trace": trace
     }
@@ -527,7 +533,7 @@ async def run_pipelined_stage_async(
                 query = case.get("query")
                 case_id = case.get("id", f"Q{case_idx:02d}")
                 expected_papers = case.get("expected_papers", [])
-                golden_answer = case.get("golden_answer", "").strip()
+                golden_answer = normalize_optional_text(case.get("golden_answer"))
                 
                 con.info(f"[{case_id}] Query: '{query[:60]}...'")
                 

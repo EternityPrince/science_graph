@@ -7,6 +7,7 @@ from typing import Any
 
 from core.config import BASELINES_INFO, get_baseline_config
 from core.stats import BenchmarkStatsCollector
+from core.metrics import normalize_optional_text, get_is_answerable
 
 
 def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, con: Any) -> None:
@@ -401,7 +402,8 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
             "id": case_id,
             "query": query,
             "category": case.get("category", "general"),
-            "golden_answer": case.get("golden_answer", "").strip(),
+            "golden_answer": normalize_optional_text(case.get("golden_answer")),
+            "is_answerable": get_is_answerable(case),
             "expected_papers": case.get("expected_papers", []),
             "baselines": {}
         }

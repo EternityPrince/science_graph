@@ -4,7 +4,9 @@ from core.metrics import (
     calculate_retrieval_recall,
     calculate_context_precision,
     estimate_prompt_tokens,
-    calculate_semantic_accuracy
+    calculate_semantic_accuracy,
+    get_is_answerable,
+    classify_answerability
 )
 from core.models import parse_report, ReportOutput
 
@@ -291,6 +293,8 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
 
     # Collect raw values per baseline and metric
     raw_values = {b: {m: [] for m in ALL_METRICS} for b in baselines}
+    raw_values_ans = {b: {m: [] for m in ALL_METRICS} for b in baselines}
+    raw_values_unans = {b: {m: [] for m in ALL_METRICS} for b in baselines}
     for b in baselines:
         raw_values[b]["status"] = []
     
@@ -361,11 +365,17 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
             status = b_data.get("status", "failed")
             raw_values[b]["status"].append(status)
             
+            is_ans = get_is_answerable(r)
+
             # Latency
             lat = b_data.get("latency_sec")
             if lat is not None:
                 raw_values[b]["latency_sec"].append(lat)
                 category_values[category][b]["latency_sec"].append(lat)
+                if is_ans:
+                    raw_values_ans[b]["latency_sec"].append(lat)
+                else:
+                    raw_values_unans[b]["latency_sec"].append(lat)
                 
             # Quality metrics
             eval_metrics = b_data.get("eval_metrics", {})
@@ -374,6 +384,10 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 if val is not None:
                     raw_values[b][m].append(val)
                     category_values[category][b][m].append(val)
+                    if is_ans:
+                        raw_values_ans[b][m].append(val)
+                    else:
+                        raw_values_unans[b][m].append(val)
                     q_quality_sum += val
                     q_quality_count += 1
 
@@ -383,6 +397,10 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 if val is not None:
                     raw_values[b][m].append(val)
                     category_values[category][b][m].append(val)
+                    if is_ans:
+                        raw_values_ans[b][m].append(val)
+                    else:
+                        raw_values_unans[b][m].append(val)
 
             # Collect graph retrieval diagnostics
             enabled = b_data.get("graph_retrieval_enabled", False)
@@ -459,22 +477,105 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 summary_stats[b][m] = {
                     "mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0
                 }
-                continue
+            else:
+                summary_stats[b][m] = {
+                    "mean": statistics.mean(vals),
+                    "min": min(vals),
+                    "max": max(vals),
+                    "median": statistics.median(vals),
+                    "stdev": statistics.stdev(vals) if len(vals) > 1 else 0.0,
+                    "count": len(vals)
+                }
+
+        # Answerable-only metrics
+        summary_stats[b]["answerable_only"] = {}
+        for m in ALL_METRICS:
+            vals = raw_values_ans[b][m]
+            if not vals:
+                summary_stats[b]["answerable_only"][m] = {
+                    "mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0
+                }
+            else:
+                summary_stats[b]["answerable_only"][m] = {
+                    "mean": statistics.mean(vals),
+                    "min": min(vals),
+                    "max": max(vals),
+                    "median": statistics.median(vals),
+                    "stdev": statistics.stdev(vals) if len(vals) > 1 else 0.0,
+                    "count": len(vals)
+                }
+
+        # Unanswerable-only metrics
+        summary_stats[b]["unanswerable_only"] = {}
+        for m in ALL_METRICS:
+            vals = raw_values_unans[b][m]
+            if not vals:
+                summary_stats[b]["unanswerable_only"][m] = {
+                    "mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0
+                }
+            else:
+                summary_stats[b]["unanswerable_only"][m] = {
+                    "mean": statistics.mean(vals),
+                    "min": min(vals),
+                    "max": max(vals),
+                    "median": statistics.median(vals),
+                    "stdev": statistics.stdev(vals) if len(vals) > 1 else 0.0,
+                    "count": len(vals)
+                }
+
+        # Classification metrics
+        tp, fn, tn, fp = 0, 0, 0, 0
+        for r in results:
+            is_ans = get_is_answerable(r)
+            b_data = r.get("baselines", {}).get(b, {})
+            gen_ans = b_data.get("generated_answer", "")
+            outcome = b_data.get("answerability_outcome")
+            if outcome not in ("TP", "FP", "TN", "FN"):
+                pred_abst = b_data.get("predicted_abstained")
+                if pred_abst is None:
+                    try:
+                        from core.metrics import detect_abstention
+                        pred_abst = detect_abstention(gen_ans)
+                    except Exception:
+                        pred_abst = "нет информации" in gen_ans.lower() or "отсутствует" in gen_ans.lower()
+                from core.metrics import classify_answerability
+                outcome = classify_answerability(is_ans, pred_abst)
             
-            mean_val = statistics.mean(vals)
-            min_val = min(vals)
-            max_val = max(vals)
-            med_val = statistics.median(vals)
-            std_val = statistics.stdev(vals) if len(vals) > 1 else 0.0
-            
-            summary_stats[b][m] = {
-                "mean": mean_val,
-                "min": min_val,
-                "max": max_val,
-                "median": med_val,
-                "stdev": std_val,
-                "count": len(vals)
-            }
+            if outcome == "TP": tp += 1
+            elif outcome == "FN": fn += 1
+            elif outcome == "TN": tn += 1
+            elif outcome == "FP": fp += 1
+
+        total = tp + fn + tn + fp
+        accuracy = (tp + tn) / total if total > 0 else 0.0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else None
+        recall = tp / (tp + fn) if (tp + fn) > 0 else None
+        f1 = 2 * precision * recall / (precision + recall) if (precision and recall and (precision + recall) > 0) else 0.0
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else None
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else None
+        fnr = fn / (fn + tp) if (fn + tp) > 0 else None
+        
+        num_unans = fp + tn
+        hallucination_rate = fp / num_unans if num_unans > 0 else None
+        answer_rate = (tp + fp) / total if total > 0 else 0.0
+        abstention_rate = (tn + fn) / total if total > 0 else 0.0
+
+        summary_stats[b]["classification"] = {
+            "TP": tp,
+            "FP": fp,
+            "TN": tn,
+            "FN": fn,
+            "accuracy": accuracy,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "specificity": specificity,
+            "fpr": fpr,
+            "fnr": fnr,
+            "hallucination_rate": hallucination_rate,
+            "answer_rate": answer_rate,
+            "abstention_rate": abstention_rate
+        }
 
         # Calculate graph retrieval aggregates
         total_q = len(results)

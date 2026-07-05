@@ -397,26 +397,38 @@ def print_confusion_matrix_and_metrics_tables(data):
         for b in baselines:
             b_data = r.get("baselines", {}).get(b, {})
             gen_ans = b_data.get("generated_answer", "")
-            eval_metrics = b_data.get("eval_metrics", {})
-            sem_acc = eval_metrics.get("semantic_accuracy", 0.0)
-            if sem_acc is None:
-                sem_acc = 0.0
-                
-            ref = is_refusal(gen_ans)
             
-            if is_ans:
-                if ref:
-                    classification[b]["FN"] += 1
-                else:
-                    if sem_acc > 0.0:
-                        classification[b]["TP"] += 1
-                    else:
-                        classification[b]["FN"] += 1
+            # Check for outcome/predicted_abstained first
+            outcome = b_data.get("answerability_outcome")
+            if not outcome:
+                # check eval_metrics too
+                eval_metrics = b_data.get("eval_metrics", {})
+                outcome = eval_metrics.get("answerability_outcome") if isinstance(eval_metrics, dict) else None
+                
+            if outcome in ("TP", "FP", "TN", "FN"):
+                classification[b][outcome] += 1
             else:
-                if ref:
-                    classification[b]["TN"] += 1
+                pred_abst = b_data.get("predicted_abstained")
+                if pred_abst is None and isinstance(b_data.get("eval_metrics"), dict):
+                    pred_abst = b_data.get("eval_metrics", {}).get("predicted_abstained")
+                
+                if pred_abst is None:
+                    try:
+                        from core.metrics import detect_abstention
+                        pred_abst = detect_abstention(gen_ans)
+                    except Exception:
+                        pred_abst = is_refusal(gen_ans)
+                
+                if is_ans:
+                    if pred_abst:
+                        classification[b]["FN"] += 1
+                    else:
+                        classification[b]["TP"] += 1
                 else:
-                    classification[b]["FP"] += 1
+                    if pred_abst:
+                        classification[b]["TN"] += 1
+                    else:
+                        classification[b]["FP"] += 1
 
     # Print Confusion Matrix Table
     print("\nConfusion Matrix:")
