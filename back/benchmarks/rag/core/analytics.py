@@ -115,6 +115,7 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 baselines = list(r["baselines"].keys())
                 break
     baselines = sorted(baselines)
+    baselines = [b for b in baselines if any(r.get("baselines", {}).get(b, {}).get("status") == "success" for r in results)]
 
     # 0. Merge trace entries if trace_map is provided (or fallback to defaults)
     for r in results:
@@ -297,6 +298,8 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
     raw_values_unans = {b: {m: [] for m in ALL_METRICS} for b in baselines}
     for b in baselines:
         raw_values[b]["status"] = []
+        raw_values_ans[b]["status"] = []
+        raw_values_unans[b]["status"] = []
     
     categories = set()
     category_values = {}
@@ -362,11 +365,14 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
             if not b_data:
                 continue
                 
+            is_ans = get_is_answerable(r)
             status = b_data.get("status", "failed")
             raw_values[b]["status"].append(status)
+            if is_ans:
+                raw_values_ans[b]["status"].append(status)
+            else:
+                raw_values_unans[b]["status"].append(status)
             
-            is_ans = get_is_answerable(r)
-
             # Latency
             lat = b_data.get("latency_sec")
             if lat is not None:
@@ -383,8 +389,8 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 val = eval_metrics.get(m)
                 if val is not None:
                     raw_values[b][m].append(val)
-                    category_values[category][b][m].append(val)
                     if is_ans:
+                        category_values[category][b][m].append(val)
                         raw_values_ans[b][m].append(val)
                     else:
                         raw_values_unans[b][m].append(val)
@@ -467,12 +473,12 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
     summary_stats = {}
     for b in baselines:
         summary_stats[b] = {}
-        statuses = raw_values[b]["status"]
+        statuses = raw_values_ans[b]["status"]
         success_rate = (statuses.count("success") / len(statuses)) * 100 if statuses else 0.0
         summary_stats[b]["success_rate"] = success_rate
         
         for m in ALL_METRICS:
-            vals = raw_values[b][m]
+            vals = raw_values_ans[b][m]
             if not vals:
                 summary_stats[b][m] = {
                     "mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0
@@ -576,6 +582,14 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
             "answer_rate": answer_rate,
             "abstention_rate": abstention_rate
         }
+        summary_stats[b]["unanswerable_safety"] = {
+            "unanswerable_count": num_unans,
+            "TN": tn,
+            "FP": fp,
+            "abstention_accuracy": specificity if specificity is not None else 0.0,
+            "hallucination_rate": hallucination_rate if hallucination_rate is not None else 0.0,
+            "answer_rate_unans": fp / num_unans if num_unans > 0 else 0.0
+        }
 
         # Calculate graph retrieval aggregates
         total_q = len(results)
@@ -653,6 +667,44 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                     category_stats[cat][b][m] = statistics.mean(vals)
                 else:
                     category_stats[cat][b][m] = 0.0
+
+    category_classification = {}
+    for cat in sorted(categories):
+        category_classification[cat] = {}
+        cat_rows = [r for r in results if r.get("category", "default") == cat]
+        for b in baselines:
+            tp, fn, tn, fp = 0, 0, 0, 0
+            for r in cat_rows:
+                is_ans = get_is_answerable(r)
+                b_data = r.get("baselines", {}).get(b, {})
+                gen_ans = b_data.get("generated_answer", "")
+                outcome = b_data.get("answerability_outcome")
+                if outcome not in ("TP", "FP", "TN", "FN"):
+                    pred_abst = b_data.get("predicted_abstained")
+                    if pred_abst is None:
+                        try:
+                            from core.metrics import detect_abstention
+                            pred_abst = detect_abstention(gen_ans)
+                        except Exception:
+                            pred_abst = "нет информации" in gen_ans.lower() or "отсутствует" in gen_ans.lower()
+                    from core.metrics import classify_answerability
+                    outcome = classify_answerability(is_ans, pred_abst)
+                
+                if outcome == "TP": tp += 1
+                elif outcome == "FN": fn += 1
+                elif outcome == "TN": tn += 1
+                elif outcome == "FP": fp += 1
+            
+            total = tp + fn + tn + fp
+            category_classification[cat][b] = {
+                "TP": tp,
+                "FN": fn,
+                "TN": tn,
+                "FP": fp,
+                "total": total,
+                "abstention_accuracy": tn / (tn + fp) if (tn + fp) > 0 else 0.0,
+                "hallucination_rate": fp / (tn + fp) if (tn + fp) > 0 else 0.0
+            }
 
     # Compute category graph statistics
     category_graph_stats = {}
@@ -753,14 +805,20 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
 
     has_graph_trace = bool(trace_map)
 
+    total_ans = sum(1 for r in results if get_is_answerable(r))
+    total_unans = len(results) - total_ans
+
     return {
         "baselines": baselines,
         "summary": summary_stats,
         "categories": sorted(list(categories)),
         "category_stats": category_stats,
+        "category_classification": category_classification,
         "query_difficulty": query_scores,
         "pairwise_win_rates": pairwise_win_rates,
         "total_queries": len(results),
+        "total_answerable": total_ans,
+        "total_unanswerable": total_unans,
         "has_graph_trace": has_graph_trace,
         "category_graph_stats": category_graph_stats,
         "top_failures": top_failures

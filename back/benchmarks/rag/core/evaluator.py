@@ -459,7 +459,15 @@ async def evaluate_baseline_case(
             eval_metrics["citation_fidelity"] = None
             eval_metrics["semantic_accuracy"] = None
             eval_metrics["ar_sa_f1"] = None
-        else: # FN or FP
+        elif outcome == "FP":
+            eval_metrics["faithfulness"] = None
+            eval_metrics["answer_relevance"] = None
+            eval_metrics["citation_fidelity"] = None
+            eval_metrics["semantic_accuracy"] = None
+            eval_metrics["ar_sa_f1"] = None
+            eval_metrics["hallucination"] = True
+            eval_metrics["unsupported_answer"] = True
+        else: # FN
             eval_metrics["faithfulness"] = 0.0
             eval_metrics["answer_relevance"] = 0.0
             eval_metrics["citation_fidelity"] = 0.0
@@ -784,8 +792,14 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                     "token_reasoning": [],
                 }
 
+            is_ans = case.get("is_answerable")
+            if is_ans is None:
+                is_ans = True
+            else:
+                is_ans = str(is_ans).lower() == "true"
+
             latency = baseline_data.get("latency_sec")
-            if latency is not None:
+            if latency is not None and is_ans:
                 summary_stats[baseline_name]["latency_sec"].append(latency)
 
             for k, val in eval_metrics.items():
@@ -795,7 +809,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                     continue
                 if baseline_name != "B0" and not baseline_data.get("retrieved_chunks") and k in ("faithfulness", "citation_fidelity", "context_precision"):
                     continue
-                if k == "ar_sa_f1" and (not case.get("is_answerable", True) or val is None):
+                if not is_ans:
                     continue
                 if val is None:
                     continue

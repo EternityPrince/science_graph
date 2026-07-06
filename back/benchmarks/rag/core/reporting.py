@@ -159,13 +159,15 @@ def print_rich_tables(stats: dict) -> None:
     console = Console()
     console.print(Panel(
         "[bold green]Science Graph RAG Benchmarks Analyzer[/bold green]\n"
-        f"Aggregated statistics across [bold cyan]{stats['total_queries']}[/bold cyan] test queries.",
+        f"Aggregated statistics across [bold cyan]{stats['total_queries']}[/bold cyan] test queries.\n"
+        f"Answerable: [bold yellow]{stats.get('total_answerable', 0)}[/bold yellow] | "
+        f"Unanswerable: [bold red]{stats.get('total_unanswerable', 0)}[/bold red]",
         title="RAG Evaluation Report",
         expand=False
     ))
     
-    # 1. Main Summary Table (Average values)
-    table = Table(title="[bold]Сводная таблица (Средние значения / Averages)[/bold]", box=ROUNDED, header_style="bold magenta")
+    # 1. Main Summary Table (Answerable-only quality metrics)
+    table = Table(title="[bold]Сводная таблица (Answerable-only quality metrics)[/bold]", box=ROUNDED, header_style="bold magenta")
     table.add_column("Baseline", style="cyan", no_wrap=True)
     table.add_column("Success Rate", justify="right")
     for m in ALL_METRICS:
@@ -190,6 +192,72 @@ def print_rich_tables(stats: dict) -> None:
         table.add_row(*row)
         
     console.print(table)
+    console.print()
+
+    # 1.3. Unanswerable safety metrics
+    table_safety = Table(title="[bold]Показатели безопасности для неответных вопросов (Unanswerable Safety Metrics)[/bold]", box=ROUNDED, header_style="bold red")
+    table_safety.add_column("Baseline", style="cyan", no_wrap=True)
+    table_safety.add_column("Unanswerable Count", justify="right")
+    table_safety.add_column("Correct Abstentions / TN", justify="right")
+    table_safety.add_column("Hallucinated Answers / FP", justify="right")
+    table_safety.add_column("Abstention Accuracy", justify="right")
+    table_safety.add_column("Hallucination Rate", justify="right")
+    table_safety.add_column("Answer Rate on Unanswerable", justify="right")
+
+    for b in stats["baselines"]:
+        saf = stats["summary"][b].get("unanswerable_safety", {})
+        row = [
+            b,
+            str(saf.get("unanswerable_count", 0)),
+            str(saf.get("TN", 0)),
+            str(saf.get("FP", 0)),
+            f"{saf.get('abstention_accuracy', 0.0) * 100:.1f}%",
+            f"{saf.get('hallucination_rate', 0.0) * 100:.1f}%",
+            f"{saf.get('answer_rate_unans', 0.0) * 100:.1f}%"
+        ]
+        table_safety.add_row(*row)
+    console.print(table_safety)
+    console.print()
+
+    # 1.4. Answerability Confusion Matrix & Classification Metrics
+    table_cm = Table(title="[bold]Матрица классификации ответа (Answerability Confusion Matrix & Metrics)[/bold]", box=ROUNDED, header_style="bold cyan")
+    table_cm.add_column("Baseline", style="cyan", no_wrap=True)
+    table_cm.add_column("TP", justify="right")
+    table_cm.add_column("FP", justify="right")
+    table_cm.add_column("TN", justify="right")
+    table_cm.add_column("FN", justify="right")
+    table_cm.add_column("Accuracy", justify="right")
+    table_cm.add_column("Precision", justify="right")
+    table_cm.add_column("Recall", justify="right")
+    table_cm.add_column("F1", justify="right")
+    table_cm.add_column("Specificity", justify="right")
+    table_cm.add_column("FPR", justify="right")
+    table_cm.add_column("FNR", justify="right")
+    table_cm.add_column("Hallucination Rate", justify="right")
+    table_cm.add_column("Answer Rate", justify="right")
+    table_cm.add_column("Abstention Rate", justify="right")
+
+    for b in stats["baselines"]:
+        clas = stats["summary"][b].get("classification", {})
+        row = [
+            b,
+            str(clas.get("TP", 0)),
+            str(clas.get("FP", 0)),
+            str(clas.get("TN", 0)),
+            str(clas.get("FN", 0)),
+            f"{clas.get('accuracy', 0.0) * 100:.1f}%",
+            f"{clas.get('precision', 0.0) * 100:.1f}%" if clas.get("precision") is not None else "—",
+            f"{clas.get('recall', 0.0) * 100:.1f}%" if clas.get("recall") is not None else "—",
+            f"{clas.get('f1', 0.0):.4f}" if clas.get("f1") is not None else "—",
+            f"{clas.get('specificity', 0.0) * 100:.1f}%" if clas.get("specificity") is not None else "—",
+            f"{clas.get('fpr', 0.0) * 100:.1f}%" if clas.get("fpr") is not None else "—",
+            f"{clas.get('fnr', 0.0) * 100:.1f}%" if clas.get("fnr") is not None else "—",
+            f"{clas.get('hallucination_rate', 0.0) * 100:.1f}%" if clas.get("hallucination_rate") is not None else "—",
+            f"{clas.get('answer_rate', 0.0) * 100:.1f}%",
+            f"{clas.get('abstention_rate', 0.0) * 100:.1f}%"
+        ]
+        table_cm.add_row(*row)
+    console.print(table_cm)
     console.print()
     
     # 1.5. Graph Retrieval Diagnostics Table (if trace exists)
@@ -276,22 +344,61 @@ def print_rich_tables(stats: dict) -> None:
         console.print(table_det)
         console.print()
 
-    # 3. Category Breakdown (Semantic Accuracy)
-    table_cat = Table(title="[bold]Разбивка по категориям (Средняя Semantic Accuracy)[/bold]", box=ROUNDED, header_style="bold blue")
-    table_cat.add_column("Категория (Category)", style="cyan")
-    for b in stats["baselines"]:
-        table_cat.add_column(b, justify="right")
-        
+    # Split categories into answerable and unanswerable
+    ans_cats = []
+    unans_cats = []
     for cat in stats["categories"]:
-        row = [cat]
+        has_ans = False
         for b in stats["baselines"]:
-            val = stats["category_stats"][cat][b]["semantic_accuracy"]
-            row.append(f"{val:.3f}")
-        table_cat.add_row(*row)
+            clas = stats.get("category_classification", {}).get(cat, {}).get(b, {})
+            if clas.get("TP", 0) > 0 or clas.get("FN", 0) > 0:
+                has_ans = True
+                break
+        if has_ans:
+            ans_cats.append(cat)
+        else:
+            unans_cats.append(cat)
+
+    # 3. Category Breakdown: Answerable (Semantic Accuracy)
+    if ans_cats:
+        table_cat_ans = Table(title="[bold]Разбивка по категориям: Answerable (Средняя Semantic Accuracy)[/bold]", box=ROUNDED, header_style="bold blue")
+        table_cat_ans.add_column("Категория (Category)", style="cyan")
+        for b in stats["baselines"]:
+            table_cat_ans.add_column(b, justify="right")
+            
+        for cat in ans_cats:
+            row = [cat]
+            for b in stats["baselines"]:
+                val = stats["category_stats"][cat][b]["semantic_accuracy"]
+                row.append(f"{val:.3f}")
+            table_cat_ans.add_row(*row)
+            
+        console.print(table_cat_ans)
+        console.print()
         
-    console.print(table_cat)
-    console.print()
-    
+    # 3.5. Category Breakdown: Unanswerable (Abstention Accuracy / Hallucination Rate)
+    if unans_cats:
+        table_cat_unans = Table(title="[bold]Разбивка по категориям: Unanswerable (Abstention Accuracy / Hallucination Rate)[/bold]", box=ROUNDED, header_style="bold green")
+        table_cat_unans.add_column("Категория (Category)", style="cyan")
+        table_cat_unans.add_column("Метрика (Metric)", style="magenta")
+        for b in stats["baselines"]:
+            table_cat_unans.add_column(b, justify="right")
+            
+        for cat in unans_cats:
+            row_abst = [cat, "Abstention Accuracy"]
+            row_hall = ["", "Hallucination Rate"]
+            for b in stats["baselines"]:
+                clas = stats.get("category_classification", {}).get(cat, {}).get(b, {})
+                abst_acc = clas.get("abstention_accuracy", 0.0)
+                hall_rate = clas.get("hallucination_rate", 0.0)
+                row_abst.append(f"{abst_acc:.3f}")
+                row_hall.append(f"{hall_rate:.3f}")
+            table_cat_unans.add_row(*row_abst)
+            table_cat_unans.add_row(*row_hall)
+            
+        console.print(table_cat_unans)
+        console.print()
+        
     # 4. Pairwise Win-rate Matrix (Semantic Accuracy)
     table_win = Table(title="[bold]Матрица побед (Win-Rate Matrix: Semantic Accuracy)[/bold]\nПоказывает как часто строка обыгрывает столбец (Row beats Column %)", box=ROUNDED, header_style="bold green")
     table_win.add_column("Baseline", style="cyan")
@@ -327,9 +434,11 @@ def print_rich_tables(stats: dict) -> None:
 def print_plain_tables(stats: dict) -> None:
     """Fallback plain text printer if Rich is not available."""
     print("=== Science Graph RAG Benchmarks Report ===")
-    print(f"Total Queries: {stats['total_queries']}\n")
+    print(f"Total Queries: {stats['total_queries']}")
+    print(f"Answerable: {stats.get('total_answerable', 0)}")
+    print(f"Unanswerable: {stats.get('total_unanswerable', 0)}\n")
     
-    print("--- Сводная таблица (Средние значения) ---")
+    print("--- Сводная таблица (Answerable-only quality metrics) ---")
     headers = ["Baseline", "Success"] + [METRIC_LABELS[m] for m in ALL_METRICS]
     print("\t".join(headers))
     for b in stats["baselines"]:
@@ -348,6 +457,91 @@ def print_plain_tables(stats: dict) -> None:
                 row.append(f"{val:.3f}")
         print("\t".join(row))
     print()
+
+    print("--- Показатели безопасности для неответных вопросов (Unanswerable Safety Metrics) ---")
+    print("\t".join(["Baseline", "Unanswerable Count", "Correct Abstentions / TN", "Hallucinated Answers / FP", "Abstention Accuracy", "Hallucination Rate", "Answer Rate on Unanswerable"]))
+    for b in stats["baselines"]:
+        saf = stats["summary"][b].get("unanswerable_safety", {})
+        row = [
+            b,
+            str(saf.get("unanswerable_count", 0)),
+            str(saf.get("TN", 0)),
+            str(saf.get("FP", 0)),
+            f"{saf.get('abstention_accuracy', 0.0) * 100:.1f}%",
+            f"{saf.get('hallucination_rate', 0.0) * 100:.1f}%",
+            f"{saf.get('answer_rate_unans', 0.0) * 100:.1f}%"
+        ]
+        print("\t".join(row))
+    print()
+
+    print("--- Матрица классификации ответа (Answerability Confusion Matrix & Metrics) ---")
+    print("\t".join([
+        "Baseline", "TP", "FP", "TN", "FN", "Accuracy", "Precision", "Recall", "F1", 
+        "Specificity", "FPR", "FNR", "Hallucination Rate", "Answer Rate", "Abstention Rate"
+    ]))
+    for b in stats["baselines"]:
+        clas = stats["summary"][b].get("classification", {})
+        row = [
+            b,
+            str(clas.get("TP", 0)),
+            str(clas.get("FP", 0)),
+            str(clas.get("TN", 0)),
+            str(clas.get("FN", 0)),
+            f"{clas.get('accuracy', 0.0) * 100:.1f}%",
+            f"{clas.get('precision', 0.0) * 100:.1f}%" if clas.get("precision") is not None else "—",
+            f"{clas.get('recall', 0.0) * 100:.1f}%" if clas.get("recall") is not None else "—",
+            f"{clas.get('f1', 0.0):.4f}" if clas.get("f1") is not None else "—",
+            f"{clas.get('specificity', 0.0) * 100:.1f}%" if clas.get("specificity") is not None else "—",
+            f"{clas.get('fpr', 0.0) * 100:.1f}%" if clas.get("fpr") is not None else "—",
+            f"{clas.get('fnr', 0.0) * 100:.1f}%" if clas.get("fnr") is not None else "—",
+            f"{clas.get('hallucination_rate', 0.0) * 100:.1f}%" if clas.get("hallucination_rate") is not None else "—",
+            f"{clas.get('answer_rate', 0.0) * 100:.1f}%",
+            f"{clas.get('abstention_rate', 0.0) * 100:.1f}%"
+        ]
+        print("\t".join(row))
+    print()
+
+    # Split categories into answerable and unanswerable
+    ans_cats = []
+    unans_cats = []
+    for cat in stats["categories"]:
+        has_ans = False
+        for b in stats["baselines"]:
+            clas = stats.get("category_classification", {}).get(cat, {}).get(b, {})
+            if clas.get("TP", 0) > 0 or clas.get("FN", 0) > 0:
+                has_ans = True
+                break
+        if has_ans:
+            ans_cats.append(cat)
+        else:
+            unans_cats.append(cat)
+
+    if ans_cats:
+        print("--- Разбивка по категориям: Answerable (Средняя Semantic Accuracy) ---")
+        print("\t".join(["Категория"] + stats["baselines"]))
+        for cat in ans_cats:
+            row = [cat]
+            for b in stats["baselines"]:
+                val = stats["category_stats"][cat][b]["semantic_accuracy"]
+                row.append(f"{val:.3f}")
+            print("\t".join(row))
+        print()
+
+    if unans_cats:
+        print("--- Разбивка по категориям: Unanswerable (Abstention Accuracy / Hallucination Rate) ---")
+        print("\t".join(["Категория", "Метрика"] + stats["baselines"]))
+        for cat in unans_cats:
+            row_abst = [cat, "Abstention Accuracy"]
+            row_hall = ["", "Hallucination Rate"]
+            for b in stats["baselines"]:
+                clas = stats.get("category_classification", {}).get(cat, {}).get(b, {})
+                abst_acc = clas.get("abstention_accuracy", 0.0)
+                hall_rate = clas.get("hallucination_rate", 0.0)
+                row_abst.append(f"{abst_acc:.3f}")
+                row_hall.append(f"{hall_rate:.3f}")
+            print("\t".join(row_abst))
+            print("\t".join(row_hall))
+        print()
 
     if stats.get("has_graph_trace"):
         print("--- Диагностика Graph Retrieval (Graph Retrieval Diagnostics) ---")
@@ -371,7 +565,7 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
     lines = []
     lines.append("# 📊 Отчет по качеству RAG-системы (RAG Benchmarking Report)")
     lines.append("")
-    lines.append(f"**Количество тестовых вопросов:** {stats['total_queries']}")
+    lines.append(f"**Количество тестовых вопросов:** {stats['total_queries']} (Answerable: {stats.get('total_answerable', 0)}, Unanswerable: {stats.get('total_unanswerable', 0)})")
     lines.append("")
     
     lines.append("## 🏷️ Описание протестированных конфигураций (Baselines)")
@@ -382,7 +576,7 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
             lines.append(f"| **{b}** | {desc} |")
     lines.append("")
     
-    lines.append("## 📈 Сводные результаты (Averages Summary)")
+    lines.append("## 📈 Сводные результаты: Answerable-only quality metrics (Averages Summary)")
     lines.append("> [!NOTE]")
     lines.append("> Качество оценивалось LLM-судьей по шкале от 0.0 до 1.0 (за исключением Latency).")
     lines.append("")
@@ -425,6 +619,58 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
             row.append(cell_str)
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
+
+    lines.append("## 🛡️ Метрики безопасности для неответных вопросов (Unanswerable Safety Metrics)")
+    lines.append("Показатели работы системы на неответных вопросах (где `is_answerable: false`):")
+    lines.append("")
+    
+    safety_headers = ["Baseline", "Unanswerable Count", "Correct Abstentions / TN", "Hallucinated Answers / FP", "Abstention Accuracy", "Hallucination Rate", "Answer Rate on Unanswerable"]
+    lines.append("| " + " | ".join(safety_headers) + " |")
+    lines.append("| :--- | " + " | ".join(["---:"] * (len(safety_headers) - 1)) + " |")
+    
+    for b in stats["baselines"]:
+        saf = stats["summary"][b].get("unanswerable_safety", {})
+        row = [
+            f"**{b}**",
+            str(saf.get("unanswerable_count", 0)),
+            str(saf.get("TN", 0)),
+            str(saf.get("FP", 0)),
+            f"{saf.get('abstention_accuracy', 0.0) * 100:.1f}%",
+            f"{saf.get('hallucination_rate', 0.0) * 100:.1f}%",
+            f"{saf.get('answer_rate_unans', 0.0) * 100:.1f}%"
+        ]
+        lines.append("| " + " | ".join(row) + " |")
+    lines.append("")
+
+    lines.append("## 🧩 Матрица классификации ответа (Answerability Confusion Matrix & Metrics)")
+    lines.append("Общие показатели классификации ответа по всем запросам:")
+    lines.append("")
+    
+    cm_headers = ["Baseline", "TP", "FP", "TN", "FN", "Accuracy", "Precision", "Recall", "F1", "Specificity", "FPR", "FNR", "Hallucination Rate", "Answer Rate", "Abstention Rate"]
+    lines.append("| " + " | ".join(cm_headers) + " |")
+    lines.append("| :--- | " + " | ".join(["---:"] * (len(cm_headers) - 1)) + " |")
+    
+    for b in stats["baselines"]:
+        clas = stats["summary"][b].get("classification", {})
+        row = [
+            f"**{b}**",
+            str(clas.get("TP", 0)),
+            str(clas.get("FP", 0)),
+            str(clas.get("TN", 0)),
+            str(clas.get("FN", 0)),
+            f"{clas.get('accuracy', 0.0) * 100:.1f}%",
+            f"{clas.get('precision', 0.0) * 100:.1f}%" if clas.get("precision") is not None else "—",
+            f"{clas.get('recall', 0.0) * 100:.1f}%" if clas.get("recall") is not None else "—",
+            f"{clas.get('f1', 0.0):.4f}" if clas.get("f1") is not None else "—",
+            f"{clas.get('specificity', 0.0) * 100:.1f}%" if clas.get("specificity") is not None else "—",
+            f"{clas.get('fpr', 0.0) * 100:.1f}%" if clas.get("fpr") is not None else "—",
+            f"{clas.get('fnr', 0.0) * 100:.1f}%" if clas.get("fnr") is not None else "—",
+            f"{clas.get('hallucination_rate', 0.0) * 100:.1f}%" if clas.get("hallucination_rate") is not None else "—",
+            f"{clas.get('answer_rate', 0.0) * 100:.1f}%",
+            f"{clas.get('abstention_rate', 0.0) * 100:.1f}%"
+        ]
+        lines.append("| " + " | ".join(row) + " |")
+    lines.append("")
     
     lines.append("## 🔍 Детальный анализ стабильности (Min / Max / Median / StdDev)")
     lines.append("Позволяет оценить стабильность работы системы на различных запросах.")
@@ -432,7 +678,7 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
     
     for b in stats["baselines"]:
         lines.append(f"### ⚙️ {b} — {BASELINES_INFO.get(b, b)}")
-        lines.append("| Метрика | Среднее (Mean) | Минимум (Min) | Максимум (Max) | Медиана (Median) | Отклонение (Std Dev) |")
+        lines.append("| Метрика | Среднее (Mean) | | Минимум (Min) | Максимум (Max) | Медиана (Median) | Отклонение (Std Dev) |")
         lines.append("| :--- | ---: | ---: | ---: | ---: | ---: |")
         
         for m in ALL_METRICS:
@@ -475,25 +721,63 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
                 )
         lines.append("")
         
-    lines.append("## 📁 Разбивка по категориям запросов (Category Breakdown)")
-    lines.append("Средняя семантическая точность (Semantic Accuracy) в разрезе типов документов/запросов:")
-    lines.append("")
-    
-    cat_headers = ["Категория"] + stats["baselines"]
-    lines.append("| " + " | ".join(cat_headers) + " |")
-    lines.append("| :--- | " + " | ".join(["---:"] * len(stats["baselines"])) + " |")
-    
+    # Split categories into answerable and unanswerable
+    ans_cats = []
+    unans_cats = []
     for cat in stats["categories"]:
-        row = [f"`{cat}`"]
-        best_val = max(stats["category_stats"][cat][b]["semantic_accuracy"] for b in stats["baselines"])
+        has_ans = False
         for b in stats["baselines"]:
-            val = stats["category_stats"][cat][b]["semantic_accuracy"]
-            cell_str = f"{val:.3f}"
-            if val == best_val and val > 0:
-                cell_str = f"🥇 **{cell_str}**"
-            row.append(cell_str)
-        lines.append("| " + " | ".join(row) + " |")
-    lines.append("")
+            clas = stats.get("category_classification", {}).get(cat, {}).get(b, {})
+            if clas.get("TP", 0) > 0 or clas.get("FN", 0) > 0:
+                has_ans = True
+                break
+        if has_ans:
+            ans_cats.append(cat)
+        else:
+            unans_cats.append(cat)
+
+    if ans_cats:
+        lines.append("## 📁 Разбивка по категориям: Answerable (Category Breakdown)")
+        lines.append("Средняя семантическая точность (Semantic Accuracy) для ответных категорий:")
+        lines.append("")
+        
+        cat_headers = ["Категория"] + stats["baselines"]
+        lines.append("| " + " | ".join(cat_headers) + " |")
+        lines.append("| :--- | " + " | ".join(["---:"] * len(stats["baselines"])) + " |")
+        
+        for cat in ans_cats:
+            row = [f"`{cat}`"]
+            best_val = max(stats["category_stats"][cat][b]["semantic_accuracy"] for b in stats["baselines"])
+            for b in stats["baselines"]:
+                val = stats["category_stats"][cat][b]["semantic_accuracy"]
+                cell_str = f"{val:.3f}"
+                if val == best_val and val > 0:
+                    cell_str = f"🥇 **{cell_str}**"
+                row.append(cell_str)
+            lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
+
+    if unans_cats:
+        lines.append("## 📁 Разбивка по категориям: Unanswerable (Category Breakdown)")
+        lines.append("Показатели безопасности (Abstention Accuracy / Hallucination Rate) для неответных категорий:")
+        lines.append("")
+        
+        cat_headers_un = ["Категория", "Метрика"] + stats["baselines"]
+        lines.append("| " + " | ".join(cat_headers_un) + " |")
+        lines.append("| :--- | :--- | " + " | ".join(["---:"] * len(stats["baselines"])) + " |")
+        
+        for cat in unans_cats:
+            row_abst = [f"`{cat}`", "Abstention Accuracy"]
+            row_hall = ["", "Hallucination Rate"]
+            for b in stats["baselines"]:
+                clas = stats.get("category_classification", {}).get(cat, {}).get(b, {})
+                abst_acc = clas.get("abstention_accuracy", 0.0)
+                hall_rate = clas.get("hallucination_rate", 0.0)
+                row_abst.append(f"{abst_acc:.3f}")
+                row_hall.append(f"{hall_rate:.3f}")
+            lines.append("| " + " | ".join(row_abst) + " |")
+            lines.append("| " + " | ".join(row_hall) + " |")
+        lines.append("")
     
     lines.append("## 🥊 Матрица попарных побед (Pairwise Win Rate Matrix: Semantic Accuracy)")
     lines.append("Процент запросов, на которых конфигурация в строке показала результат **строго выше** конфигурации в столбце:")
@@ -763,7 +1047,7 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
         writer = csv.writer(f)
         writer.writerow([
             "query_id", "category", "baseline", "status", "latency_sec",
-            "is_answerable",
+            "is_answerable", "predicted_abstained", "answerability_outcome",
             "retrieval_recall", "context_precision", "faithfulness",
             "answer_relevance", "citation_fidelity", "semantic_accuracy",
             "ar_sa_f1",
@@ -859,6 +1143,8 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                     status,
                     latency if latency is not None else "",
                     is_ans,
+                    eval_metrics.get("predicted_abstained", False),
+                    eval_metrics.get("answerability_outcome", "TP"),
                     get_metric("retrieval_recall"),
                     get_metric("context_precision"),
                     get_metric("faithfulness"),

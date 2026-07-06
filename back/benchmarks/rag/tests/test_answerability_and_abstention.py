@@ -169,8 +169,8 @@ async def test_judge_skipping_and_metrics():
         )
         assert res_fp["answerability_outcome"] == "FP"
         assert evaluator.evaluate_all_metrics.called is False
-        assert res_fp["semantic_accuracy"] == 0.0
-        assert res_fp["ar_sa_f1"] == 0.0
+        assert res_fp["semantic_accuracy"] is None
+        assert res_fp["ar_sa_f1"] is None
 
 
 def test_metrics_aggregation():
@@ -288,11 +288,11 @@ def test_metrics_aggregation():
     assert classification["answer_rate"] == 0.5
     assert classification["abstention_rate"] == 0.5
 
-    # Check overall summary does not mix N/A (TN) in average of quality metrics
-    # Semantic accuracy values: Q01=0.9, Q02=0.0, Q03=None, Q04=0.0
-    # Average should be (0.9 + 0.0 + 0.0) / 3 = 0.3
+    # Check overall summary averages quality metrics ONLY over is_answerable: true questions
+    # Semantic accuracy values for answerable questions: Q01=0.9, Q02=0.0
+    # Average should be (0.9 + 0.0) / 2 = 0.45
     avg_sem = stats["summary"]["B6"]["semantic_accuracy"]["mean"]
-    assert pytest.approx(avg_sem) == 0.3
+    assert pytest.approx(avg_sem) == 0.45
 
 
 def test_parse_metrics_confusion(capsys):
