@@ -103,15 +103,15 @@ def test_graph_retrieval_skip_reasons_in_trace(tmp_path, monkeypatch):
     # Clean up trace file
     os.remove(trace_file)
     
-    # Case 2: graph_retrieval is enabled but graph_neighbors_in_rrf is disabled
+    # Case 2: graph_retrieval is enabled but no seed papers are found (candidate has no paper_id)
     monkeypatch.setattr(Config, "graph_retrieval_enabled", property(lambda self: True))
-    monkeypatch.setitem(config.data["rag_components"], "graph_neighbors_in_rrf", False)
     
     service = RAGService(MagicMock(), MagicMock(), MagicMock(), MagicMock())
     service.trace_dir = tmp_path
     
+    c_no_paper = DummyChunk("c_no_paper", None, "text without paper")
     vector_repo = MagicMock()
-    vector_repo.search_similar_chunks.return_value = [(c1, 0.9)]
+    vector_repo.search_similar_chunks.return_value = [(c_no_paper, 0.9)]
     vector_repo.search_text_fts5.return_value = []
     service.vector_repo = vector_repo
     
@@ -121,7 +121,7 @@ def test_graph_retrieval_skip_reasons_in_trace(tmp_path, monkeypatch):
     with open(trace_file, "r") as f:
         entry = json.loads(f.read().strip())
         assert entry["graph_retrieval_enabled"] is True
-        assert entry["graph_retrieval_skip_reason"] == "graph_neighbors_in_rrf_disabled"
+        assert entry["graph_retrieval_skip_reason"] == "no_seed_papers"
 
 
 def test_write_trace_creates_missing_directory(tmp_path, monkeypatch):

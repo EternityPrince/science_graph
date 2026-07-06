@@ -328,6 +328,61 @@ class FakeGraphRepository:
     def count_total_local_papers(self) -> int:
         return len([p for p in self.papers.values() if p.get("label") == "Paper"])
 
+    def chunks_count(self, paper_id: str) -> int:
+        return len(self.chunks.get(paper_id, []))
+
+    def has_chunks(self, paper_id: str) -> bool:
+        return self.chunks_count(paper_id) > 0
+
+    def is_local_indexed_paper(self, paper_id: str) -> bool:
+        return self.has_chunks(paper_id)
+
+    def is_bridge_only_paper(self, paper_id: str) -> bool:
+        return False
+
+    def is_retrieval_candidate_paper(self, paper_id: str) -> bool:
+        return self.has_chunks(paper_id)
+
+    def get_derived_bridge_edges(self, seed_paper_ids: List[str]) -> List[dict]:
+        res = []
+        seed_set = set(seed_paper_ids)
+        # 1. DIRECT_LOCAL_CITATION
+        for src, tgt, etype in self.edges:
+            if etype == "CITES":
+                if src in seed_set and tgt in self.papers:
+                    res.append({
+                        "source_local_paper_id": src,
+                        "target_local_paper_id": tgt,
+                        "bridge_node_id": None,
+                        "bridge_relation_type": "DIRECT_LOCAL_CITATION"
+                    })
+                if tgt in seed_set and src in self.papers:
+                    res.append({
+                        "source_local_paper_id": tgt,
+                        "target_local_paper_id": src,
+                        "bridge_node_id": None,
+                        "bridge_relation_type": "DIRECT_LOCAL_CITATION"
+                    })
+        # 2. SHARED_CONCEPT
+        seed_concepts = {}
+        for src, tgt, etype in self.edges:
+            if etype == "MENTIONS_CONCEPT" and src in seed_set:
+                if src not in seed_concepts:
+                    seed_concepts[src] = set()
+                seed_concepts[src].add(tgt)
+        
+        for seed_id, concept_ids in seed_concepts.items():
+            for concept_id in concept_ids:
+                for src, tgt, etype in self.edges:
+                    if etype == "MENTIONS_CONCEPT" and tgt == concept_id and src != seed_id and src in self.papers:
+                        res.append({
+                            "source_local_paper_id": seed_id,
+                            "target_local_paper_id": src,
+                            "bridge_node_id": concept_id,
+                            "bridge_relation_type": "SHARED_CONCEPT"
+                        })
+        return res
+
     def get_concept_idf(self, concept_ids: List[str]) -> Dict[str, float]:
         import math
         total = self.count_total_local_papers()

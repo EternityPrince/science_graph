@@ -221,6 +221,136 @@ class SQLiteGraphRepository(GraphRepository):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_reference_vector_work ON paper_reference_vector(work_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunk_reference_mentions_work ON chunk_reference_mentions(work_id);")
             
+            # Create views for local-aware graph retrieval
+            conn.execute("""
+            CREATE VIEW IF NOT EXISTS paper_usability_metadata AS
+            SELECT 
+                n.id AS canonical_paper_id,
+                COALESCE(c.cnt, 0) AS chunks_count,
+                CASE WHEN COALESCE(c.cnt, 0) > 0 THEN 1 ELSE 0 END AS has_chunks,
+                CASE WHEN COALESCE(c.cnt, 0) > 0 THEN 1 ELSE 0 END AS is_local_indexed,
+                n.is_placeholder AS is_placeholder,
+                CASE WHEN COALESCE(c.cnt, 0) = 0 THEN 1 ELSE 0 END AS is_external,
+                CASE WHEN COALESCE(c.cnt, 0) = 0 THEN 1 ELSE 0 END AS is_bridge_only
+            FROM nodes n
+            LEFT JOIN (
+                SELECT paper_id, COUNT(*) AS cnt 
+                FROM chunks 
+                GROUP BY paper_id
+            ) c ON n.id = c.paper_id
+            WHERE n.label IN ('Paper', 'UserNote');
+            """)
+            
+            conn.execute("""
+            CREATE VIEW IF NOT EXISTS local_paper_projection AS
+            SELECT * 
+            FROM paper_usability_metadata
+            WHERE chunks_count > 0;
+            """)
+            
+            conn.execute("""
+            CREATE VIEW IF NOT EXISTS bridge_only_paper_projection AS
+            SELECT * 
+            FROM paper_usability_metadata
+            WHERE chunks_count = 0;
+            """)
+            
+            conn.execute("""
+            CREATE VIEW IF NOT EXISTS chunk_availability_mapping AS
+            SELECT 
+                paper_id AS canonical_paper_id,
+                id AS chunk_id,
+                NULL AS section,
+                NULL AS table_name,
+                NULL AS figure,
+                NULL AS caption,
+                NULL AS equation
+            FROM chunks;
+            """)
+            
+            conn.execute("""
+            CREATE VIEW IF NOT EXISTS derived_local_to_local_bridge_edges AS
+            SELECT 
+                e.source_id AS source_local_paper_id,
+                e.target_id AS target_local_paper_id,
+                NULL AS bridge_node_id,
+                'DIRECT_LOCAL_CITATION' AS bridge_relation_type,
+                e.type AS source_relation_type,
+                NULL AS target_relation_type
+            FROM edges e
+            JOIN local_paper_projection l1 ON e.source_id = l1.canonical_paper_id
+            JOIN local_paper_projection l2 ON e.target_id = l2.canonical_paper_id
+            WHERE e.type IN ('CITES', 'CITED_BY')
+            
+            UNION ALL
+            
+            SELECT 
+                e1.source_id AS source_local_paper_id,
+                e2.source_id AS target_local_paper_id,
+                e1.target_id AS bridge_node_id,
+                'SHARED_REFERENCE' AS bridge_relation_type,
+                e1.type AS source_relation_type,
+                e2.type AS target_relation_type
+            FROM edges e1
+            JOIN edges e2 ON e1.target_id = e2.target_id
+            JOIN local_paper_projection l1 ON e1.source_id = l1.canonical_paper_id
+            JOIN local_paper_projection l2 ON e2.source_id = l2.canonical_paper_id
+            JOIN bridge_only_paper_projection b ON e1.target_id = b.canonical_paper_id
+            WHERE e1.type IN ('CITES', 'CITES_IN_CONTEXT') 
+              AND e2.type IN ('CITES', 'CITES_IN_CONTEXT')
+              AND e1.source_id != e2.source_id
+              
+            UNION ALL
+            
+            SELECT 
+                e1.source_id AS source_local_paper_id,
+                e2.source_id AS target_local_paper_id,
+                e1.target_id AS bridge_node_id,
+                'SHARED_CITATION_BRIDGE' AS bridge_relation_type,
+                e1.type AS source_relation_type,
+                e2.type AS target_relation_type
+            FROM edges e1
+            JOIN edges e2 ON e1.target_id = e2.target_id
+            JOIN local_paper_projection l1 ON e1.source_id = l1.canonical_paper_id
+            JOIN local_paper_projection l2 ON e2.source_id = l2.canonical_paper_id
+            JOIN bridge_only_paper_projection b ON e1.target_id = b.canonical_paper_id
+            WHERE e1.type IN ('CITES', 'CITED_BY', 'CITES_IN_CONTEXT') 
+              AND e2.type IN ('CITES', 'CITED_BY', 'CITES_IN_CONTEXT')
+              AND e1.source_id != e2.source_id
+              
+            UNION ALL
+            
+            SELECT 
+                e1.source_id AS source_local_paper_id,
+                e2.source_id AS target_local_paper_id,
+                e1.target_id AS bridge_node_id,
+                'SHARED_CONCEPT' AS bridge_relation_type,
+                e1.type AS source_relation_type,
+                e2.type AS target_relation_type
+            FROM edges e1
+            JOIN edges e2 ON e1.target_id = e2.target_id
+            JOIN local_paper_projection l1 ON e1.source_id = l1.canonical_paper_id
+            JOIN local_paper_projection l2 ON e2.source_id = l2.canonical_paper_id
+            JOIN nodes n ON e1.target_id = n.id
+            WHERE e1.type = 'MENTIONS_CONCEPT' 
+              AND e2.type = 'MENTIONS_CONCEPT'
+              AND n.label = 'Concept'
+              AND e1.source_id != e2.source_id
+              
+            UNION ALL
+            SELECT NULL AS source_local_paper_id, NULL AS target_local_paper_id, NULL AS bridge_node_id, 'INTRA_PAPER_CHUNK_ADJACENCY' AS bridge_relation_type, NULL AS source_relation_type, NULL AS target_relation_type WHERE 1=0
+            UNION ALL
+            SELECT NULL, NULL, NULL, 'INTRA_PAPER_SECTION', NULL, NULL WHERE 1=0
+            UNION ALL
+            SELECT NULL, NULL, NULL, 'INTRA_PAPER_TABLE', NULL, NULL WHERE 1=0
+            UNION ALL
+            SELECT NULL, NULL, NULL, 'INTRA_PAPER_FIGURE', NULL, NULL WHERE 1=0
+            UNION ALL
+            SELECT NULL, NULL, NULL, 'INTRA_PAPER_CAPTION', NULL, NULL WHERE 1=0
+            UNION ALL
+            SELECT NULL, NULL, NULL, 'INTRA_PAPER_EQUATION', NULL, NULL WHERE 1=0;
+            """)
+            
             conn.commit()
 
     def save_paper(self, paper: Paper) -> None:
@@ -1192,6 +1322,46 @@ class SQLiteGraphRepository(GraphRepository):
                 source_relation_type=source_relation_type
             ))
         return resolved
+
+    def chunks_count(self, paper_id: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM chunks WHERE paper_id = ?", (paper_id,)).fetchone()
+            return row[0] if row else 0
+
+    def has_chunks(self, paper_id: str) -> bool:
+        return self.chunks_count(paper_id) > 0
+
+    def is_local_indexed_paper(self, paper_id: str) -> bool:
+        return self.has_chunks(paper_id)
+
+    def is_bridge_only_paper(self, paper_id: str) -> bool:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT label FROM nodes WHERE id = ?", (paper_id,)).fetchone()
+            if not row or row[0] not in ("Paper", "UserNote"):
+                return False
+        return self.chunks_count(paper_id) == 0
+
+    def is_retrieval_candidate_paper(self, paper_id: str) -> bool:
+        return self.is_local_indexed_paper(paper_id)
+
+    def get_derived_bridge_edges(self, seed_paper_ids: List[str]) -> List[Dict[str, Any]]:
+        if not seed_paper_ids:
+            return []
+        placeholders = ",".join("?" for _ in seed_paper_ids)
+        query = f"""
+            SELECT 
+                source_local_paper_id,
+                target_local_paper_id,
+                bridge_node_id,
+                bridge_relation_type,
+                source_relation_type,
+                target_relation_type
+            FROM derived_local_to_local_bridge_edges
+            WHERE source_local_paper_id IN ({placeholders})
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(query, seed_paper_ids).fetchall()
+            return [dict(r) for r in rows]
 
     def get_chunks_count_by_paper_ids(self, paper_ids: List[str]) -> Dict[str, int]:
         if not paper_ids:

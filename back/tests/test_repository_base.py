@@ -67,8 +67,15 @@ class DummyGraphRepository(GraphRepository):
     def get_non_placeholder_papers(self): return []
     def find_paper_by_arxiv(self, arxiv_id): pass
     def find_paper_by_url(self, url): pass
+    def chunks_count(self, paper_id: str) -> int: return 0
+    def has_chunks(self, paper_id: str) -> bool: return False
+    def is_local_indexed_paper(self, paper_id: str) -> bool: return False
+    def is_bridge_only_paper(self, paper_id: str) -> bool: return False
+    def is_retrieval_candidate_paper(self, paper_id: str) -> bool: return False
+    def get_derived_bridge_edges(self) -> list: return []
     def remap_external_work_to_local_paper(self, external_work_id, local_paper_id): pass
     def get_neighbor_papers(self, seed_paper_ids, order=2): return []
+
     def add_edge(self, source_id, target_id, edge_type, properties=None):
         self.added_edges.append((source_id, target_id, edge_type, properties))
 

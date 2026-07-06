@@ -71,6 +71,36 @@ class GraphRepository(ABC):
         pass
 
     @abstractmethod
+    def chunks_count(self, paper_id: str) -> int:
+        """Retrieves count of chunks for a paper."""
+        pass
+
+    @abstractmethod
+    def has_chunks(self, paper_id: str) -> bool:
+        """Checks if a paper has chunks."""
+        pass
+
+    @abstractmethod
+    def is_local_indexed_paper(self, paper_id: str) -> bool:
+        """Checks if a paper is locally indexed."""
+        pass
+
+    @abstractmethod
+    def is_bridge_only_paper(self, paper_id: str) -> bool:
+        """Checks if a paper is bridge-only."""
+        pass
+
+    @abstractmethod
+    def is_retrieval_candidate_paper(self, paper_id: str) -> bool:
+        """Checks if a paper is a retrieval candidate."""
+        pass
+
+    @abstractmethod
+    def get_derived_bridge_edges(self, seed_paper_ids: List[str]) -> List[Dict[str, Any]]:
+        """Retrieves derived bridge edges from the database view."""
+        pass
+
+    @abstractmethod
     def get_concept_idf(self, concept_ids: List[str]) -> Dict[str, float]:
         """Retrieves mapping of concept_id -> IDF score."""
         pass

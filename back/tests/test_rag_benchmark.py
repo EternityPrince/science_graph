@@ -393,7 +393,7 @@ class TestRagBenchmark(unittest.TestCase):
             self.assertEqual(len(reader_det), 3) # Header + Q01_B0 + Q01_B1
             expected_header = [
             "query_id", "category", "baseline", "status", "latency_sec",
-            "is_answerable",
+            "is_answerable", "predicted_abstained", "answerability_outcome",
             "retrieval_recall", "context_precision", "faithfulness",
             "answer_relevance", "citation_fidelity", "semantic_accuracy",
             "ar_sa_f1",
@@ -405,16 +405,16 @@ class TestRagBenchmark(unittest.TestCase):
             "answer_token_count",
             ]
 
-            self.assertEqual(reader_det[0][:25], expected_header)
+            self.assertEqual(reader_det[0][:27], expected_header)
 
-            self.assertEqual(reader_det[1][:25], [
-                "Q01", "general", "B0", "success", "5.432", "True",
+            self.assertEqual(reader_det[1][:27], [
+                "Q01", "general", "B0", "success", "5.432", "True", "False", "TP",
                 "", "", "", "0.8", "", "0.75", "0.7742",
                 "", "", "", "", "", "", "", "", "", "", "", "",
             ])
             
-            self.assertEqual(reader_det[2][:25], [
-                "Q01", "general", "B1", "success", "12.345", "True",
+            self.assertEqual(reader_det[2][:27], [
+                "Q01", "general", "B1", "success", "12.345", "True", "False", "TP",
                 "0.9", "0.85", "0.95", "0.9", "1.0", "0.88", "0.8899",
                 "", "", "", "", "", "", "", "", "", "", "", "",
             ])
