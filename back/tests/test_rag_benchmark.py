@@ -11,19 +11,19 @@ from src.services.rag_service import RAGService
 class TestRagBenchmark(unittest.TestCase):
     def test_get_baseline_config_validation(self):
         """Verifies that RAG component toggles are correct for all baselines."""
-        # B0: Zero-shot (No RAG components should be True)
+        # B0: Zero-shot (No RAG components should be True, except shannon_estimator_enabled)
         b0_cfg = get_baseline_config("B0")
-        self.assertFalse(any(b0_cfg.values()))
+        self.assertFalse(any(v for k, v in b0_cfg.items() if k != "shannon_estimator_enabled"))
         
         # B1: Pure Lexical (Only lexical_search should be True)
         b1_cfg = get_baseline_config("B1")
         self.assertTrue(b1_cfg["lexical_search"])
-        self.assertFalse(any(v for k, v in b1_cfg.items() if k != "lexical_search"))
+        self.assertFalse(any(v for k, v in b1_cfg.items() if k not in ("lexical_search", "shannon_estimator_enabled")))
         
         # B2: Pure Dense (Only dense_search should be True)
         b2_cfg = get_baseline_config("B2")
         self.assertTrue(b2_cfg["dense_search"])
-        self.assertFalse(any(v for k, v in b2_cfg.items() if k != "dense_search"))
+        self.assertFalse(any(v for k, v in b2_cfg.items() if k not in ("dense_search", "shannon_estimator_enabled")))
         
         # B3: Dense + HyDE
         b3_cfg = get_baseline_config("B3")
@@ -77,7 +77,7 @@ class TestRagBenchmark(unittest.TestCase):
         """Ensures run_query_on_baseline backs up and restores RAG config correctly."""
         # Set up a mock RAG service and engines
         mock_llm = MagicMock()
-        mock_llm.generate_response.return_value = "Mocked Zero-Shot Answer"
+        mock_llm.generate_response.side_effect = ["Mocked Zero-Shot Answer", "Mocked RAG Answer"]
         mock_llm.count_tokens.return_value = 10
         mock_ask.return_value = "Mocked RAG Answer"
         mock_retrieve.return_value = []
