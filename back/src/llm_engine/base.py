@@ -8,7 +8,7 @@ import functools
 import inspect
 import asyncio
 import threading
-from typing import Optional, Type, Any
+from typing import Optional, Type, Any, Tuple, List, Dict
 
 # Global lock to serialize all local LLM requests to prevent GPU memory/KV cache contention
 _local_request_lock = threading.Lock()
@@ -323,8 +323,19 @@ class BaseLLMEngine:
     def generate_response(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
         raise NotImplementedError
 
+    def generate_response_with_logits(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temp: Optional[float] = None,
+        task: Optional[str] = None,
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        text = self.generate_response(prompt, max_tokens=max_tokens, temp=temp, task=task)
+        return text, []
+
     @clean_llm_output
     async def generate_response_async(self, prompt: str, max_tokens: int = None, temp: float = None, task: str = None, model: Optional[str] = None) -> str:
+
         return await asyncio.to_thread(self.generate_response, prompt, max_tokens, temp, task, model=model)
 
     @clean_llm_output

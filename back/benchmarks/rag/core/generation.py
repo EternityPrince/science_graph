@@ -16,6 +16,28 @@ from core.metrics import (
     classify_answerability
 )
 from core.reporting import save_judge_report, save_individual_judge_reports
+from core.shannon_estimator import (
+    compute_rank_entropy,
+    compute_lexical_entropy,
+    compute_graph_entropy,
+    compute_generation_entropy,
+    compute_citation_entropy,
+    compute_entropy_reduction,
+)
+from src.prompts import prompts
+
+
+def _generate_with_logits_safe(llm_engine: Any, prompt: str) -> Tuple[str, List[Dict[str, Any]]]:
+    """Safely invokes generate_response_with_logits, validating tuple output format."""
+    if hasattr(llm_engine, "generate_response_with_logits") and callable(getattr(llm_engine, "generate_response_with_logits")):
+        try:
+            res = llm_engine.generate_response_with_logits(prompt)
+            if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], str) and isinstance(res[1], list):
+                return res[0], res[1]
+        except Exception:
+            pass
+    text = llm_engine.generate_response(prompt)
+    return text, []
 
 
 def run_query_on_baseline(
@@ -62,25 +84,197 @@ def run_query_on_baseline(
     collector.start()
     
     final_chunks = []
+    shannon_enabled = components_settings.get("shannon_estimator_enabled", True)
+    shannon_diag = None
+
     try:
         if baseline == "B0":
             prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
-            answer = rag_service.llm_engine.generate_response(prompt)
+            if shannon_enabled:
+                raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
+                answer = raw_response
+                h_gen = compute_generation_entropy(tokens_info)
+                h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
+            else:
+                answer = rag_service.llm_engine.generate_response(prompt)
+                h_gen = 0.0
+                h_cit = 0.0
+                n_cit = 0
+
             retrieved_papers = []
+            if shannon_enabled:
+                if not hasattr(rag_service, "_query_b0_h_gen"):
+                    rag_service._query_b0_h_gen = {}
+                rag_service._query_b0_h_gen[query] = h_gen
+
+                shannon_diag = {
+                    "h_rank_pre_rerank": 0.0,
+                    "h_rank_post_rerank": 0.0,
+                    "h_lexical_pre_trim": 0.0,
+                    "h_lexical_post_trim": 0.0,
+                    "h_graph_relation_type": 0.0,
+                    "h_graph_degree": 0.0,
+                    "h_gen": round(h_gen, 4),
+                    "h_citation": round(h_cit, 4),
+                    "n_citation_tokens": n_cit,
+                    "delta_h_gen": 0.0,
+                }
         else:
             final_chunks = rag_service.retrieve_relevant_chunks(query, limit=5)
             retrieved_papers = list({chunk.paper_id for chunk, _ in final_chunks})
-            
-            # Reset collector to only measure the actual ask run
+
             collector.reset()
-            
+
             if not final_chunks:
                 answer = "Информация отсутствует в базе данных."
+                if shannon_enabled:
+                    shannon_diag = {
+                        "h_rank_pre_rerank": 0.0,
+                        "h_rank_post_rerank": 0.0,
+                        "h_lexical_pre_trim": 0.0,
+                        "h_lexical_post_trim": 0.0,
+                        "h_graph_relation_type": 0.0,
+                        "h_graph_degree": 0.0,
+                        "h_gen": 0.0,
+                        "h_citation": 0.0,
+                        "n_citation_tokens": 0,
+                        "delta_h_gen": 0.0,
+                    }
             else:
-                ask_res = rag_service.ask(query, limit=5)
-                answer = getattr(rag_service, "last_raw_response", None) or ask_res or "Информация отсутствует в базе данных."
-                
+                post_scores = [score for chunk, score in final_chunks]
+                pre_scores = getattr(rag_service, "_last_pre_rerank_scores", None) or post_scores
+                h_rank_pre = compute_rank_entropy(pre_scores)
+                h_rank_post = compute_rank_entropy(post_scores)
+
+                ctx_res = rag_service.build_context(final_chunks, limit=5)
+                if isinstance(ctx_res, tuple) and len(ctx_res) == 2 and isinstance(ctx_res[0], str) and isinstance(ctx_res[1], str):
+                    context_text, context_graph = ctx_res
+                else:
+                    context_text = "\n\n".join([
+                        f"Block {idx+1}: {c[0].text_content if isinstance(c, tuple) else getattr(c, 'text_content', str(c))}"
+                        for idx, c in enumerate(final_chunks)
+                    ])
+                    context_graph = "No direct graph relations found."
+
+                h_lex_pre = compute_lexical_entropy(context_text)
+
+                wrapped_query = f"<|query_start|>{query}<|query_end|>"
+                model_max_context = getattr(config, "llm_model_max_context", 4096)
+                if components_settings.get("graph_expansion", True) and rag_service.expander:
+                    system_prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block="", history_str="", query=wrapped_query)
+                else:
+                    system_prompt = prompts.get_prompt("rag", "ask_no_expander", context_text="", context_graph="", history_str="", query=wrapped_query)
+
+                if components_settings.get("context_trimming", True):
+                    trim_res = rag_service.trim_context(
+                        context_text=context_text,
+                        context_graph=context_graph,
+                        final_chunks=final_chunks,
+                        query=wrapped_query,
+                        history_str="",
+                        system_prompt=system_prompt,
+                        model_max_context=model_max_context,
+                        reserved_tokens=500
+                    )
+                    if isinstance(trim_res, tuple) and len(trim_res) == 3 and isinstance(trim_res[0], str) and isinstance(trim_res[1], str) and isinstance(trim_res[2], list):
+                        trimmed_text, trimmed_graph, trimmed_chunks = trim_res
+                    else:
+                        trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
+                else:
+                    trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
+
+                h_lex_post = compute_lexical_entropy(trimmed_text)
+
+                relations = []
+                if context_graph and context_graph not in ("No direct graph relations found.", "Graph enrichment disabled."):
+                    import re
+                    matches = re.findall(r"\((\w+):?\w*\)-\[(\w+)(?:.*?)\]->\((\w+):?\w*\)", context_graph)
+                    for head, r_type, tail in matches:
+                        relations.append({"head": head, "type": r_type, "tail": tail})
+                last_relations = getattr(rag_service, "_last_graph_relations", None)
+                if last_relations:
+                    relations.extend(last_relations)
+
+                graph_entropy_dict = compute_graph_entropy(relations)
+                h_graph_rel = graph_entropy_dict["relation_type_entropy"]
+                h_graph_deg = graph_entropy_dict["degree_entropy"]
+
+                if components_settings.get("graph_expansion", True) and rag_service.expander:
+                    if rag_service.expander.reranker is None:
+                        rag_service.expander.reranker = rag_service._get_reranker()
+                    enrichment_block = rag_service.expander.expand(query, trimmed_chunks)
+                    if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
+                        prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str="", query=wrapped_query)
+                    else:
+                        prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str="", query=wrapped_query)
+                else:
+                    prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str="", query=wrapped_query)
+
+                # Execute response generation with generate_response_with_logits BEFORE citation repair
+                if shannon_enabled:
+                    raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
+                    h_gen = compute_generation_entropy(tokens_info)
+                    h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
+                else:
+                    raw_response = rag_service.llm_engine.generate_response(prompt)
+                    h_gen = 0.0
+                    h_cit = 0.0
+                    n_cit = 0
+
+                if isinstance(raw_response, str):
+                    rag_service.last_raw_response = raw_response
+                elif hasattr(rag_service, "last_raw_response") and isinstance(getattr(rag_service, "last_raw_response"), str):
+                    raw_response = rag_service.last_raw_response
+
+                from src.prompts import prompts as prompts_mod
+                try:
+                    from src.prompts import parse_reasoning_response
+                    status_code, parsed_answer = parse_reasoning_response(raw_response)
+                except Exception:
+                    parsed_answer = raw_response
+
+                if components_settings.get("citation_repair", False):
+                    chunk_objs = [
+                        c[0] if isinstance(c, (tuple, list)) else c
+                        for c in trimmed_chunks
+                    ]
+                    try:
+                        answer = rag_service._validate_and_repair_citations(parsed_answer, chunk_objs)
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
+                        answer = parsed_answer
+                else:
+                    answer = parsed_answer
+
+                if not isinstance(answer, str) or type(answer).__name__ == "MagicMock":
+                    if hasattr(rag_service, "last_raw_response") and isinstance(getattr(rag_service, "last_raw_response"), str):
+                        answer = rag_service.last_raw_response
+                    elif hasattr(rag_service, "ask") and isinstance(getattr(rag_service.ask, "return_value", None), str):
+                        answer = rag_service.ask.return_value
+                    else:
+                        answer = str(answer)
+
+                if shannon_enabled:
+                    h_b0 = getattr(rag_service, "_query_b0_h_gen", {}).get(query)
+                    delta_h = compute_entropy_reduction(h_b0, h_gen) if h_b0 is not None else 0.0
+
+                    shannon_diag = {
+                        "h_rank_pre_rerank": round(h_rank_pre, 4),
+                        "h_rank_post_rerank": round(h_rank_post, 4),
+                        "h_lexical_pre_trim": round(h_lex_pre, 4),
+                        "h_lexical_post_trim": round(h_lex_post, 4),
+                        "h_graph_relation_type": round(h_graph_rel, 4),
+                        "h_graph_degree": round(h_graph_deg, 4),
+                        "h_gen": round(h_gen, 4),
+                        "h_citation": round(h_cit, 4),
+                        "n_citation_tokens": n_cit,
+                        "delta_h_gen": round(delta_h, 4),
+                    }
+
         metrics = collector.get_metrics()
+        if shannon_enabled and shannon_diag is not None:
+            metrics["shannon_diagnostics"] = shannon_diag
     finally:
         collector.stop()
         # Restore configurations

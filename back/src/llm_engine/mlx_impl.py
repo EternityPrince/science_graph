@@ -4,7 +4,7 @@ MLX LLM Engine implementation for Apple Silicon devices.
 
 import os
 from pathlib import Path
-from typing import Optional, Type, List, Any
+from typing import Optional, Type, List, Dict, Any, Tuple
 
 from pydantic import BaseModel
 try:
@@ -290,6 +290,90 @@ class MlxLLMEngine(BaseLLMEngine):
                 verbose=False,
             )
         return strip_thinking_tokens(response)
+
+    def generate_response_with_logits(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temp: Optional[float] = None,
+        task: Optional[str] = None
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        self._ensure_model_loaded()
+        resolved_max_tokens = max_tokens
+        if resolved_max_tokens is None:
+            if task == "extraction":
+                resolved_max_tokens = config.llm_extraction_output_limit
+            elif task == "clustering":
+                resolved_max_tokens = config.llm_clustering_output_limit
+            elif task == "synthesis":
+                resolved_max_tokens = config.llm_synthesis_output_limit
+            
+        if resolved_max_tokens is None:
+            resolved_max_tokens = config.llm_max_tokens
+
+        temp = temp if temp is not None else config.llm_temp
+
+        formatted_prompt = prompt
+        is_formatted = any(
+            tag in prompt
+            for tag in [
+                "<|im_start|>",
+                "<|start_header_id|>",
+                "[INST]",
+                "<start_of_turn>",
+                "<|im_end|>"
+            ]
+        )
+
+        if not is_formatted and hasattr(self.tokenizer, "apply_chat_template"):
+            try:
+                messages = [{"role": "user", "content": prompt}]
+                formatted_prompt = self.tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+            except Exception:
+                pass
+
+        from mlx_lm import stream_generate
+        from mlx_lm.sample_utils import make_sampler
+        sampler = make_sampler(temp=temp)
+
+        tokens_info: List[Dict[str, Any]] = []
+        full_text = ""
+
+        with _local_request_lock:
+            for response in stream_generate(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                prompt=formatted_prompt,
+                max_tokens=resolved_max_tokens,
+                sampler=sampler,
+            ):
+                token_id = getattr(response, "token", None)
+                token_text = getattr(response, "text", "")
+                logprobs = getattr(response, "logprobs", None)
+
+                entropy_val = 0.0
+                if logprobs is not None and mx is not None:
+                    try:
+                        p = mx.softmax(logprobs)
+                        entropy_val = -float(mx.sum(p * mx.log2(p + 1e-12)))
+                    except Exception:
+                        entropy_val = 0.0
+
+                char_start = len(full_text)
+                full_text += token_text
+                char_end = len(full_text)
+
+                tokens_info.append({
+                    "token_id": token_id,
+                    "token_text": token_text,
+                    "char_start": char_start,
+                    "char_end": char_end,
+                    "entropy": max(0.0, float(entropy_val)),
+                })
+
+        return strip_thinking_tokens(full_text), tokens_info
 
     def generate_json(
         self,

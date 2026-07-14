@@ -100,6 +100,7 @@ DEFAULT_CONFIG = {
         "graph_bridge_retrieval": False,
         "graph_selected_sources_card": False,
         "graph_retrieval_trace": False,
+        "shannon_estimator_enabled": True,
     },
     "graph_retrieval": {
         "enabled": False,

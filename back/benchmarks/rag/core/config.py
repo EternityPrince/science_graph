@@ -64,6 +64,9 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         
     if baseline != "B6":
         components["graph_neighbors_in_rrf"] = False
+
+    if "shannon_estimator_enabled" in config_rag_components:
+        components["shannon_estimator_enabled"] = config_rag_components["shannon_estimator_enabled"]
     return components
 
 
