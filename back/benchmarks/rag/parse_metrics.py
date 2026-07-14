@@ -699,6 +699,8 @@ def main():
                         except (ValueError, TypeError):
                             ar_f1 = 0.0
 
+                shannon_diag = b_data.get("shannon_diagnostics") or (b_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(b_data.get("metrics"), dict) else {}) or {}
+
                 metrics_rows.append({
                     "query_id": q_id,
                     "category": category,
@@ -716,7 +718,17 @@ def main():
                     "is_answerable": is_ans,
                     "token_output": eval_metrics.get("token_output"),
                     "token_answer": eval_metrics.get("token_answer"),
-                    "token_reasoning": eval_metrics.get("token_reasoning")
+                    "token_reasoning": eval_metrics.get("token_reasoning"),
+                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre"),
+                    "rank_entropy_post": shannon_diag.get("rank_entropy_post"),
+                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre"),
+                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post"),
+                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy"),
+                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy"),
+                    "generation_entropy": shannon_diag.get("generation_entropy"),
+                    "citation_entropy": shannon_diag.get("citation_entropy"),
+                    "citation_token_count": shannon_diag.get("citation_token_count"),
+                    "entropy_reduction": shannon_diag.get("entropy_reduction")
                 })
     # Otherwise (e.g. traces-only mode), fall back to loading from the existing CSV details
     elif csv_details_path.exists():
@@ -761,6 +773,8 @@ def main():
                 else:
                     is_ans = str(is_ans).lower() == "true"
 
+                shannon_diag = b_data.get("shannon_diagnostics") or (b_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(b_data.get("metrics"), dict) else {}) or {}
+
                 metrics_rows.append({
                     "query_id": q_id,
                     "category": category,
@@ -779,7 +793,17 @@ def main():
                     "context_fillness": eval_metrics.get("context_fillness"),
                     "token_output": eval_metrics.get("token_output"),
                     "token_answer": eval_metrics.get("token_answer"),
-                    "token_reasoning": eval_metrics.get("token_reasoning")
+                    "token_reasoning": eval_metrics.get("token_reasoning"),
+                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre"),
+                    "rank_entropy_post": shannon_diag.get("rank_entropy_post"),
+                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre"),
+                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post"),
+                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy"),
+                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy"),
+                    "generation_entropy": shannon_diag.get("generation_entropy"),
+                    "citation_entropy": shannon_diag.get("citation_entropy"),
+                    "citation_token_count": shannon_diag.get("citation_token_count"),
+                    "entropy_reduction": shannon_diag.get("entropy_reduction")
                 })
 
     # Write metrics_details.parsed.csv
