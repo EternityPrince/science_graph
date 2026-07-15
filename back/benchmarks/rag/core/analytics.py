@@ -334,6 +334,21 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
         }
         for b in baselines
     }
+    shannon_raw = {
+        b: {
+            "h_rank_pre_rerank": [],
+            "h_rank_post_rerank": [],
+            "h_lexical_pre_trim": [],
+            "h_lexical_post_trim": [],
+            "h_graph_relation_type": [],
+            "h_graph_degree": [],
+            "h_gen": [],
+            "h_citation": [],
+            "n_citation_tokens": [],
+            "delta_h_gen": []
+        }
+        for b in baselines
+    }
     category_graph_raw = {}
     
     for r in results:
@@ -407,6 +422,46 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                         raw_values_ans[b][m].append(val)
                     else:
                         raw_values_unans[b][m].append(val)
+
+            # Shannon diagnostics collection & offline backfill
+            shannon_diag = b_data.get("shannon_diagnostics") or (b_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(b_data.get("metrics"), dict) else {}) or {}
+            if not shannon_diag:
+                retrieved_chunks = b_data.get("retrieved_chunks", [])
+                if retrieved_chunks:
+                    from core.shannon_estimator import compute_rank_entropy, compute_lexical_entropy
+                    scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in retrieved_chunks]
+                    h_rank_post = compute_rank_entropy(scores)
+                    texts = "\n".join([c.get("text_content", "") if isinstance(c, dict) else getattr(c, "text_content", "") for c in retrieved_chunks])
+                    h_lex_post = compute_lexical_entropy(texts)
+                    shannon_diag = {
+                        "h_rank_pre_rerank": h_rank_post,
+                        "h_rank_post_rerank": h_rank_post,
+                        "h_lexical_pre_trim": h_lex_post,
+                        "h_lexical_post_trim": h_lex_post,
+                        "h_graph_relation_type": 0.0,
+                        "h_graph_degree": 0.0,
+                        "h_gen": 0.0,
+                        "h_citation": 0.0,
+                        "n_citation_tokens": 0,
+                        "delta_h_gen": 0.0
+                    }
+                    b_data["shannon_diagnostics"] = shannon_diag
+
+            s_map = {
+                "h_rank_pre_rerank": shannon_diag.get("rank_entropy_pre") if shannon_diag.get("rank_entropy_pre") is not None else shannon_diag.get("h_rank_pre_rerank"),
+                "h_rank_post_rerank": shannon_diag.get("rank_entropy_post") if shannon_diag.get("rank_entropy_post") is not None else shannon_diag.get("h_rank_post_rerank"),
+                "h_lexical_pre_trim": shannon_diag.get("lexical_entropy_pre") if shannon_diag.get("lexical_entropy_pre") is not None else shannon_diag.get("h_lexical_pre_trim"),
+                "h_lexical_post_trim": shannon_diag.get("lexical_entropy_post") if shannon_diag.get("lexical_entropy_post") is not None else shannon_diag.get("h_lexical_post_trim"),
+                "h_graph_relation_type": shannon_diag.get("graph_relation_entropy") if shannon_diag.get("graph_relation_entropy") is not None else shannon_diag.get("h_graph_relation_type"),
+                "h_graph_degree": shannon_diag.get("graph_degree_entropy") if shannon_diag.get("graph_degree_entropy") is not None else shannon_diag.get("h_graph_degree"),
+                "h_gen": shannon_diag.get("generation_entropy") if shannon_diag.get("generation_entropy") is not None else shannon_diag.get("h_gen"),
+                "h_citation": shannon_diag.get("citation_entropy") if shannon_diag.get("citation_entropy") is not None else shannon_diag.get("h_citation"),
+                "n_citation_tokens": shannon_diag.get("citation_token_count") if shannon_diag.get("citation_token_count") is not None else shannon_diag.get("n_citation_tokens"),
+                "delta_h_gen": shannon_diag.get("entropy_reduction") if shannon_diag.get("entropy_reduction") is not None else shannon_diag.get("delta_h_gen")
+            }
+            for skey, sval in s_map.items():
+                if sval is not None:
+                    shannon_raw[b][skey].append(float(sval))
 
             # Collect graph retrieval diagnostics
             enabled = b_data.get("graph_retrieval_enabled", False)
@@ -492,6 +547,12 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                     "stdev": statistics.stdev(vals) if len(vals) > 1 else 0.0,
                     "count": len(vals)
                 }
+
+        # Shannon diagnostics summary calculation
+        s_stats = {}
+        for skey, svals in shannon_raw[b].items():
+            s_stats[skey] = round(statistics.mean(svals), 4) if svals else 0.0
+        summary_stats[b]["shannon_summary"] = s_stats
 
         # Answerable-only metrics
         summary_stats[b]["answerable_only"] = {}
@@ -807,6 +868,10 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
 
     total_ans = sum(1 for r in results if get_is_answerable(r))
     total_unans = len(results) - total_ans
+    has_shannon = any(
+        any(v > 0 for v in summary_stats[b].get("shannon_summary", {}).values())
+        for b in baselines
+    )
 
     return {
         "baselines": baselines,
@@ -820,6 +885,7 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
         "total_answerable": total_ans,
         "total_unanswerable": total_unans,
         "has_graph_trace": has_graph_trace,
+        "has_shannon": has_shannon,
         "category_graph_stats": category_graph_stats,
         "top_failures": top_failures
     }

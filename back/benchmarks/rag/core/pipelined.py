@@ -238,9 +238,28 @@ def generate_baseline_case(
                 else:
                     prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str="", query=query)
                 
+                shannon_enabled = baseline_config.get("shannon_estimator_enabled", True)
                 t_gen_start = time.perf_counter()
-                raw_response = rag_service.llm_engine.generate_response(prompt)
-                answer = raw_response
+                if shannon_enabled:
+                    from core.generation import _generate_with_logits_safe
+                    from core.shannon_estimator import (
+                        compute_rank_entropy,
+                        compute_lexical_entropy,
+                        compute_generation_entropy,
+                        compute_citation_entropy,
+                        compute_entropy_reduction,
+                    )
+                    raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
+                    answer = raw_response
+                    h_gen = compute_generation_entropy(tokens_info)
+                    h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
+                else:
+                    raw_response = rag_service.llm_engine.generate_response(prompt)
+                    answer = raw_response
+                    h_gen = 0.0
+                    h_cit = 0.0
+                    n_cit = 0
+
                 gen_latency = time.perf_counter() - t_gen_start
                 
                 try:
@@ -286,6 +305,43 @@ def generate_baseline_case(
 
                 metrics["total_io_calls"] = metrics.get("total_io_calls", 0) + 1
                 metrics["prompt_tokens"] = prompt_tokens
+
+                if shannon_enabled:
+                    if baseline == "B0":
+                        if not hasattr(rag_service, "_query_b0_h_gen"):
+                            rag_service._query_b0_h_gen = {}
+                        rag_service._query_b0_h_gen[query] = h_gen
+                        shannon_diag = {
+                            "h_rank_pre_rerank": 0.0,
+                            "h_rank_post_rerank": 0.0,
+                            "h_lexical_pre_trim": 0.0,
+                            "h_lexical_post_trim": 0.0,
+                            "h_graph_relation_type": 0.0,
+                            "h_graph_degree": 0.0,
+                            "h_gen": round(h_gen, 4),
+                            "h_citation": round(h_cit, 4),
+                            "n_citation_tokens": n_cit,
+                            "delta_h_gen": 0.0,
+                        }
+                    else:
+                        post_scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in chunks]
+                        h_rank_post = compute_rank_entropy(post_scores) if post_scores else 0.0
+                        h_lex_post = compute_lexical_entropy(trimmed_text) if trimmed_text else 0.0
+                        h_b0 = getattr(rag_service, "_query_b0_h_gen", {}).get(query)
+                        delta_h = compute_entropy_reduction(h_b0, h_gen) if h_b0 is not None else 0.0
+                        shannon_diag = {
+                            "h_rank_pre_rerank": round(h_rank_post, 4),
+                            "h_rank_post_rerank": round(h_rank_post, 4),
+                            "h_lexical_pre_trim": round(h_lex_post, 4),
+                            "h_lexical_post_trim": round(h_lex_post, 4),
+                            "h_graph_relation_type": 0.0,
+                            "h_graph_degree": 0.0,
+                            "h_gen": round(h_gen, 4),
+                            "h_citation": round(h_cit, 4),
+                            "n_citation_tokens": n_cit,
+                            "delta_h_gen": round(delta_h, 4),
+                        }
+                    metrics["shannon_diagnostics"] = shannon_diag
 
                 if trace:
                     tokens = rag_service.llm_engine.count_tokens(answer)

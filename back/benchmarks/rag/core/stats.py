@@ -110,6 +110,8 @@ class BenchmarkStatsCollector:
         # 7. LLM generation
         if hasattr(self.rag_service, "llm_engine") and self.rag_service.llm_engine is not None:
             self.wrap_method(self.rag_service.llm_engine, "generate_response", "llm_generation")
+            if hasattr(self.rag_service.llm_engine, "generate_response_with_logits"):
+                self.wrap_method(self.rag_service.llm_engine, "generate_response_with_logits", "llm_generation")
         
         # 8. Citation repair
         self.wrap_method(self.rag_service, "_validate_and_repair_citations", "citation_repair")

@@ -292,6 +292,44 @@ def print_rich_tables(stats: dict) -> None:
         console.print(table_graph)
         console.print()
 
+    # 1.6. Shannon Estimator Diagnostics Table
+    if stats.get("has_shannon") or any(stats["summary"][b].get("shannon_summary") for b in stats["baselines"]):
+        table_shannon = Table(title="[bold]Оценка энтропии Shannon (Shannon Estimator Diagnostics - bits)[/bold]", box=ROUNDED, header_style="bold blue")
+        table_shannon.add_column("Baseline", style="cyan", no_wrap=True)
+        table_shannon.add_column("H_rank (pre/post)", justify="right")
+        table_shannon.add_column("H_lexical (pre/post)", justify="right")
+        table_shannon.add_column("H_graph (rel/deg)", justify="right")
+        table_shannon.add_column("H_gen", justify="right")
+        table_shannon.add_column("H_citation", justify="right")
+        table_shannon.add_column("Cit Tokens", justify="right")
+        table_shannon.add_column("ΔH_gen", justify="right")
+
+        for b in stats["baselines"]:
+            ss = stats["summary"][b].get("shannon_summary", {})
+            h_r_pre = ss.get("h_rank_pre_rerank", 0.0)
+            h_r_post = ss.get("h_rank_post_rerank", 0.0)
+            h_l_pre = ss.get("h_lexical_pre_trim", 0.0)
+            h_l_post = ss.get("h_lexical_post_trim", 0.0)
+            h_g_rel = ss.get("h_graph_relation_type", 0.0)
+            h_g_deg = ss.get("h_graph_degree", 0.0)
+            h_gen = ss.get("h_gen", 0.0)
+            h_cit = ss.get("h_citation", 0.0)
+            n_cit = ss.get("n_citation_tokens", 0)
+            d_h = ss.get("delta_h_gen", 0.0)
+
+            table_shannon.add_row(
+                b,
+                f"{h_r_pre:.2f} -> {h_r_post:.2f}",
+                f"{h_l_pre:.2f} -> {h_l_post:.2f}",
+                f"{h_g_rel:.2f} / {h_g_deg:.2f}",
+                f"{h_gen:.4f}",
+                f"{h_cit:.4f}",
+                f"{n_cit:.1f}",
+                f"{d_h:+.4f}"
+            )
+        console.print(table_shannon)
+        console.print()
+
     # 2. Detailed statistics per baseline with Min/Max/Stdev
     for b in stats["baselines"]:
         desc = BASELINES_INFO.get(b, "")
@@ -920,6 +958,38 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
         lines.append("Graph retrieval trace was not found for this run.")
         lines.append("")
     
+    # Shannon Estimator Diagnostics Section
+    if stats.get("has_shannon") or any(stats["summary"][b].get("shannon_summary") for b in stats["baselines"]):
+        lines.append("## ⚛️ Shannon Estimator Diagnostics (Entropy in Bits)")
+        lines.append("Оценка энтропии на отдельных этапах обработки (ранжирование, лексический контекст, граф, генерация и цитирование):")
+        lines.append("")
+        lines.append("| Baseline | H_rank (pre -> post) | H_lexical (pre -> post) | H_graph (rel / deg) | H_gen | H_citation | Citation Tokens | ΔH_gen |")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        for b in stats["baselines"]:
+            ss = stats["summary"][b].get("shannon_summary", {})
+            h_r_pre = ss.get("h_rank_pre_rerank", 0.0)
+            h_r_post = ss.get("h_rank_post_rerank", 0.0)
+            h_l_pre = ss.get("h_lexical_pre_trim", 0.0)
+            h_l_post = ss.get("h_lexical_post_trim", 0.0)
+            h_g_rel = ss.get("h_graph_relation_type", 0.0)
+            h_g_deg = ss.get("h_graph_degree", 0.0)
+            h_gen = ss.get("h_gen", 0.0)
+            h_cit = ss.get("h_citation", 0.0)
+            n_cit = ss.get("n_citation_tokens", 0)
+            d_h = ss.get("delta_h_gen", 0.0)
+            row = [
+                f"**{b}**",
+                f"{h_r_pre:.2f} -> {h_r_post:.2f}",
+                f"{h_l_pre:.2f} -> {h_l_post:.2f}",
+                f"{h_g_rel:.2f} / {h_g_deg:.2f}",
+                f"{h_gen:.4f}",
+                f"{h_cit:.4f}",
+                f"{n_cit:.1f}",
+                f"{d_h:+.4f}"
+            ]
+            lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
+
     lines.append("## 🏆 Главные выводы (Research Summary)")
     lines.append("")
     

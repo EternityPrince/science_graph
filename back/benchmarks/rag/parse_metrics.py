@@ -701,6 +701,27 @@ def main():
 
                 shannon_diag = b_data.get("shannon_diagnostics") or (b_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(b_data.get("metrics"), dict) else {}) or {}
 
+                if not shannon_diag:
+                    retrieved_chunks = b_data.get("retrieved_chunks", [])
+                    if retrieved_chunks:
+                        from core.shannon_estimator import compute_rank_entropy, compute_lexical_entropy
+                        scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in retrieved_chunks]
+                        h_rank_post = compute_rank_entropy(scores)
+                        texts = "\n".join([c.get("text_content", "") if isinstance(c, dict) else getattr(c, "text_content", "") for c in retrieved_chunks])
+                        h_lex_post = compute_lexical_entropy(texts)
+                        shannon_diag = {
+                            "h_rank_pre_rerank": h_rank_post,
+                            "h_rank_post_rerank": h_rank_post,
+                            "h_lexical_pre_trim": h_lex_post,
+                            "h_lexical_post_trim": h_lex_post,
+                            "h_graph_relation_type": 0.0,
+                            "h_graph_degree": 0.0,
+                            "h_gen": 0.0,
+                            "h_citation": 0.0,
+                            "n_citation_tokens": 0,
+                            "delta_h_gen": 0.0
+                        }
+
                 metrics_rows.append({
                     "query_id": q_id,
                     "category": category,
@@ -719,16 +740,16 @@ def main():
                     "token_output": eval_metrics.get("token_output"),
                     "token_answer": eval_metrics.get("token_answer"),
                     "token_reasoning": eval_metrics.get("token_reasoning"),
-                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre"),
-                    "rank_entropy_post": shannon_diag.get("rank_entropy_post"),
-                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre"),
-                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post"),
-                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy"),
-                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy"),
-                    "generation_entropy": shannon_diag.get("generation_entropy"),
-                    "citation_entropy": shannon_diag.get("citation_entropy"),
-                    "citation_token_count": shannon_diag.get("citation_token_count"),
-                    "entropy_reduction": shannon_diag.get("entropy_reduction")
+                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre") if shannon_diag.get("rank_entropy_pre") is not None else shannon_diag.get("h_rank_pre_rerank"),
+                    "rank_entropy_post": shannon_diag.get("rank_entropy_post") if shannon_diag.get("rank_entropy_post") is not None else shannon_diag.get("h_rank_post_rerank"),
+                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre") if shannon_diag.get("lexical_entropy_pre") is not None else shannon_diag.get("h_lexical_pre_trim"),
+                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post") if shannon_diag.get("lexical_entropy_post") is not None else shannon_diag.get("h_lexical_post_trim"),
+                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy") if shannon_diag.get("graph_relation_entropy") is not None else shannon_diag.get("h_graph_relation_type"),
+                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy") if shannon_diag.get("graph_degree_entropy") is not None else shannon_diag.get("h_graph_degree"),
+                    "generation_entropy": shannon_diag.get("generation_entropy") if shannon_diag.get("generation_entropy") is not None else shannon_diag.get("h_gen"),
+                    "citation_entropy": shannon_diag.get("citation_entropy") if shannon_diag.get("citation_entropy") is not None else shannon_diag.get("h_citation"),
+                    "citation_token_count": shannon_diag.get("citation_token_count") if shannon_diag.get("citation_token_count") is not None else shannon_diag.get("n_citation_tokens"),
+                    "entropy_reduction": shannon_diag.get("entropy_reduction") if shannon_diag.get("entropy_reduction") is not None else shannon_diag.get("delta_h_gen")
                 })
     # Otherwise (e.g. traces-only mode), fall back to loading from the existing CSV details
     elif csv_details_path.exists():
@@ -775,6 +796,27 @@ def main():
 
                 shannon_diag = b_data.get("shannon_diagnostics") or (b_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(b_data.get("metrics"), dict) else {}) or {}
 
+                if not shannon_diag:
+                    retrieved_chunks = b_data.get("retrieved_chunks", [])
+                    if retrieved_chunks:
+                        from core.shannon_estimator import compute_rank_entropy, compute_lexical_entropy
+                        scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in retrieved_chunks]
+                        h_rank_post = compute_rank_entropy(scores)
+                        texts = "\n".join([c.get("text_content", "") if isinstance(c, dict) else getattr(c, "text_content", "") for c in retrieved_chunks])
+                        h_lex_post = compute_lexical_entropy(texts)
+                        shannon_diag = {
+                            "h_rank_pre_rerank": h_rank_post,
+                            "h_rank_post_rerank": h_rank_post,
+                            "h_lexical_pre_trim": h_lex_post,
+                            "h_lexical_post_trim": h_lex_post,
+                            "h_graph_relation_type": 0.0,
+                            "h_graph_degree": 0.0,
+                            "h_gen": 0.0,
+                            "h_citation": 0.0,
+                            "n_citation_tokens": 0,
+                            "delta_h_gen": 0.0
+                        }
+
                 metrics_rows.append({
                     "query_id": q_id,
                     "category": category,
@@ -794,16 +836,16 @@ def main():
                     "token_output": eval_metrics.get("token_output"),
                     "token_answer": eval_metrics.get("token_answer"),
                     "token_reasoning": eval_metrics.get("token_reasoning"),
-                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre"),
-                    "rank_entropy_post": shannon_diag.get("rank_entropy_post"),
-                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre"),
-                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post"),
-                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy"),
-                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy"),
-                    "generation_entropy": shannon_diag.get("generation_entropy"),
-                    "citation_entropy": shannon_diag.get("citation_entropy"),
-                    "citation_token_count": shannon_diag.get("citation_token_count"),
-                    "entropy_reduction": shannon_diag.get("entropy_reduction")
+                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre") if shannon_diag.get("rank_entropy_pre") is not None else shannon_diag.get("h_rank_pre_rerank"),
+                    "rank_entropy_post": shannon_diag.get("rank_entropy_post") if shannon_diag.get("rank_entropy_post") is not None else shannon_diag.get("h_rank_post_rerank"),
+                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre") if shannon_diag.get("lexical_entropy_pre") is not None else shannon_diag.get("h_lexical_pre_trim"),
+                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post") if shannon_diag.get("lexical_entropy_post") is not None else shannon_diag.get("h_lexical_post_trim"),
+                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy") if shannon_diag.get("graph_relation_entropy") is not None else shannon_diag.get("h_graph_relation_type"),
+                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy") if shannon_diag.get("graph_degree_entropy") is not None else shannon_diag.get("h_graph_degree"),
+                    "generation_entropy": shannon_diag.get("generation_entropy") if shannon_diag.get("generation_entropy") is not None else shannon_diag.get("h_gen"),
+                    "citation_entropy": shannon_diag.get("citation_entropy") if shannon_diag.get("citation_entropy") is not None else shannon_diag.get("h_citation"),
+                    "citation_token_count": shannon_diag.get("citation_token_count") if shannon_diag.get("citation_token_count") is not None else shannon_diag.get("n_citation_tokens"),
+                    "entropy_reduction": shannon_diag.get("entropy_reduction") if shannon_diag.get("entropy_reduction") is not None else shannon_diag.get("delta_h_gen")
                 })
 
     # Write metrics_details.parsed.csv
@@ -863,7 +905,17 @@ def main():
             "latency_sec": r.get("latency_sec"),
             "token_output": r.get("token_output"),
             "token_answer": r.get("token_answer"),
-            "token_reasoning": r.get("token_reasoning")
+            "token_reasoning": r.get("token_reasoning"),
+            "rank_entropy_pre": r.get("rank_entropy_pre"),
+            "rank_entropy_post": r.get("rank_entropy_post"),
+            "lexical_entropy_pre": r.get("lexical_entropy_pre"),
+            "lexical_entropy_post": r.get("lexical_entropy_post"),
+            "graph_relation_entropy": r.get("graph_relation_entropy"),
+            "graph_degree_entropy": r.get("graph_degree_entropy"),
+            "generation_entropy": r.get("generation_entropy"),
+            "citation_entropy": r.get("citation_entropy"),
+            "citation_token_count": r.get("citation_token_count"),
+            "entropy_reduction": r.get("entropy_reduction")
         }
 
     # Merge graph trace rows
@@ -914,6 +966,9 @@ def main():
         "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
         "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "latency_sec",
         "token_output", "token_answer", "token_reasoning",
+        "rank_entropy_pre", "rank_entropy_post", "lexical_entropy_pre", "lexical_entropy_post",
+        "graph_relation_entropy", "graph_degree_entropy", "generation_entropy", "citation_entropy",
+        "citation_token_count", "entropy_reduction",
         "graph_retrieval_enabled", "graph_retrieval_skip_reason",
         "base_candidates_count", "graph_neighbor_paper_ids_count",
         "graph_chunk_candidates_count", "merged_candidates_count_before_reranker",
