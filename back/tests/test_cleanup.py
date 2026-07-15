@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 from src.models import Concept, Paper
 from src.repository.sqlite_impl import SQLiteGraphRepository
 from src.cli import app
+from tests.output_utils import plain_output
 
 runner = CliRunner()
 
@@ -64,7 +65,7 @@ class TestCleanup(unittest.TestCase):
         # 2. Run CLI command
         result = runner.invoke(app, ["cleanup"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("Successfully cleaned up 1 orphaned concept nodes.", result.stdout)
+        self.assertIn("Successfully cleaned up 1 orphaned concept nodes.", plain_output(result.stdout))
 
         # 3. Double check DB
         with self.graph_repo._get_connection() as conn:

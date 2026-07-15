@@ -417,21 +417,64 @@ def rank_biserial_effect_size(differences: np.ndarray) -> float | None:
     return float((w_plus - w_minus) / denom)
 
 
+def _as_float64_array(values: np.ndarray) -> np.ndarray:
+    """Coerce inputs to contiguous float64 arrays for scipy compatibility."""
+    clean = [float(v) for v in np.asarray(values).ravel().tolist()]
+    return np.ascontiguousarray(np.array(clean, dtype=np.float64))
+
+
+def _wilcoxon_signed_rank_manual(vec_a: np.ndarray, vec_b: np.ndarray) -> tuple[float, float]:
+    """
+    Wilcoxon signed-rank test via normal approximation.
+
+    Fallback when scipy.stats.wilcoxon fails on certain numpy/scipy builds.
+    """
+    diffs = vec_a - vec_b
+    nonzero = diffs[diffs != 0]
+    n = len(nonzero)
+    if n == 0:
+        return 0.0, 1.0
+
+    abs_ranks = scipy_stats.rankdata(np.abs(nonzero), method="average")
+    w_plus = float(abs_ranks[nonzero > 0].sum())
+    mu = n * (n + 1) / 4.0
+    sigma = math.sqrt(n * (n + 1) * (2 * n + 1) / 24.0)
+    if sigma == 0:
+        return w_plus, 1.0
+    z = (w_plus - mu) / sigma
+    p_value = float(2 * scipy_stats.norm.cdf(-abs(z)))
+    return w_plus, p_value
+
+
 def wilcoxon_signed_rank_test(vec_a: np.ndarray, vec_b: np.ndarray) -> dict[str, Any]:
+    vec_a = _as_float64_array(vec_a)
+    vec_b = _as_float64_array(vec_b)
     if len(vec_a) < 2 or len(vec_b) < 2 or len(vec_a) != len(vec_b):
         return {"statistic": None, "p_value": None, "effect_size": None, "n": len(vec_a)}
 
     diffs = vec_a - vec_b
-    non_zero = diffs[diffs != 0]
-    if len(non_zero) == 0:
+    if np.allclose(diffs, 0.0):
         return {"statistic": 0.0, "p_value": 1.0, "effect_size": 0.0, "n": len(diffs)}
 
-    try:
-        res = scipy_stats.wilcoxon(vec_a, vec_b, alternative="two-sided", zero_method="wilcox")
-        p_value = float(res.pvalue)
-        statistic = float(res.statistic)
-    except ValueError:
-        return {"statistic": None, "p_value": None, "effect_size": None, "n": len(diffs)}
+    statistic: float | None = None
+    p_value: float | None = None
+    for kwargs in (
+        {"alternative": "two-sided", "method": "approx"},
+        {"alternative": "two-sided"},
+    ):
+        try:
+            res = scipy_stats.wilcoxon(vec_a, vec_b, **kwargs)
+            p_value = float(res.pvalue)
+            statistic = float(res.statistic)
+            break
+        except (ValueError, TypeError, AttributeError):
+            continue
+
+    if p_value is None:
+        try:
+            statistic, p_value = _wilcoxon_signed_rank_manual(vec_a, vec_b)
+        except (ValueError, TypeError):
+            return {"statistic": None, "p_value": None, "effect_size": None, "n": len(diffs)}
 
     return {
         "statistic": statistic,
@@ -464,16 +507,17 @@ def mcnemar_answerability_test(records: list[dict[str, Any]], baseline_a: str, b
     if b_count + c_count == 0:
         return {"p_value": 1.0, "b": b_count, "c": c_count, "n": len(shared)}
 
-    table = [[0, b_count], [c_count, 0]]
+    n_discordant = b_count + c_count
+    k = min(b_count, c_count)
+    p_value = float(2 * scipy_stats.binom.cdf(k, n_discordant, 0.5))
+    p_value = min(p_value, 1.0)
+
     if sm_mcnemar is not None:
-        result = sm_mcnemar(table, exact=True)
-        p_value = float(result.pvalue)
-    else:  # pragma: no cover
-        # Exact binomial fallback
-        k = min(b_count, c_count)
-        n_discordant = b_count + c_count
-        p_value = float(2 * scipy_stats.binom.cdf(k, n_discordant, 0.5))
-        p_value = min(p_value, 1.0)
+        try:
+            result = sm_mcnemar([[0, b_count], [c_count, 0]], exact=True)
+            p_value = float(result.pvalue)
+        except (ValueError, TypeError):
+            pass
 
     return {"p_value": p_value, "b": b_count, "c": c_count, "n": len(shared)}
 
@@ -505,13 +549,13 @@ def friedman_omnibus_test(
         return {"statistic": None, "p_value": None, "n": len(shared_ids)}
 
     arrays = [
-        np.array([by_baseline[b][q] for q in shared_ids], dtype=float)
+        _as_float64_array([by_baseline[b][q] for q in shared_ids])
         for b in baselines
     ]
     try:
         stat, p_value = scipy_stats.friedmanchisquare(*arrays)
         return {"statistic": float(stat), "p_value": float(p_value), "n": len(shared_ids)}
-    except ValueError:
+    except (ValueError, TypeError):
         return {"statistic": None, "p_value": None, "n": len(shared_ids)}
 
 

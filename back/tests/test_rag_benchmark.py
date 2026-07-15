@@ -87,6 +87,8 @@ class TestRagBenchmark(unittest.TestCase):
         mock_rag.ask = mock_ask
         mock_rag.retrieve_relevant_chunks = mock_retrieve
         mock_rag.expander = None
+        # Pre-cache B0 entropy so non-B0 baselines do not consume an extra LLM call.
+        mock_rag._query_b0_h_gen = {"Test Question B1": 0.5}
         
         # Capture original config values
         original_components = config.rag_components.copy()

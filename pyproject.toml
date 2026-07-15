@@ -18,7 +18,7 @@ override-dependencies = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["back/tests"]
+testpaths = ["back/tests", "back/benchmarks/rag/tests"]
 pythonpath = ["back"]
 asyncio_mode = "strict"
 filterwarnings = [

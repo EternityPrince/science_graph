@@ -682,23 +682,31 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                             prompt_tokens = len(prompt) // 4
 
                         t_repair_start = time.perf_counter()
-                        if baseline_config.get("citation_repair", True) and baseline != "B0":
-                            from src.models import Chunk
-                            chunk_objs = [
-                                Chunk(
-                                    id=ch["id"],
-                                    paper_id=ch["paper_id"],
-                                    text_content=ch["text_content"],
-                                    page_number=ch["page_number"]
-                                )
-                                        for ch in chunks
-                            ]
+                        citation_repair_enabled = bool(baseline_config.get("citation_repair", True))
+                        if citation_repair_enabled and baseline != "B0":
+                            chunk_objs = []
+                            for ch in chunks:
+                                if isinstance(ch, dict):
+                                    try:
+                                        from src.models import Chunk
+                                        chunk_objs.append(
+                                            Chunk(
+                                                id=ch["id"],
+                                                paper_id=ch["paper_id"],
+                                                text_content=ch["text_content"],
+                                                page_number=ch["page_number"],
+                                            )
+                                        )
+                                    except Exception:
+                                        chunk_objs.append(ch)
+                                else:
+                                    chunk_objs.append(ch)
                             try:
                                 answer = rag_service._validate_and_repair_citations(answer, chunk_objs)
                             except Exception as e:
                                 import logging
                                 logging.getLogger(__name__).warning(f"Citation repair failed: {e}")
-                        repair_latency = time.perf_counter() - t_repair_start if baseline_config.get("citation_repair", True) and baseline != "B0" else 0.0
+                        repair_latency = time.perf_counter() - t_repair_start if citation_repair_enabled and baseline != "B0" else 0.0
 
                         if shannon_enabled:
                             if n_cit == 0 and answer != raw_response:

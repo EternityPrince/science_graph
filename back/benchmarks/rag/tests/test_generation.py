@@ -117,7 +117,7 @@ def test_run_benchmarking_consume_contexts(tmp_path):
     ]
     with open(dataset_path, "w") as f:
         yaml.safe_dump(dataset_data, f)
-        
+
     pre_contexts_path = tmp_path / "contexts.yaml"
     pre_contexts_data = [
         {
@@ -173,7 +173,8 @@ def test_run_benchmarking_consume_contexts(tmp_path):
         },
         "rag_components": {
             "reranker": False,
-            "citation_repair": True
+            "citation_repair": True,
+            "shannon_estimator_enabled": False,
         }
     }
     config.rag_components = config.data["rag_components"]

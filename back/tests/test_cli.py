@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
 from src.cli import app
+from tests.output_utils import plain_output
 
 runner = CliRunner()
 
@@ -117,7 +118,7 @@ class TestCLI(unittest.TestCase):
 
         result = runner.invoke(app, ["storage"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("Row 12 selected", result.stdout)
+        self.assertIn("Row 12 selected", plain_output(result.stdout))
 
     @patch("typer.confirm")
     @patch("src.cli.config")
@@ -925,15 +926,16 @@ class TestCLI(unittest.TestCase):
         
         result = runner.invoke(app, ["doctor", "--fix"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("paper1", result.stdout)
-        self.assertIn("Title: \"old\" -> \"new\"", result.stdout)
-        self.assertIn("Abstract updated", result.stdout)
-        self.assertIn("Authors: old_aut -> new_aut", result.stdout)
-        self.assertIn("Abstract: generated", result.stdout)
-        self.assertIn("Summary: missing", result.stdout)
-        self.assertIn("author1", result.stdout)
-        self.assertIn("Action: merge", result.stdout)
-        self.assertIn("Found 1 chunk text content anomalies", result.stdout)
+        stdout = plain_output(result.stdout)
+        self.assertIn("paper1", stdout)
+        self.assertIn("Title: \"old\" -> \"new\"", stdout)
+        self.assertIn("Abstract updated", stdout)
+        self.assertIn("Authors: old_aut -> new_aut", stdout)
+        self.assertIn("Abstract: generated", stdout)
+        self.assertIn("Summary: missing", stdout)
+        self.assertIn("author1", stdout)
+        self.assertIn("Action: merge", stdout)
+        self.assertIn("Found 1 chunk text content anomalies", stdout)
 
     @patch("src.cli.config")
     @patch("src.cli.con.error")

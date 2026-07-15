@@ -56,7 +56,8 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         # Custom has everything enabled except hyde by default (respecting user overrides)
         components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
         components["hyde"] = False
-        
+        components["citation_repair"] = bool(config_rag_components.get("citation_repair", True))
+
     if baseline not in ["B6", "CUSTOM"]:
         components["intent_classifier"] = False
     else:
@@ -66,7 +67,7 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         components["graph_neighbors_in_rrf"] = False
 
     if "shannon_estimator_enabled" in config_rag_components:
-        components["shannon_estimator_enabled"] = config_rag_components["shannon_estimator_enabled"]
+        components["shannon_estimator_enabled"] = bool(config_rag_components["shannon_estimator_enabled"])
     return components
 
 

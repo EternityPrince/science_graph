@@ -8,6 +8,7 @@ from src.models import Concept, Paper, Author, Chunk
 from src.repository.sqlite_impl import SQLiteGraphRepository, SQLiteVectorRepository
 from src.services.doctor_service import DoctorService, clean_text
 from src.cli import app
+from tests.output_utils import plain_output
 
 runner = CliRunner()
 
@@ -276,13 +277,14 @@ class TestDoctor(unittest.TestCase):
         # CLI run: check mode
         result = runner.invoke(app, ["doctor"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("Starting Science Graph Database Doctor", result.stdout)
-        self.assertIn("Found 1 anomalies.", result.stdout)
+        stdout = plain_output(result.stdout)
+        self.assertIn("Starting Science Graph Database Doctor", stdout)
+        self.assertIn("Found 1 anomalies.", stdout)
 
         # CLI run: fix mode
         result_fix = runner.invoke(app, ["doctor", "--fix"])
         self.assertEqual(result_fix.exit_code, 0)
-        self.assertIn("Successfully corrected 1 anomalies across all", result_fix.stdout)
+        self.assertIn("Successfully corrected 1 anomalies across all", plain_output(result_fix.stdout))
 
     def test_doctor_concept_lemmatization_embedding_regeneration(self):
         # Create a concept

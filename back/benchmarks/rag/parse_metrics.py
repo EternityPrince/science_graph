@@ -570,10 +570,21 @@ class MetricsParser:
             with open(self.parsed_dir / "metrics_summary.parsed.json", "w", encoding="utf-8") as f:
                 json.dump(self.stats, f, ensure_ascii=False, indent=2)
 
-        graph_rows, _ = parse_graph_retrieval_trace(self.traces_dir, self.parsed_dir)
-        eval_rows, _ = parse_eval_trace(self.traces_dir, self.parsed_dir)
+        graph_rows = None
+        eval_rows = None
+        has_traces = (
+            self.traces_dir.exists()
+            or (self.run_dir / "graph_retrieval_trace.jsonl").exists()
+            or (self.run_dir / "eval_trace.jsonl").exists()
+        )
+        if has_traces:
+            graph_rows, _ = parse_graph_retrieval_trace(self.traces_dir, self.parsed_dir)
+            eval_rows, _ = parse_eval_trace(self.traces_dir, self.parsed_dir)
 
-        joined_data = self._build_joined_data(graph_rows, eval_rows)
+        metrics_rows = self._collect_metrics_rows()
+        self._write_metrics_details_parsed(metrics_rows)
+
+        joined_data = self._build_joined_data(metrics_rows, graph_rows, eval_rows)
         run_summary = self._build_run_summary(joined_data)
         self._write_joined_csv(joined_data)
         self._write_run_summary(run_summary)
@@ -627,9 +638,9 @@ class MetricsParser:
                 return candidate
         return self.run_dir / "result_metrics.yaml"
 
-    def _build_joined_data(self, graph_rows, eval_rows) -> dict:
-        """Build per-query joined data from YAML and trace sources."""
-        metrics_rows = []
+    def _collect_metrics_rows(self) -> list[dict]:
+        """Collect per-query metrics rows from YAML results or metrics_details.csv."""
+        metrics_rows: list[dict] = []
         if self.data and "results" in self.data:
             baselines = self.stats["baselines"] if self.stats else list(self.data["results"][0].get("baselines", {}).keys())
             for r in self.data["results"]:
@@ -649,6 +660,7 @@ class MetricsParser:
                         "query_id": q_id,
                         "category": category,
                         "baseline": b,
+                        "status": b_data.get("status", "success"),
                         "is_answerable": is_ans,
                         "predicted_abstained": eval_metrics.get("predicted_abstained", False),
                         "answerability_outcome": eval_metrics.get("answerability_outcome", "TP"),
@@ -663,9 +675,24 @@ class MetricsParser:
                         "latency_sec": b_data.get("latency_sec"),
                     })
         elif self.csv_details_path.exists():
-            with open(self.csv_details_path, "r", encoding="utf-8") as f:
-                metrics_rows = list(csv.DictReader(f))
+            try:
+                with open(self.csv_details_path, "r", encoding="utf-8") as f:
+                    metrics_rows = list(csv.DictReader(f))
+            except Exception as e:
+                print(f"Warning: Could not read metrics_details.csv: {e}")
+        return metrics_rows
 
+    def _write_metrics_details_parsed(self, metrics_rows: list[dict]) -> None:
+        if not metrics_rows:
+            return
+        with open(self.parsed_dir / "metrics_details.parsed.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys())
+            writer.writeheader()
+            for r in metrics_rows:
+                writer.writerow(r)
+
+    def _build_joined_data(self, metrics_rows, graph_rows, eval_rows) -> dict:
+        """Build per-query joined data from YAML and trace sources."""
         joined_data = {}
         for r in metrics_rows:
             q_id = str(r.get("query_id") or "")
@@ -700,10 +727,23 @@ class MetricsParser:
                 key = (str(r.get("query_id") or ""), str(r.get("baseline") or ""))
                 if not key[0] or not key[1]:
                     continue
-                joined_data.setdefault(key, {"query_id": key[0], "baseline": key[1]})
+                if key not in joined_data:
+                    joined_data[key] = {
+                        "query_id": key[0],
+                        "baseline": key[1],
+                        "category": r.get("category", "general"),
+                    }
                 joined_data[key].update({
                     "graph_retrieval_enabled": r.get("graph_retrieval_enabled"),
+                    "graph_retrieval_skip_reason": r.get("graph_retrieval_skip_reason"),
+                    "base_candidates_count": r.get("base_candidates_count"),
+                    "graph_neighbor_paper_ids_count": r.get("graph_neighbor_paper_ids_count"),
+                    "graph_chunk_candidates_count": r.get("graph_chunk_candidates_count"),
+                    "merged_candidates_count_before_reranker": r.get("merged_candidates_count_before_reranker"),
+                    "graph_chunks_survived_final_context_count": r.get("graph_chunks_survived_final_context_count"),
+                    "graph_chunks_survived_final_context": r.get("graph_chunks_survived_final_context"),
                     "graph_survival_rate": r.get("graph_survival_rate"),
+                    "distinct_papers_in_final_context": r.get("distinct_papers_in_final_context"),
                 })
 
         if eval_rows:
@@ -711,22 +751,42 @@ class MetricsParser:
                 key = (str(r.get("query_id") or ""), str(r.get("baseline") or ""))
                 if not key[0] or not key[1]:
                     continue
-                joined_data.setdefault(key, {"query_id": key[0], "baseline": key[1]})
-                for m in ["retrieval_recall", "faithfulness", "semantic_accuracy", "answerability_outcome"]:
-                    if r.get(m) is not None:
+                if key not in joined_data:
+                    joined_data[key] = {
+                        "query_id": key[0],
+                        "baseline": key[1],
+                        "category": r.get("category", "general"),
+                    }
+                for m in [
+                    "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
+                    "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1",
+                    "is_answerable", "predicted_abstained", "answerability_outcome", "latency_sec",
+                ]:
+                    if r.get(m) is not None and (joined_data[key].get(m) is None or joined_data[key].get(m) == ""):
                         joined_data[key][m] = r[m]
 
         return joined_data
 
+    JOINED_HEADERS = [
+        "query_id", "baseline", "category", "is_answerable", "predicted_abstained", "answerability_outcome",
+        "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
+        "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "latency_sec",
+        "graph_retrieval_enabled", "graph_retrieval_skip_reason",
+        "base_candidates_count", "graph_neighbor_paper_ids_count",
+        "graph_chunk_candidates_count", "merged_candidates_count_before_reranker",
+        "graph_chunks_survived_final_context_count", "graph_chunks_survived_final_context",
+        "graph_survival_rate", "distinct_papers_in_final_context",
+    ]
+
     def _write_joined_csv(self, joined_data: dict) -> None:
         if not joined_data:
             return
-        headers = list(next(iter(joined_data.values())).keys())
         with open(self.parsed_dir / "per_query_joined.csv", "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=headers)
+            writer = csv.DictWriter(f, fieldnames=self.JOINED_HEADERS)
             writer.writeheader()
             for key in sorted(joined_data.keys()):
-                writer.writerow(joined_data[key])
+                row = joined_data[key]
+                writer.writerow({h: row.get(h, "") for h in self.JOINED_HEADERS})
 
     def _build_run_summary(self, joined_data: dict) -> dict:
         baselines = sorted({row["baseline"] for row in joined_data.values() if row.get("baseline")})
@@ -735,15 +795,25 @@ class MetricsParser:
             "baselines": baselines,
             "query_count": len({row["query_id"] for row in joined_data.values()}),
             "metrics": {},
+            "graph_retrieval": {},
+            "by_category": {},
         }
+
         for b in baselines:
             b_rows = [row for row in joined_data.values() if row["baseline"] == b]
             run_summary["metrics"][b] = {}
-            for m in ["semantic_accuracy", "faithfulness", "ar_sa_f1"]:
+            for m in [
+                "semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall",
+                "context_precision", "answer_relevance", "ar_sa_f1",
+            ]:
                 vals = []
                 for row in b_rows:
-                    outcome = row.get("answerability_outcome", "TP")
-                    if outcome not in ("TP", "FP"):
+                    is_ans = row.get("is_answerable")
+                    if is_ans is None:
+                        is_ans = True
+                    else:
+                        is_ans = str(is_ans).lower() == "true"
+                    if not is_ans:
                         continue
                     val = row.get(m)
                     if val is not None and val != "":
@@ -752,6 +822,101 @@ class MetricsParser:
                         except ValueError:
                             pass
                 run_summary["metrics"][b][f"{m}_mean"] = round(statistics.mean(vals), 4) if vals else 0.0
+
+            g_rows = [row for row in b_rows if row.get("graph_retrieval_enabled") is not None]
+            if g_rows:
+                queries_with_graph_neighbors = sum(
+                    1 for r in g_rows if float(r.get("graph_neighbor_paper_ids_count") or 0) > 0
+                )
+                queries_with_graph_chunks = sum(
+                    1 for r in g_rows if float(r.get("graph_chunk_candidates_count") or 0) > 0
+                )
+                queries_with_graph_survival = sum(
+                    1 for r in g_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0
+                )
+                surv_vals = []
+                for r in g_rows:
+                    s_rate = r.get("graph_survival_rate")
+                    if s_rate is not None and s_rate != "":
+                        try:
+                            surv_vals.append(float(s_rate))
+                        except ValueError:
+                            pass
+                run_summary["graph_retrieval"][b] = {
+                    "queries_with_graph_neighbors": queries_with_graph_neighbors,
+                    "queries_with_graph_chunks": queries_with_graph_chunks,
+                    "queries_with_graph_survival": queries_with_graph_survival,
+                    "avg_graph_survival_rate": round(statistics.mean(surv_vals), 4) if surv_vals else 0.0,
+                }
+
+        categories = {row.get("category", "general") for row in joined_data.values() if row.get("category")}
+        for cat in categories:
+            run_summary["by_category"][cat] = {}
+            cat_rows = [row for row in joined_data.values() if row.get("category") == cat]
+            for b in baselines:
+                b_cat_rows = [row for row in cat_rows if row["baseline"] == b]
+                if not b_cat_rows:
+                    continue
+                run_summary["by_category"][cat][b] = {}
+                sem_vals = []
+                for row in b_cat_rows:
+                    s_acc = row.get("semantic_accuracy")
+                    if s_acc is not None and s_acc != "":
+                        try:
+                            sem_vals.append(float(s_acc))
+                        except ValueError:
+                            pass
+                if sem_vals:
+                    run_summary["by_category"][cat][b]["semantic_accuracy_mean"] = round(statistics.mean(sem_vals), 4)
+                g_cat_rows = [row for row in b_cat_rows if row.get("graph_retrieval_enabled") is not None]
+                if g_cat_rows:
+                    run_summary["by_category"][cat][b]["queries_with_graph_survival"] = sum(
+                        1 for r in g_cat_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0
+                    )
+
+        def safe_float(v):
+            if v is None or v == "":
+                return None
+            try:
+                return float(v)
+            except ValueError:
+                return None
+
+        highlights = {"low_faithfulness": [], "high_latency": [], "graph_successes": []}
+        for row in joined_data.values():
+            faith = safe_float(row.get("faithfulness"))
+            if faith is not None and faith < 0.8:
+                highlights["low_faithfulness"].append({
+                    "query_id": row["query_id"],
+                    "baseline": row["baseline"],
+                    "faithfulness": faith,
+                    "category": row.get("category", "general"),
+                })
+            lat = safe_float(row.get("latency_sec"))
+            if lat is not None and lat > 4.0:
+                highlights["high_latency"].append({
+                    "query_id": row["query_id"],
+                    "baseline": row["baseline"],
+                    "latency_sec": lat,
+                    "category": row.get("category", "general"),
+                })
+            surv = safe_float(row.get("graph_survival_rate"))
+            if surv is not None and surv >= 0.5:
+                highlights["graph_successes"].append({
+                    "query_id": row["query_id"],
+                    "baseline": row["baseline"],
+                    "survival_rate": surv,
+                    "survived_count": int(safe_float(row.get("graph_chunks_survived_final_context_count")) or 0),
+                    "category": row.get("category", "general"),
+                })
+
+        highlights["low_faithfulness"].sort(key=lambda x: x["faithfulness"])
+        highlights["low_faithfulness"] = highlights["low_faithfulness"][:3]
+        highlights["high_latency"].sort(key=lambda x: x["latency_sec"], reverse=True)
+        highlights["high_latency"] = highlights["high_latency"][:3]
+        highlights["graph_successes"].sort(key=lambda x: (x["survival_rate"], x["survived_count"]), reverse=True)
+        highlights["graph_successes"] = highlights["graph_successes"][:3]
+        run_summary["highlights"] = highlights
         return run_summary
 
     def _write_run_summary(self, run_summary: dict) -> None:

@@ -265,31 +265,61 @@ def build_custom_config(args: Any, file_config: Dict[str, Any] = None) -> Tuple[
     return custom_comp, custom_hype
 
 
+_BASELINE_CONFIG_PATCH_STATE: Dict[str, Any] | None = None
+
+
+def restore_baseline_config_patch() -> None:
+    """Restores get_baseline_config after patch_config_for_custom."""
+    global _BASELINE_CONFIG_PATCH_STATE
+    if not _BASELINE_CONFIG_PATCH_STATE:
+        return
+
+    core.config.get_baseline_config = _BASELINE_CONFIG_PATCH_STATE["core.config"]
+
+    core_retrieval = _BASELINE_CONFIG_PATCH_STATE.get("core.retrieval")
+    if core_retrieval is not None:
+        import core.retrieval as core_retrieval_mod
+        core_retrieval_mod.get_baseline_config = core_retrieval
+
+    core_generation = _BASELINE_CONFIG_PATCH_STATE.get("core.generation")
+    if core_generation is not None:
+        import core.generation as core_generation_mod
+        core_generation_mod.get_baseline_config = core_generation
+
+    _BASELINE_CONFIG_PATCH_STATE = None
+
+
 def patch_config_for_custom(custom_comp: dict, custom_hype: dict):
     """Dynamically patches core config and retrieval functions to support CUSTOM baseline."""
+    restore_baseline_config_patch()
+
     orig_get_baseline_config = core.config.get_baseline_config
 
     def custom_get_baseline_config(baseline: str, config_rag_components: dict) -> dict:
         if baseline == "CUSTOM":
-            # Apply custom hyperparameters to the active config instance
             config.data["hyperparameters"] = copy.deepcopy(custom_hype)
-            return copy.deepcopy(custom_comp)
-        else:
-            # Restore default/original hyperparameters for other baselines
-            config.data["hyperparameters"] = copy.deepcopy(DEFAULT_HYPERPARAMS)
-            return orig_get_baseline_config(baseline, config_rag_components)
+            merged = orig_get_baseline_config("CUSTOM", config_rag_components)
+            merged.update(copy.deepcopy(custom_comp))
+            return merged
 
-    # Monkeypatch core.config and core.retrieval
+        config.data["hyperparameters"] = copy.deepcopy(DEFAULT_HYPERPARAMS)
+        return orig_get_baseline_config(baseline, config_rag_components)
+
+    global _BASELINE_CONFIG_PATCH_STATE
+    _BASELINE_CONFIG_PATCH_STATE = {"core.config": orig_get_baseline_config}
+
     core.config.get_baseline_config = custom_get_baseline_config
-    
+
     try:
         import core.retrieval as core_retrieval
+        _BASELINE_CONFIG_PATCH_STATE["core.retrieval"] = core_retrieval.get_baseline_config
         core_retrieval.get_baseline_config = custom_get_baseline_config
     except ImportError:
         pass
 
     try:
         import core.generation as core_generation
+        _BASELINE_CONFIG_PATCH_STATE["core.generation"] = core_generation.get_baseline_config
         core_generation.get_baseline_config = custom_get_baseline_config
     except ImportError:
         pass

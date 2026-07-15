@@ -21,6 +21,7 @@ from src.prompts import prompts
 from config_creator import (
     build_custom_config,
     patch_config_for_custom,
+    restore_baseline_config_patch,
     add_custom_config_arguments
 )
 
@@ -101,10 +102,11 @@ def main():
     # Build final custom configuration overrides
     custom_comp, custom_hype = build_custom_config(args, file_config)
 
-    # Apply dynamic patch
     patch_config_for_custom(custom_comp, custom_hype)
-
-    run_benchmarking(args, config, prompts, container, con)
+    try:
+        run_benchmarking(args, config, prompts, container, con)
+    finally:
+        restore_baseline_config_patch()
 
 
 if __name__ == "__main__":
