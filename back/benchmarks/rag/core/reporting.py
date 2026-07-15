@@ -598,7 +598,11 @@ def print_plain_tables(stats: dict) -> None:
         print()
 
 
-def generate_markdown_report(stats: dict, output_path: Path) -> None:
+def generate_markdown_report(
+    stats: dict,
+    output_path: Path,
+    stats_analysis: dict | None = None,
+) -> None:
     """Generates a beautiful self-contained Markdown report with highlights, tables, and emojis."""
     lines = []
     lines.append("# 📊 Отчет по качеству RAG-системы (RAG Benchmarking Report)")
@@ -989,6 +993,14 @@ def generate_markdown_report(stats: dict, output_path: Path) -> None:
             ]
             lines.append("| " + " | ".join(row) + " |")
         lines.append("")
+
+    if stats_analysis and stats_analysis.get("enabled"):
+        from metrics_stats_connector import build_statistical_markdown
+
+        stat_md = build_statistical_markdown(stats_analysis)
+        if stat_md:
+            lines.append(stat_md)
+            lines.append("")
 
     lines.append("## 🏆 Главные выводы (Research Summary)")
     lines.append("")

@@ -34,6 +34,8 @@ from core.reporting import (
     export_detailed_csv
 )
 from core.models import load_report_file
+from core.statistics import StatsConfig
+from metrics_stats_connector import export_stats_json, run_statistical_pipeline
 
 
 def load_graph_retrieval_trace(trace_path: Path) -> dict[tuple[str, str], dict]:
@@ -496,6 +498,277 @@ def print_confusion_matrix_and_metrics_tables(data):
     print(metrics_sep)
 
 
+class MetricsParser:
+    """Configurable parser for RAG benchmark metrics, traces, and statistical analysis."""
+
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        input_path: Path | None = None,
+        output_md_path: Path | None = None,
+        csv_summary_path: Path | None = None,
+        csv_details_path: Path | None = None,
+        traces_only: bool = False,
+        confusion: bool = False,
+        enable_stats: bool = True,
+        n_bootstraps: int = 10000,
+        alpha: float = 0.05,
+        ci_method: str = "percentile",
+        correction_method: str = "holm",
+        enable_plots: bool = False,
+        random_seed: int = 42,
+    ):
+        self.run_dir = Path(run_dir)
+        self.input_path = input_path
+        self.output_md_path = output_md_path or self.run_dir / "metrics_summary.md"
+        self.csv_summary_path = csv_summary_path or self.run_dir / "metrics_summary.csv"
+        self.csv_details_path = csv_details_path or self.run_dir / "metrics_details.csv"
+        self.traces_only = traces_only
+        self.confusion = confusion
+        self.stats_config = StatsConfig(
+            enable_stats=enable_stats,
+            n_bootstraps=n_bootstraps,
+            alpha=alpha,
+            ci_method=ci_method,
+            correction_method=correction_method,
+            enable_plots=enable_plots,
+            random_seed=random_seed,
+            plots_dir=str(self.run_dir / "parsed" / "stats_plots"),
+        )
+        self.parsed_dir = self.run_dir / "parsed"
+        self.traces_dir = self.run_dir / "traces"
+        self.data = None
+        self.stats = None
+        self.stats_analysis = None
+
+    def run(self) -> dict:
+        """Execute the full parse → aggregate → report → statistics pipeline."""
+        self.parsed_dir.mkdir(parents=True, exist_ok=True)
+
+        trace_path = self.run_dir / "graph_retrieval_trace.jsonl"
+        if not trace_path.exists():
+            trace_path = self.run_dir / "traces" / "graph_retrieval_trace.jsonl"
+        trace_map = load_graph_retrieval_trace(trace_path)
+
+        input_path = self._resolve_input_path()
+        if not self.traces_only and input_path.exists():
+            try:
+                report = load_report_file(input_path)
+                self.data = report.model_dump()
+                self.stats = analyze_metrics(self.data, trace_map)
+                print_rich_tables(self.stats)
+            except Exception as e:
+                raise RuntimeError(f"Error processing {input_path}: {e}") from e
+        elif not self.traces_only:
+            print(f"Warning: result_metrics.yaml not found at {input_path}")
+
+        if self.stats and self.data:
+            generate_markdown_report(self.stats, self.output_md_path)
+            export_wide_csv(self.stats, self.csv_summary_path)
+            export_detailed_csv(self.data, self.stats, self.csv_details_path)
+            with open(self.parsed_dir / "metrics_summary.parsed.json", "w", encoding="utf-8") as f:
+                json.dump(self.stats, f, ensure_ascii=False, indent=2)
+
+        graph_rows, _ = parse_graph_retrieval_trace(self.traces_dir, self.parsed_dir)
+        eval_rows, _ = parse_eval_trace(self.traces_dir, self.parsed_dir)
+
+        joined_data = self._build_joined_data(graph_rows, eval_rows)
+        run_summary = self._build_run_summary(joined_data)
+        self._write_joined_csv(joined_data)
+        self._write_run_summary(run_summary)
+        self._print_console_report(run_summary, joined_data)
+
+        if self.confusion and self.data:
+            print_confusion_matrix_and_metrics_tables(self.data)
+
+        if self.stats_config.enable_stats and self.data:
+            joined_rows = list(joined_data.values())
+            plots_dir = Path(self.stats_config.plots_dir) if self.stats_config.plots_dir else self.parsed_dir
+            self.stats_analysis = run_statistical_pipeline(
+                self.data,
+                config=self.stats_config,
+                joined_rows=joined_rows,
+                output_dir=plots_dir,
+            )
+            export_stats_json(self.stats_analysis, self.parsed_dir / "statistical_analysis.json")
+            if self.stats:
+                generate_markdown_report(
+                    self.stats,
+                    self.output_md_path,
+                    stats_analysis=self.stats_analysis,
+                )
+            if self.stats_analysis.get("markdown_sections"):
+                print("\n[+] Statistical analysis appended to markdown report.")
+
+        return {
+            "data": self.data,
+            "stats": self.stats,
+            "stats_analysis": self.stats_analysis,
+            "run_summary": run_summary,
+        }
+
+    def _resolve_input_path(self) -> Path:
+        if self.input_path:
+            return Path(self.input_path)
+        preferred = [
+            "result_metrics.yaml",
+            "result_metrics_judge.yaml",
+            "evaluation_results.yaml",
+            "evaluation_results_judge.yaml",
+        ]
+        for name in preferred:
+            candidate = self.run_dir / name
+            if candidate.exists():
+                if name == "evaluation_results.yaml":
+                    alt = self.run_dir / "result_metrics.yaml"
+                    if alt.exists():
+                        return alt
+                return candidate
+        return self.run_dir / "result_metrics.yaml"
+
+    def _build_joined_data(self, graph_rows, eval_rows) -> dict:
+        """Build per-query joined data from YAML and trace sources."""
+        metrics_rows = []
+        if self.data and "results" in self.data:
+            baselines = self.stats["baselines"] if self.stats else list(self.data["results"][0].get("baselines", {}).keys())
+            for r in self.data["results"]:
+                q_id = r.get("id", "UNKNOWN")
+                category = r.get("category", "general")
+                for b in baselines:
+                    b_data = r.get("baselines", {}).get(b, {})
+                    if not b_data:
+                        continue
+                    eval_metrics = b_data.get("eval_metrics", {})
+                    is_ans = r.get("is_answerable")
+                    if is_ans is None:
+                        is_ans = True
+                    else:
+                        is_ans = str(is_ans).lower() == "true"
+                    metrics_rows.append({
+                        "query_id": q_id,
+                        "category": category,
+                        "baseline": b,
+                        "is_answerable": is_ans,
+                        "predicted_abstained": eval_metrics.get("predicted_abstained", False),
+                        "answerability_outcome": eval_metrics.get("answerability_outcome", "TP"),
+                        "retrieval_recall": eval_metrics.get("retrieval_recall"),
+                        "context_precision": eval_metrics.get("context_precision"),
+                        "faithfulness": eval_metrics.get("faithfulness"),
+                        "answer_relevance": eval_metrics.get("answer_relevance"),
+                        "citation_fidelity": eval_metrics.get("citation_fidelity"),
+                        "semantic_accuracy": eval_metrics.get("semantic_accuracy"),
+                        "context_fillness": eval_metrics.get("context_fillness"),
+                        "ar_sa_f1": eval_metrics.get("ar_sa_f1"),
+                        "latency_sec": b_data.get("latency_sec"),
+                    })
+        elif self.csv_details_path.exists():
+            with open(self.csv_details_path, "r", encoding="utf-8") as f:
+                metrics_rows = list(csv.DictReader(f))
+
+        joined_data = {}
+        for r in metrics_rows:
+            q_id = str(r.get("query_id") or "")
+            base = str(r.get("baseline") or "")
+            if not q_id or not base:
+                continue
+            is_ans = r.get("is_answerable")
+            if is_ans is None or is_ans == "":
+                is_ans = True
+            else:
+                is_ans = str(is_ans).lower() == "true"
+            joined_data[(q_id, base)] = {
+                "query_id": q_id,
+                "baseline": base,
+                "category": r.get("category", "general"),
+                "is_answerable": is_ans,
+                "predicted_abstained": r.get("predicted_abstained", False),
+                "answerability_outcome": r.get("answerability_outcome", "TP"),
+                "retrieval_recall": r.get("retrieval_recall"),
+                "context_precision": r.get("context_precision"),
+                "faithfulness": r.get("faithfulness"),
+                "answer_relevance": r.get("answer_relevance"),
+                "citation_fidelity": r.get("citation_fidelity"),
+                "semantic_accuracy": r.get("semantic_accuracy"),
+                "context_fillness": r.get("context_fillness"),
+                "ar_sa_f1": r.get("ar_sa_f1"),
+                "latency_sec": r.get("latency_sec"),
+            }
+
+        if graph_rows:
+            for r in graph_rows:
+                key = (str(r.get("query_id") or ""), str(r.get("baseline") or ""))
+                if not key[0] or not key[1]:
+                    continue
+                joined_data.setdefault(key, {"query_id": key[0], "baseline": key[1]})
+                joined_data[key].update({
+                    "graph_retrieval_enabled": r.get("graph_retrieval_enabled"),
+                    "graph_survival_rate": r.get("graph_survival_rate"),
+                })
+
+        if eval_rows:
+            for r in eval_rows:
+                key = (str(r.get("query_id") or ""), str(r.get("baseline") or ""))
+                if not key[0] or not key[1]:
+                    continue
+                joined_data.setdefault(key, {"query_id": key[0], "baseline": key[1]})
+                for m in ["retrieval_recall", "faithfulness", "semantic_accuracy", "answerability_outcome"]:
+                    if r.get(m) is not None:
+                        joined_data[key][m] = r[m]
+
+        return joined_data
+
+    def _write_joined_csv(self, joined_data: dict) -> None:
+        if not joined_data:
+            return
+        headers = list(next(iter(joined_data.values())).keys())
+        with open(self.parsed_dir / "per_query_joined.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for key in sorted(joined_data.keys()):
+                writer.writerow(joined_data[key])
+
+    def _build_run_summary(self, joined_data: dict) -> dict:
+        baselines = sorted({row["baseline"] for row in joined_data.values() if row.get("baseline")})
+        run_summary = {
+            "run_id": self.run_dir.name,
+            "baselines": baselines,
+            "query_count": len({row["query_id"] for row in joined_data.values()}),
+            "metrics": {},
+        }
+        for b in baselines:
+            b_rows = [row for row in joined_data.values() if row["baseline"] == b]
+            run_summary["metrics"][b] = {}
+            for m in ["semantic_accuracy", "faithfulness", "ar_sa_f1"]:
+                vals = []
+                for row in b_rows:
+                    outcome = row.get("answerability_outcome", "TP")
+                    if outcome not in ("TP", "FP"):
+                        continue
+                    val = row.get(m)
+                    if val is not None and val != "":
+                        try:
+                            vals.append(float(val))
+                        except ValueError:
+                            pass
+                run_summary["metrics"][b][f"{m}_mean"] = round(statistics.mean(vals), 4) if vals else 0.0
+        return run_summary
+
+    def _write_run_summary(self, run_summary: dict) -> None:
+        with open(self.parsed_dir / "run_summary.json", "w", encoding="utf-8") as f:
+            json.dump(run_summary, f, ensure_ascii=False, indent=2)
+        with open(self.parsed_dir / "run_summary.yaml", "w", encoding="utf-8") as f:
+            yaml.safe_dump(run_summary, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+    def _print_console_report(self, run_summary: dict, joined_data: dict) -> None:
+        print(f"\nParsed run: {self.run_dir}")
+        print(f"Queries: {run_summary['query_count']}")
+        print(f"Baselines: {', '.join(run_summary['baselines'])}")
+        joined_csv_path = self.parsed_dir / "per_query_joined.csv"
+        if joined_csv_path.exists():
+            print(f"\nJoined file:\n  - {joined_csv_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Parse RAG quality metrics and generate reports")
     parser.add_argument(
@@ -530,25 +803,58 @@ def main():
         "--confusion", "--confusion-matrix", action="store_true",
         help="Calculate and print confusion matrix and classification quality metrics."
     )
+    parser.add_argument(
+        "--no-stats", action="store_true",
+        help="Disable statistical analysis (enabled by default)."
+    )
+    parser.add_argument(
+        "--n-bootstraps", type=int, default=10000,
+        help="Number of bootstrap resamples (default: 10000)."
+    )
+    parser.add_argument(
+        "--alpha", type=float, default=0.05,
+        help="Significance level (default: 0.05)."
+    )
+    parser.add_argument(
+        "--ci-method", choices=["percentile", "bca"], default="percentile",
+        help="Bootstrap CI method: percentile or BCa (default: percentile)."
+    )
+    parser.add_argument(
+        "--correction-method", choices=["holm", "bonferroni", "none"], default="holm",
+        help="Multiple-comparison correction (default: holm)."
+    )
+    parser.add_argument(
+        "--stats-plots", action="store_true",
+        help="Generate optional statistical plots (boxplots, p-value heatmaps)."
+    )
+    parser.add_argument(
+        "--random-seed", type=int, default=42,
+        help="Random seed for reproducible bootstrap resampling (default: 42)."
+    )
     args = parser.parse_args()
 
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parents[2]
 
+    def _resolve_path(path_str: str) -> Path:
+        path = Path(path_str)
+        if path.is_absolute():
+            return path.resolve()
+        for base in (Path.cwd(), script_dir, project_root):
+            candidate = (base / path).resolve()
+            if candidate.exists():
+                return candidate
+        return (script_dir / path).resolve()
+
     # 1. Resolve run directory
     run_dir = None
     if args.run_dir:
-        run_dir = Path(args.run_dir)
-        if not run_dir.is_absolute():
-            run_dir = (project_root / run_dir).resolve()
+        run_dir = _resolve_path(args.run_dir)
+        if run_dir.is_file():
+            run_dir = run_dir.parent
     elif args.file:
-        file_path = Path(args.file)
-        if not file_path.is_absolute():
-            file_path = (project_root / file_path).resolve()
-        if file_path.is_dir():
-            run_dir = file_path
-        else:
-            run_dir = file_path.parent
+        file_path = _resolve_path(args.file)
+        run_dir = file_path if file_path.is_dir() else file_path.parent
     else:
         # Fallback default: project_root / graphs or reports
         run_dir = project_root / "graphs"
@@ -561,660 +867,42 @@ def main():
 
     print(f"Processing run directory: {run_dir}")
 
-    # Set up outputs
-    parsed_dir = run_dir / "parsed"
-    parsed_dir.mkdir(parents=True, exist_ok=True)
-    traces_dir = run_dir / "traces"
+    input_path = None
+    if args.file:
+        file_path = _resolve_path(args.file)
+        if file_path.is_file():
+            input_path = file_path
+    elif args.run_dir:
+        run_candidate = _resolve_path(args.run_dir)
+        if run_candidate.is_file() and run_candidate.suffix in (".yaml", ".yml"):
+            input_path = run_candidate
 
-    # Default output files if not specified
     output_md_path = Path(args.output_md) if args.output_md else run_dir / "metrics_summary.md"
     csv_summary_path = Path(args.csv_summary) if args.csv_summary else run_dir / "metrics_summary.csv"
     csv_details_path = Path(args.csv_details) if args.csv_details else run_dir / "metrics_details.csv"
 
-    # Load trace map first for merging
-    trace_path = run_dir / "graph_retrieval_trace.jsonl"
-    if not trace_path.exists():
-        trace_path = run_dir / "traces" / "graph_retrieval_trace.jsonl"
-    trace_map = load_graph_retrieval_trace(trace_path)
+    metrics_parser = MetricsParser(
+        run_dir,
+        input_path=input_path,
+        output_md_path=output_md_path,
+        csv_summary_path=csv_summary_path,
+        csv_details_path=csv_details_path,
+        traces_only=args.traces_only,
+        confusion=args.confusion,
+        enable_stats=not args.no_stats,
+        n_bootstraps=args.n_bootstraps,
+        alpha=args.alpha,
+        ci_method=args.ci_method,
+        correction_method=args.correction_method,
+        enable_plots=args.stats_plots,
+        random_seed=args.random_seed,
+    )
 
-    # 2. Parse result_metrics.yaml or the best available benchmark report file
-    preferred_files = [
-        "result_metrics.yaml",
-        "result_metrics_judge.yaml",
-        "evaluation_results.yaml",
-        "evaluation_results_judge.yaml",
-        "retrieved_contexts.yaml"
-    ]
-
-    input_path = None
-    if args.file:
-        file_path = Path(args.file)
-        if not file_path.is_absolute():
-            file_path = (project_root / file_path).resolve()
-        # If user explicitly passed a yaml report, use it
-        if file_path.is_file() and file_path.suffix in (".yaml", ".yml"):
-            input_path = file_path
-
-    if not input_path:
-        # Search run_dir in preference order
-        for filename in preferred_files:
-            candidate = run_dir / filename
-            if candidate.exists():
-                input_path = candidate
-                break
-
-    # If still not found, search run_dir for any other yaml files
-    if not input_path:
-        yaml_files = list(run_dir.glob("*.yaml")) + list(run_dir.glob("*.yml"))
-        yaml_files = [f for f in yaml_files if f.name not in ("run_manifest.yaml", "config_snapshot.yaml", "temp_custom_config.yaml")]
-        if yaml_files:
-            input_path = yaml_files[0]
-
-    # Fallback default
-    if not input_path:
-        input_path = run_dir / "result_metrics.yaml"
-
-    # Automatically redirect from raw evaluation_results.yaml to evaluated result_metrics.yaml if it exists
-    if input_path.name == "evaluation_results.yaml":
-        candidate_path = input_path.parent / "result_metrics.yaml"
-        if candidate_path.exists():
-            print(f"Redirecting from evaluation_results.yaml to result_metrics.yaml (reusing evaluated metrics)")
-            input_path = candidate_path
-
-    print(f"Resolved report file to parse: {input_path}")
-    # 2. Parse result_metrics.yaml
-    input_path = Path(args.file) if args.file else run_dir / "result_metrics.yaml"
-    if not input_path.is_absolute():
-        input_path = (project_root / input_path).resolve()
-
-    data = None
-    stats = None
-
-    if not args.traces_only and input_path.exists():
-        try:
-            report = load_report_file(input_path)
-            data = report.model_dump()
-            stats = analyze_metrics(data, trace_map)
-            
-            # Print tables to stdout
-            print_rich_tables(stats)
-            
-            # Export reports/CSVs
-            generate_markdown_report(stats, output_md_path)
-            export_wide_csv(stats, csv_summary_path)
-            export_detailed_csv(data, stats, csv_details_path)
-            
-            # Export metrics_summary.parsed.json
-            with open(parsed_dir / "metrics_summary.parsed.json", "w", encoding="utf-8") as f:
-                json.dump(stats, f, ensure_ascii=False, indent=2)
-                
-        except Exception as e:
-            print(f"Error processing result_metrics.yaml: {e}")
-            sys.exit(1)
-    elif not args.traces_only:
-        print(f"Warning: result_metrics.yaml not found at {input_path}")
-
-    # 3. Parse Traces
-    graph_rows = None
-    eval_rows = None
-    has_traces = traces_dir.exists() or (run_dir / "graph_retrieval_trace.jsonl").exists() or (run_dir / "eval_trace.jsonl").exists()
-    if traces_dir.exists():
-        has_traces = traces_dir.exists() or (run_dir / "graph_retrieval_trace.jsonl").exists() or (run_dir / "eval_trace.jsonl").exists()
-    if has_traces:
-        graph_rows, graph_summary = parse_graph_retrieval_trace(traces_dir, parsed_dir)
-        eval_rows, eval_summary = parse_eval_trace(traces_dir, parsed_dir)
-
-    # 4. Detailed Metrics Rows
-    metrics_rows = []
-    
-    # If we have fresh YAML data, always use it to build metrics_rows
-    if data and "results" in data:
-        baselines = stats["baselines"] if stats else list(data["results"][0].get("baselines", {}).keys())
-        for r in data["results"]:
-            q_id = r.get("id", "UNKNOWN")
-            category = r.get("category", "general")
-            for b in baselines:
-                b_data = r.get("baselines", {}).get(b, {})
-                if not b_data:
-                    continue
-                eval_metrics = b_data.get("eval_metrics", {})
-                is_ans = r.get("is_answerable")
-                if is_ans is None:
-                    is_ans = True
-                else:
-                    is_ans = str(is_ans).lower() == "true"
-                    
-                ar_f1 = eval_metrics.get("ar_sa_f1")
-                if ar_f1 is None and is_ans:
-                    r_relevance = eval_metrics.get("answer_relevance")
-                    s_accuracy = eval_metrics.get("semantic_accuracy")
-                    if r_relevance is not None and s_accuracy is not None:
-                        try:
-                            r_val = float(r_relevance)
-                            s_val = float(s_accuracy)
-                            if r_val + s_val > 0:
-                                ar_f1 = round(2.0 * (r_val * s_val) / (r_val + s_val), 4)
-                            else:
-                                ar_f1 = 0.0
-                        except (ValueError, TypeError):
-                            ar_f1 = 0.0
-
-                shannon_diag = b_data.get("shannon_diagnostics") or (b_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(b_data.get("metrics"), dict) else {}) or {}
-
-                if not shannon_diag:
-                    retrieved_chunks = b_data.get("retrieved_chunks", [])
-                    if retrieved_chunks:
-                        from core.shannon_estimator import compute_rank_entropy, compute_lexical_entropy
-                        scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in retrieved_chunks]
-                        h_rank_post = compute_rank_entropy(scores)
-                        texts = "\n".join([c.get("text_content", "") if isinstance(c, dict) else getattr(c, "text_content", "") for c in retrieved_chunks])
-                        h_lex_post = compute_lexical_entropy(texts)
-                        shannon_diag = {
-                            "h_rank_pre_rerank": h_rank_post,
-                            "h_rank_post_rerank": h_rank_post,
-                            "h_lexical_pre_trim": h_lex_post,
-                            "h_lexical_post_trim": h_lex_post,
-                            "h_graph_relation_type": 0.0,
-                            "h_graph_degree": 0.0,
-                            "h_gen": 0.0,
-                            "h_citation": 0.0,
-                            "n_citation_tokens": 0,
-                            "delta_h_gen": 0.0
-                        }
-
-                metrics_rows.append({
-                    "query_id": q_id,
-                    "category": category,
-                    "baseline": b,
-                    "status": b_data.get("status", "success"),
-                    "latency_sec": b_data.get("latency_sec"),
-                    "retrieval_recall": eval_metrics.get("retrieval_recall"),
-                    "context_precision": eval_metrics.get("context_precision"),
-                    "faithfulness": eval_metrics.get("faithfulness"),
-                    "answer_relevance": eval_metrics.get("answer_relevance"),
-                    "citation_fidelity": eval_metrics.get("citation_fidelity"),
-                    "semantic_accuracy": eval_metrics.get("semantic_accuracy"),
-                    "context_fillness": eval_metrics.get("context_fillness"),
-                    "ar_sa_f1": ar_f1,
-                    "is_answerable": is_ans,
-                    "token_output": eval_metrics.get("token_output"),
-                    "token_answer": eval_metrics.get("token_answer"),
-                    "token_reasoning": eval_metrics.get("token_reasoning"),
-                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre") if shannon_diag.get("rank_entropy_pre") is not None else shannon_diag.get("h_rank_pre_rerank"),
-                    "rank_entropy_post": shannon_diag.get("rank_entropy_post") if shannon_diag.get("rank_entropy_post") is not None else shannon_diag.get("h_rank_post_rerank"),
-                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre") if shannon_diag.get("lexical_entropy_pre") is not None else shannon_diag.get("h_lexical_pre_trim"),
-                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post") if shannon_diag.get("lexical_entropy_post") is not None else shannon_diag.get("h_lexical_post_trim"),
-                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy") if shannon_diag.get("graph_relation_entropy") is not None else shannon_diag.get("h_graph_relation_type"),
-                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy") if shannon_diag.get("graph_degree_entropy") is not None else shannon_diag.get("h_graph_degree"),
-                    "generation_entropy": shannon_diag.get("generation_entropy") if shannon_diag.get("generation_entropy") is not None else shannon_diag.get("h_gen"),
-                    "citation_entropy": shannon_diag.get("citation_entropy") if shannon_diag.get("citation_entropy") is not None else shannon_diag.get("h_citation"),
-                    "citation_token_count": shannon_diag.get("citation_token_count") if shannon_diag.get("citation_token_count") is not None else shannon_diag.get("n_citation_tokens"),
-                    "entropy_reduction": shannon_diag.get("entropy_reduction") if shannon_diag.get("entropy_reduction") is not None else shannon_diag.get("delta_h_gen")
-                })
-    # Otherwise (e.g. traces-only mode), fall back to loading from the existing CSV details
-    elif csv_details_path.exists():
-        try:
-            with open(csv_details_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                metrics_rows = list(reader)
-        except Exception as e:
-            print(f"Warning: Could not read metrics_details.csv: {e}")
-
-    # Write metrics_details.parsed.csv
-    if metrics_rows:
-        with open(parsed_dir / "metrics_details.parsed.csv", "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys())
-            writer.writeheader()
-            for r in metrics_rows:
-                writer.writerow(r)
-
-    # 5. Join per-query data
-    joined_data = {}
-    if csv_details_path.exists():
-        try:
-            with open(csv_details_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                metrics_rows = list(reader)
-        except Exception as e:
-            print(f"Warning: Could not read metrics_details.csv: {e}")
-
-    if not metrics_rows and data and "results" in data:
-        baselines = stats["baselines"] if stats else list(data["results"][0].get("baselines", {}).keys())
-        for r in data["results"]:
-            q_id = r.get("id", "UNKNOWN")
-            category = r.get("category", "general")
-            for b in baselines:
-                b_data = r.get("baselines", {}).get(b, {})
-                if not b_data:
-                    continue
-                eval_metrics = b_data.get("eval_metrics", {})
-                is_ans = r.get("is_answerable")
-                if is_ans is None:
-                    is_ans = True
-                else:
-                    is_ans = str(is_ans).lower() == "true"
-
-                shannon_diag = b_data.get("shannon_diagnostics") or (b_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(b_data.get("metrics"), dict) else {}) or {}
-
-                if not shannon_diag:
-                    retrieved_chunks = b_data.get("retrieved_chunks", [])
-                    if retrieved_chunks:
-                        from core.shannon_estimator import compute_rank_entropy, compute_lexical_entropy
-                        scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in retrieved_chunks]
-                        h_rank_post = compute_rank_entropy(scores)
-                        texts = "\n".join([c.get("text_content", "") if isinstance(c, dict) else getattr(c, "text_content", "") for c in retrieved_chunks])
-                        h_lex_post = compute_lexical_entropy(texts)
-                        shannon_diag = {
-                            "h_rank_pre_rerank": h_rank_post,
-                            "h_rank_post_rerank": h_rank_post,
-                            "h_lexical_pre_trim": h_lex_post,
-                            "h_lexical_post_trim": h_lex_post,
-                            "h_graph_relation_type": 0.0,
-                            "h_graph_degree": 0.0,
-                            "h_gen": 0.0,
-                            "h_citation": 0.0,
-                            "n_citation_tokens": 0,
-                            "delta_h_gen": 0.0
-                        }
-
-                metrics_rows.append({
-                    "query_id": q_id,
-                    "category": category,
-                    "baseline": b,
-                    "status": b_data.get("status", "success"),
-                    "latency_sec": b_data.get("latency_sec"),
-                    "is_answerable": is_ans,
-                    "predicted_abstained": eval_metrics.get("predicted_abstained", False),
-                    "answerability_outcome": eval_metrics.get("answerability_outcome", "TP"),
-                    "retrieval_recall": eval_metrics.get("retrieval_recall"),
-                    "context_precision": eval_metrics.get("context_precision"),
-                    "faithfulness": eval_metrics.get("faithfulness"),
-                    "answer_relevance": eval_metrics.get("answer_relevance"),
-                    "citation_fidelity": eval_metrics.get("citation_fidelity"),
-                    "semantic_accuracy": eval_metrics.get("semantic_accuracy"),
-                    "context_fillness": eval_metrics.get("context_fillness"),
-                    "token_output": eval_metrics.get("token_output"),
-                    "token_answer": eval_metrics.get("token_answer"),
-                    "token_reasoning": eval_metrics.get("token_reasoning"),
-                    "rank_entropy_pre": shannon_diag.get("rank_entropy_pre") if shannon_diag.get("rank_entropy_pre") is not None else shannon_diag.get("h_rank_pre_rerank"),
-                    "rank_entropy_post": shannon_diag.get("rank_entropy_post") if shannon_diag.get("rank_entropy_post") is not None else shannon_diag.get("h_rank_post_rerank"),
-                    "lexical_entropy_pre": shannon_diag.get("lexical_entropy_pre") if shannon_diag.get("lexical_entropy_pre") is not None else shannon_diag.get("h_lexical_pre_trim"),
-                    "lexical_entropy_post": shannon_diag.get("lexical_entropy_post") if shannon_diag.get("lexical_entropy_post") is not None else shannon_diag.get("h_lexical_post_trim"),
-                    "graph_relation_entropy": shannon_diag.get("graph_relation_entropy") if shannon_diag.get("graph_relation_entropy") is not None else shannon_diag.get("h_graph_relation_type"),
-                    "graph_degree_entropy": shannon_diag.get("graph_degree_entropy") if shannon_diag.get("graph_degree_entropy") is not None else shannon_diag.get("h_graph_degree"),
-                    "generation_entropy": shannon_diag.get("generation_entropy") if shannon_diag.get("generation_entropy") is not None else shannon_diag.get("h_gen"),
-                    "citation_entropy": shannon_diag.get("citation_entropy") if shannon_diag.get("citation_entropy") is not None else shannon_diag.get("h_citation"),
-                    "citation_token_count": shannon_diag.get("citation_token_count") if shannon_diag.get("citation_token_count") is not None else shannon_diag.get("n_citation_tokens"),
-                    "entropy_reduction": shannon_diag.get("entropy_reduction") if shannon_diag.get("entropy_reduction") is not None else shannon_diag.get("delta_h_gen")
-                })
-
-    # Write metrics_details.parsed.csv
-    if metrics_rows:
-        with open(parsed_dir / "metrics_details.parsed.csv", "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys())
-            writer.writeheader()
-            for r in metrics_rows:
-                writer.writerow(r)
-
-    # 5. Join per-query data
-    joined_data = {}
-    
-    # Standardize and populate metrics rows
-    for r in metrics_rows:
-        q_id = str(r.get("query_id") or "")
-        base = str(r.get("baseline") or "")
-        if not q_id or not base:
-            continue
-        key = (q_id, base)
-        is_ans = r.get("is_answerable")
-        if is_ans is None or is_ans == "":
-            is_ans = True
-        else:
-            is_ans = str(is_ans).lower() == "true"
-            
-        ar_f1 = r.get("ar_sa_f1")
-        if (ar_f1 is None or ar_f1 == "") and is_ans:
-            r_relevance = r.get("answer_relevance")
-            s_accuracy = r.get("semantic_accuracy")
-            if r_relevance is not None and s_accuracy is not None and r_relevance != "" and s_accuracy != "":
-                try:
-                    r_val = float(r_relevance)
-                    s_val = float(s_accuracy)
-                    if r_val + s_val > 0:
-                        ar_f1 = round(2.0 * (r_val * s_val) / (r_val + s_val), 4)
-                    else:
-                        ar_f1 = 0.0
-                except (ValueError, TypeError):
-                    ar_f1 = 0.0
-
-        joined_data[key] = {
-            "query_id": q_id,
-            "baseline": base,
-            "category": r.get("category", "general"),
-            "is_answerable": is_ans,
-            "predicted_abstained": r.get("predicted_abstained", False),
-            "answerability_outcome": r.get("answerability_outcome", "TP"),
-            "retrieval_recall": r.get("retrieval_recall"),
-            "context_precision": r.get("context_precision"),
-            "faithfulness": r.get("faithfulness"),
-            "answer_relevance": r.get("answer_relevance"),
-            "citation_fidelity": r.get("citation_fidelity"),
-            "semantic_accuracy": r.get("semantic_accuracy"),
-            "context_fillness": r.get("context_fillness"),
-            "ar_sa_f1": ar_f1,
-            "latency_sec": r.get("latency_sec"),
-            "token_output": r.get("token_output"),
-            "token_answer": r.get("token_answer"),
-            "token_reasoning": r.get("token_reasoning"),
-            "rank_entropy_pre": r.get("rank_entropy_pre"),
-            "rank_entropy_post": r.get("rank_entropy_post"),
-            "lexical_entropy_pre": r.get("lexical_entropy_pre"),
-            "lexical_entropy_post": r.get("lexical_entropy_post"),
-            "graph_relation_entropy": r.get("graph_relation_entropy"),
-            "graph_degree_entropy": r.get("graph_degree_entropy"),
-            "generation_entropy": r.get("generation_entropy"),
-            "citation_entropy": r.get("citation_entropy"),
-            "citation_token_count": r.get("citation_token_count"),
-            "entropy_reduction": r.get("entropy_reduction")
-        }
-
-    # Merge graph trace rows
-    if graph_rows:
-        for r in graph_rows:
-            q_id = str(r.get("query_id") or "")
-            base = str(r.get("baseline") or "")
-            key = (q_id, base)
-            if key not in joined_data:
-                joined_data[key] = {
-                    "query_id": q_id,
-                    "baseline": base,
-                    "category": r.get("category", "general")
-                }
-            joined_data[key].update({
-                "graph_retrieval_enabled": r.get("graph_retrieval_enabled"),
-                "graph_retrieval_skip_reason": r.get("graph_retrieval_skip_reason"),
-                "base_candidates_count": r.get("base_candidates_count"),
-                "graph_neighbor_paper_ids_count": r.get("graph_neighbor_paper_ids_count"),
-                "graph_chunk_candidates_count": r.get("graph_chunk_candidates_count"),
-                "merged_candidates_count_before_reranker": r.get("merged_candidates_count_before_reranker"),
-                "graph_chunks_survived_final_context_count": r.get("graph_chunks_survived_final_context_count"),
-                "graph_chunks_survived_final_context": r.get("graph_chunks_survived_final_context"),
-                "graph_survival_rate": r.get("graph_survival_rate"),
-                "distinct_papers_in_final_context": r.get("distinct_papers_in_final_context")
-            })
-
-    # Merge eval trace rows
-    if eval_rows:
-        for r in eval_rows:
-            q_id = str(r.get("query_id") or "")
-            base = str(r.get("baseline") or "")
-            key = (q_id, base)
-            if key not in joined_data:
-                joined_data[key] = {
-                    "query_id": q_id,
-                    "baseline": base,
-                    "category": r.get("category", "general")
-                }
-            for m in ["retrieval_recall", "context_precision", "faithfulness", "answer_relevance", "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "is_answerable", "predicted_abstained", "answerability_outcome", "latency_sec"]:
-                if r.get(m) is not None and (joined_data[key].get(m) is None or joined_data[key].get(m) == ""):
-                    joined_data[key][m] = r[m]
-
-    # Write per_query_joined.csv
-    joined_csv_path = parsed_dir / "per_query_joined.csv"
-    joined_headers = [
-        "query_id", "baseline", "category", "is_answerable", "predicted_abstained", "answerability_outcome",
-        "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
-        "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "latency_sec",
-        "token_output", "token_answer", "token_reasoning",
-        "rank_entropy_pre", "rank_entropy_post", "lexical_entropy_pre", "lexical_entropy_post",
-        "graph_relation_entropy", "graph_degree_entropy", "generation_entropy", "citation_entropy",
-        "citation_token_count", "entropy_reduction",
-        "graph_retrieval_enabled", "graph_retrieval_skip_reason",
-        "base_candidates_count", "graph_neighbor_paper_ids_count",
-        "graph_chunk_candidates_count", "merged_candidates_count_before_reranker",
-        "graph_chunks_survived_final_context_count", "graph_chunks_survived_final_context",
-        "graph_survival_rate", "distinct_papers_in_final_context"
-    ]
-
-    with open(joined_csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=joined_headers)
-        writer.writeheader()
-        for key in sorted(joined_data.keys()):
-            row = joined_data[key]
-            clean_row = {h: row.get(h, "") for h in joined_headers}
-            writer.writerow(clean_row)
-
-    # 6. Run summary JSON
-    run_summary = {
-        "run_id": run_dir.name,
-        "baselines": [],
-        "query_count": 0,
-        "metrics": {},
-        "graph_retrieval": {},
-        "by_category": {}
-    }
-
-    all_baselines = set()
-    for row in joined_data.values():
-        if row.get("baseline"):
-            all_baselines.add(row["baseline"])
-    run_summary["baselines"] = sorted(list(all_baselines))
-    run_summary["query_count"] = len(set(row["query_id"] for row in joined_data.values()))
-
-    for b in run_summary["baselines"]:
-        b_rows = [row for row in joined_data.values() if row["baseline"] == b]
-        run_summary["metrics"][b] = {}
-        for m in ["semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall", "context_precision", "answer_relevance", "ar_sa_f1"]:
-            vals = []
-            for row in b_rows:
-                is_ans = row.get("is_answerable")
-                if is_ans is None:
-                    is_ans = True
-                else:
-                    is_ans = str(is_ans).lower() == "true"
-                if not is_ans:
-                    continue
-                val = row.get(m)
-                if val is not None and val != "":
-                    try:
-                        vals.append(float(val))
-                    except ValueError:
-                        pass
-            if vals:
-                run_summary["metrics"][b][f"{m}_mean"] = round(statistics.mean(vals), 4)
-            else:
-                run_summary["metrics"][b][f"{m}_mean"] = 0.0
-
-        g_rows = [row for row in b_rows if row.get("graph_retrieval_enabled") is not None]
-        if g_rows:
-            queries_with_graph_neighbors = sum(1 for r in g_rows if float(r.get("graph_neighbor_paper_ids_count") or 0) > 0)
-            queries_with_graph_chunks = sum(1 for r in g_rows if float(r.get("graph_chunk_candidates_count") or 0) > 0)
-            queries_with_graph_survival = sum(1 for r in g_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0)
-            
-            surv_vals = []
-            for r in g_rows:
-                s_rate = r.get("graph_survival_rate")
-                if s_rate is not None and s_rate != "":
-                    try:
-                        surv_vals.append(float(s_rate))
-                    except ValueError:
-                        pass
-            avg_survival_rate = statistics.mean(surv_vals) if surv_vals else 0.0
-
-            run_summary["graph_retrieval"][b] = {
-                "queries_with_graph_neighbors": queries_with_graph_neighbors,
-                "queries_with_graph_chunks": queries_with_graph_chunks,
-                "queries_with_graph_survival": queries_with_graph_survival,
-                "avg_graph_survival_rate": round(avg_survival_rate, 4)
-            }
-
-    categories = set(row["category"] for row in joined_data.values() if row.get("category"))
-    for cat in categories:
-        run_summary["by_category"][cat] = {}
-        cat_rows = [row for row in joined_data.values() if row["category"] == cat]
-        for b in run_summary["baselines"]:
-            b_cat_rows = [row for row in cat_rows if row["baseline"] == b]
-            if not b_cat_rows:
-                continue
-            run_summary["by_category"][cat][b] = {}
-            
-            sem_vals = []
-            ar_sa_vals = []
-            for row in b_cat_rows:
-                s_acc = row.get("semantic_accuracy")
-                if s_acc is not None and s_acc != "":
-                    try:
-                        sem_vals.append(float(s_acc))
-                    except ValueError:
-                        pass
-                is_ans = row.get("is_answerable")
-                if is_ans is not None and str(is_ans).lower() == "true":
-                    val = row.get("ar_sa_f1")
-                    if val is not None and val != "":
-                        try:
-                            ar_sa_vals.append(float(val))
-                        except ValueError:
-                            pass
-            if sem_vals:
-                run_summary["by_category"][cat][b]["semantic_accuracy_mean"] = round(statistics.mean(sem_vals), 4)
-            if ar_sa_vals:
-                run_summary["by_category"][cat][b]["ar_sa_f1_mean"] = round(statistics.mean(ar_sa_vals), 4)
-            if sem_vals:
-                run_summary["by_category"][cat][b]["semantic_accuracy_mean"] = round(statistics.mean(sem_vals), 4)
-            g_cat_rows = [row for row in b_cat_rows if row.get("graph_retrieval_enabled") is not None]
-            if g_cat_rows:
-                queries_with_graph_survival = sum(1 for r in g_cat_rows if float(r.get("graph_chunks_survived_final_context_count") or 0) > 0)
-                run_summary["by_category"][cat][b]["queries_with_graph_survival"] = queries_with_graph_survival
-
-    # 6. Run summary JSON and YAML with highlights
-    # Extract Interesting Highlights
-    highlights = {
-        "low_faithfulness": [],
-        "high_latency": [],
-        "graph_successes": []
-    }
-
-    # Helper to safely convert value to float
-    def safe_float(v):
-        if v is None or v == "":
-            return None
-        try:
-            return float(v)
-        except ValueError:
-            return None
-
-    # Find low faithfulness cases (faithfulness < 0.8)
-    for key, row in joined_data.items():
-        faith = safe_float(row.get("faithfulness"))
-        if faith is not None and faith < 0.8:
-            highlights["low_faithfulness"].append({
-                "query_id": row["query_id"],
-                "baseline": row["baseline"],
-                "faithfulness": faith,
-                "category": row.get("category", "general")
-            })
-
-    # Find high latency cases (latency > 4.0 sec)
-    for key, row in joined_data.items():
-        lat = safe_float(row.get("latency_sec"))
-        if lat is not None and lat > 4.0:
-            highlights["high_latency"].append({
-                "query_id": row["query_id"],
-                "baseline": row["baseline"],
-                "latency_sec": lat,
-                "category": row.get("category", "general")
-            })
-
-    # Find graph successes (survival_rate >= 0.5)
-    for key, row in joined_data.items():
-        surv = safe_float(row.get("graph_survival_rate"))
-        if surv is not None and surv >= 0.5:
-            highlights["graph_successes"].append({
-                "query_id": row["query_id"],
-                "baseline": row["baseline"],
-                "survival_rate": surv,
-                "survived_count": int(safe_float(row.get("graph_chunks_survived_final_context_count")) or 0),
-                "category": row.get("category", "general")
-            })
-
-    # Sort and slice highlights
-    highlights["low_faithfulness"].sort(key=lambda x: x["faithfulness"])
-    highlights["low_faithfulness"] = highlights["low_faithfulness"][:3]
-
-    highlights["high_latency"].sort(key=lambda x: x["latency_sec"], reverse=True)
-    highlights["high_latency"] = highlights["high_latency"][:3]
-
-    highlights["graph_successes"].sort(key=lambda x: (x["survival_rate"], x["survived_count"]), reverse=True)
-    highlights["graph_successes"] = highlights["graph_successes"][:3]
-
-    run_summary["highlights"] = highlights
-
-    with open(parsed_dir / "run_summary.json", "w", encoding="utf-8") as f:
-        json.dump(run_summary, f, ensure_ascii=False, indent=2)
-
-    with open(parsed_dir / "run_summary.yaml", "w", encoding="utf-8") as f:
-        yaml.safe_dump(run_summary, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-
-    # 7. Print Console Report
-    print(f"\nParsed run: {run_dir}")
-    print(f"Queries: {run_summary['query_count']}")
-    print(f"Baselines: {', '.join(run_summary['baselines'])}")
-
-    if run_summary["metrics"]:
-        print("\nQuality Metrics:")
-        header_fmt = "| {:<10} | {:<12} | {:<14} | {:<12} | {:<12} | {:<17} | {:<12} | {:<12} |"
-        row_fmt = "| {:<10} | {:<12.4f} | {:<14.4f} | {:<12.4f} | {:<12.4f} | {:<17.4f} | {:<12.4f} | {:<11.3f}s |"
-        sep = "+" + "-"*12 + "+" + "-"*14 + "+" + "-"*16 + "+" + "-"*14 + "+" + "-"*14 + "+" + "-"*19 + "+" + "-"*14 + "+" + "-"*14 + "+"
-        print(sep)
-        print(header_fmt.format("Baseline", "Mean Recall", "Mean Precision", "Faithfulness", "Relevance", "Semantic Accuracy", "AR-SA F1", "Mean Latency"))
-        print(sep)
-        for b in run_summary["baselines"]:
-            b_metrics = run_summary["metrics"].get(b, {})
-            recall = b_metrics.get("retrieval_recall_mean", 0.0)
-            precision = b_metrics.get("context_precision_mean", 0.0)
-            faithfulness = b_metrics.get("faithfulness_mean", 0.0)
-            relevance = b_metrics.get("answer_relevance_mean", 0.0)
-            semantic = b_metrics.get("semantic_accuracy_mean", 0.0)
-            ar_sa_f1 = b_metrics.get("ar_sa_f1_mean", 0.0)
-            latency = b_metrics.get("latency_sec_mean", 0.0)
-            print(row_fmt.format(b, recall, precision, faithfulness, relevance, semantic, ar_sa_f1, latency))
-        print(sep)
-
-    if run_summary["graph_retrieval"]:
-        print("\nGraph retrieval:")
-        for b, g_stats in run_summary["graph_retrieval"].items():
-            print(f"Baseline {b}:")
-            print(f"  - queries with neighbors: {g_stats['queries_with_graph_neighbors']}/{run_summary['query_count']}")
-            print(f"  - queries with graph chunks: {g_stats['queries_with_graph_chunks']}/{run_summary['query_count']}")
-            print(f"  - queries with graph chunks survived: {g_stats['queries_with_graph_survival']}/{run_summary['query_count']}")
-            print(f"  - avg graph survival rate: {g_stats['avg_graph_survival_rate']:.4f}")
-
-    if highlights["low_faithfulness"] or highlights["high_latency"] or highlights["graph_successes"]:
-        print("\nInteresting Query Highlights:")
-        
-        if highlights["low_faithfulness"]:
-            print("  - Low Faithfulness Cases (potential hallucinations):")
-            for h in highlights["low_faithfulness"]:
-                print(f"    * Query {h['query_id']} ({h['baseline']}): Faithfulness = {h['faithfulness']:.2f} [Category: {h['category']}]")
-                
-        if highlights["high_latency"]:
-            print("  - High Latency Cases (performance bottlenecks):")
-            for h in highlights["high_latency"]:
-                print(f"    * Query {h['query_id']} ({h['baseline']}): Latency = {h['latency_sec']:.2f}s [Category: {h['category']}]")
-                
-        if highlights["graph_successes"]:
-            print("  - High Graph Survival Cases (graph retrieval impact):")
-            for h in highlights["graph_successes"]:
-                print(f"    * Query {h['query_id']} ({h['baseline']}): Survival Rate = {h['survival_rate']:.1f} ({h['survived_count']} chunks) [Category: {h['category']}]")
-
-    print(f"\nJoined file:\n  - {joined_csv_path}")
-    print(f"\nSummaries:\n  - {parsed_dir / 'run_summary.json'}")
-    print(f"  - {parsed_dir / 'run_summary.yaml'}")
-    if (parsed_dir / "graph_retrieval_trace.summary.json").exists():
-        print(f"  - {parsed_dir / 'graph_retrieval_trace.summary.json'}")
-
-    if args.confusion:
-        print_confusion_matrix_and_metrics_tables(data)
+    try:
+        metrics_parser.run()
+    except Exception as e:
+        print(f"Error processing benchmark run: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
