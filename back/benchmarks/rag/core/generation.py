@@ -256,6 +256,11 @@ def run_query_on_baseline(
                         answer = str(answer)
 
                 if shannon_enabled:
+                    if n_cit == 0 and isinstance(answer, str) and answer != raw_response:
+                        h_cit_ans, n_cit_ans = compute_citation_entropy(tokens_info, answer)
+                        if n_cit_ans > 0:
+                            h_cit, n_cit = h_cit_ans, n_cit_ans
+
                     h_b0 = getattr(rag_service, "_query_b0_h_gen", {}).get(query)
                     delta_h = compute_entropy_reduction(h_b0, h_gen) if h_b0 is not None else 0.0
 
@@ -271,6 +276,7 @@ def run_query_on_baseline(
                         "n_citation_tokens": n_cit,
                         "delta_h_gen": round(delta_h, 4),
                     }
+
 
         metrics = collector.get_metrics()
         if shannon_enabled and shannon_diag is not None:

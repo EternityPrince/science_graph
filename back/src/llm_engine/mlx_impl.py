@@ -336,6 +336,7 @@ class MlxLLMEngine(BaseLLMEngine):
 
         from mlx_lm import stream_generate
         from mlx_lm.sample_utils import make_sampler
+        import math
         sampler = make_sampler(temp=temp)
 
         tokens_info: List[Dict[str, Any]] = []
@@ -356,10 +357,15 @@ class MlxLLMEngine(BaseLLMEngine):
                 entropy_val = 0.0
                 if logprobs is not None and mx is not None:
                     try:
-                        p = mx.softmax(logprobs)
-                        entropy_val = -float(mx.sum(p * mx.log2(p + 1e-12)))
+                        logprobs_f32 = logprobs.astype(mx.float32)
+                        p = mx.exp(logprobs_f32)
+                        entropy_val = -float(mx.sum(p * (logprobs_f32 / math.log(2))))
                     except Exception:
-                        entropy_val = 0.0
+                        try:
+                            p = mx.softmax(logprobs)
+                            entropy_val = -float(mx.sum(p * mx.log2(p + 1e-12)))
+                        except Exception:
+                            entropy_val = 0.0
 
                 char_start = len(full_text)
                 full_text += token_text
@@ -373,7 +379,15 @@ class MlxLLMEngine(BaseLLMEngine):
                     "entropy": max(0.0, float(entropy_val)),
                 })
 
-        return strip_thinking_tokens(full_text), tokens_info
+        clean_text = strip_thinking_tokens(full_text)
+        try:
+            from core.shannon_estimator import align_tokens_info
+            aligned_tokens = align_tokens_info(full_text, clean_text, tokens_info)
+        except Exception:
+            aligned_tokens = tokens_info
+
+        return clean_text, aligned_tokens
+
 
     def generate_json(
         self,

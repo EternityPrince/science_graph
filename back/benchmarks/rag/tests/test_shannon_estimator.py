@@ -181,3 +181,62 @@ def test_compute_entropy_reduction():
     # Normal delta calculation
     assert math.isclose(compute_entropy_reduction(3.5, 1.2), 2.3)
     assert math.isclose(compute_entropy_reduction(1.0, 2.5), -1.5)
+
+
+def test_align_tokens_info():
+    from core.shannon_estimator import align_tokens_info
+
+    full_text = "<think>Reasoning step</think>Answer in [Block 1]."
+    clean_text = "Answer in [Block 1]."
+    offset = full_text.find(clean_text)
+
+    raw_tokens = [
+        {"token_text": "<think>Reasoning step</think>", "char_start": 0, "char_end": offset, "entropy": 0.5},
+        {"token_text": "Answer ", "char_start": offset, "char_end": offset + 7, "entropy": 0.2},
+        {"token_text": "in ", "char_start": offset + 7, "char_end": offset + 10, "entropy": 0.3},
+        {"token_text": "[Block 1].", "char_start": offset + 10, "char_end": offset + 20, "entropy": 1.2},
+    ]
+
+    aligned = align_tokens_info(full_text, clean_text, raw_tokens)
+    assert len(aligned) == 3
+    assert aligned[0]["char_start"] == 0
+    assert aligned[0]["char_end"] == 7
+    assert aligned[2]["token_text"] == "[Block 1]."
+
+    h_cit, count = compute_citation_entropy(aligned, clean_text)
+    assert count == 1
+    assert math.isclose(h_cit, 1.2)
+
+
+def test_occ_rag_1_7b_integration_logits_shannon_entropy():
+    """Integration test: load OCC-RAG-1.7B, generate response with logits, and verify non-zero H_gen."""
+    import os
+    model_path = "/Users/vladimirkasterin/models/llm/OCC-RAG-1.7B"
+    if not os.path.exists(model_path):
+        pytest.skip("OCC-RAG-1.7B model path not found locally.")
+
+    try:
+        from src.llm_engine.mlx_impl import MlxLLMEngine
+        engine = MlxLLMEngine(model_path=model_path)
+    except Exception as e:
+        pytest.skip(f"MlxLLMEngine initialization failed: {e}")
+
+    prompt = "According to [Block 1], gravity acceleration on Earth is 9.8 m/s^2. State the key facts with citation."
+    text, tokens_info = engine.generate_response_with_logits(prompt, max_tokens=40)
+
+    assert len(text) > 0
+    assert len(tokens_info) > 0
+
+    h_gen = compute_generation_entropy(tokens_info)
+    h_cit, n_cit = compute_citation_entropy(tokens_info, text)
+
+    assert h_gen > 0.0, f"Expected non-zero H_gen, got {h_gen}"
+    # Verify each token has non-negative valid entropy
+    for t in tokens_info:
+        assert "entropy" in t
+        assert isinstance(t["entropy"], float)
+        assert t["entropy"] >= 0.0
+
+    if n_cit > 0:
+        assert h_cit > 0.0, f"Expected non-zero H_citation when citation tokens present, got {h_cit}"
+

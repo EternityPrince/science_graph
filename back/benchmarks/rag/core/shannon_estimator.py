@@ -172,6 +172,63 @@ def compute_graph_entropy(relations: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
+def align_tokens_info(
+    full_text: str, clean_text: str, tokens_info: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Aligns token character positions (char_start, char_end) when full_text
+    undergoes stripping of thinking tokens or special formatting tags.
+
+    Args:
+        full_text: Raw accumulated generated output text.
+        clean_text: Final cleaned string after strip_thinking_tokens.
+        tokens_info: List of token metric dictionaries.
+
+    Returns:
+        List[Dict[str, Any]]: Aligned list of token metric dictionaries matching clean_text.
+    """
+    if not tokens_info or not full_text:
+        return []
+
+    if full_text == clean_text:
+        return tokens_info
+
+    # Case 1: clean_text is a contiguous substring of full_text
+    offset = full_text.find(clean_text)
+    if offset != -1:
+        aligned: List[Dict[str, Any]] = []
+        clean_len = len(clean_text)
+        for t in tokens_info:
+            cs = t.get("char_start", t.get("start", 0))
+            ce = t.get("char_end", t.get("end", 0))
+            if ce > offset and cs < offset + clean_len:
+                t_copy = dict(t)
+                t_copy["char_start"] = max(0, cs - offset)
+                t_copy["char_end"] = min(clean_len, ce - offset)
+                aligned.append(t_copy)
+        return aligned
+
+    # Case 2: General fallback using sequential matching against clean_text
+    aligned = []
+    current_pos = 0
+    clean_len = len(clean_text)
+    for t in tokens_info:
+        tok_text = t.get("token_text") or t.get("text") or t.get("token") or ""
+        if not tok_text:
+            continue
+        pos = clean_text.find(tok_text, current_pos)
+        if pos != -1:
+            t_copy = dict(t)
+            t_copy["char_start"] = pos
+            t_copy["char_end"] = pos + len(tok_text)
+            current_pos = pos + len(tok_text)
+            aligned.append(t_copy)
+        elif current_pos < clean_len:
+            t_copy = dict(t)
+            aligned.append(t_copy)
+
+    return aligned if aligned else tokens_info
+
+
 def find_citation_spans(text: str) -> List[Tuple[int, int]]:
     """Finds character-level [start, end) spans for citation markers.
 
@@ -179,9 +236,10 @@ def find_citation_spans(text: str) -> List[Tuple[int, int]]:
     - [sciq_paper_X]
     - [Block X]
     - [1], [1, 2], [1-3]
-    - Generic reference identifiers like [paper_1], [doc_2]
+    - [paper_1], [doc_2], [ref_1], [id_1], [source_1], [Источник: 1]
+    - Paper DOIs: 10.xxxx/... or [10.xxxx/...]
     - Author-year citations: e.g. (Smith et al., 2020) or [Jones, 2019]
-    - DOIs (e.g. 10.1000/182) and arXiv IDs (e.g. arXiv:2106.01234)
+    - DOIs and arXiv IDs
 
     Args:
         text: Input text string.
@@ -195,16 +253,20 @@ def find_citation_spans(text: str) -> List[Tuple[int, int]]:
     patterns = [
         # [sciq_paper_X]
         r"\[sciq_paper_[^\]]+\]",
-        # [Block X]
+        # [Block X] or [Block X, Block Y]
         r"\[Block\s+[^\]]+\]",
         # [1], [1, 2], [1-3]
         r"\[\d+(?:[\s,–-]+\d+)*\]",
-        # [paper_1], [doc_2], etc.
-        r"\[(?:paper|doc|ref|id)[_\s]*[^\]]+\]",
-        # Author-year in parens or brackets: (Smith et al., 2020), [Jones, 2019]
-        r"[\(\[][A-Z][a-zA-Z\s.-]+(?:et\s+al\.)?,\s*\d{4}[a-z]?[\)\]]",
-        # DOIs
+        # [paper_1], [doc_2], [ref_1], [id_1], [source_1], [Источник: 1]
+        r"\[(?:paper|doc|ref|id|source|Источник)[_\s:]*[^\]]+\]",
+        # Paper DOIs in brackets
+        r"\[10\.\d{4,9}/[^\]]+\]",
+        # Standalone DOIs
         r"\b10\.\d{4,9}/[^\s,;()\]]+",
+        # Bracketed author-year: [Jones, 2019] or [Smith et al., 2020]
+        r"\[[A-Z][a-zA-Z\s.-]+(?:et\s+al\.)?,\s*\d{4}[a-z]?\]",
+        # Parenthetical author-year: (Smith et al., 2020)
+        r"\([A-Z][a-zA-Z\s.-]+(?:et\s+al\.)?,\s*\d{4}[a-z]?\)",
         # arXiv IDs
         r"\barXiv:\d{4}\.\d{4,5}(?:v\d+)?\b",
     ]
@@ -336,12 +398,17 @@ def compute_citation_entropy(
             c_start = t.get("char_start", t.get("start"))
             c_end = t.get("char_end", t.get("end"))
             if c_start is not None and c_end is not None:
-                if any(max(c_start, s_start) < min(c_end, s_end) for s_start, s_end in spans):
-                    citation_tokens.append(t)
-    else:
+                if c_start == c_end:
+                    if any(s_start <= c_start < s_end for s_start, s_end in spans):
+                        citation_tokens.append(t)
+                else:
+                    if any(max(c_start, s_start) < min(c_end, s_end) for s_start, s_end in spans):
+                        citation_tokens.append(t)
+
+    if not citation_tokens:
         current_idx = 0
         for t in tokens_info:
-            tok_text = t.get("text") or t.get("token") or t.get("token_str") or ""
+            tok_text = t.get("token_text") or t.get("text") or t.get("token") or t.get("token_str") or ""
             if not tok_text:
                 continue
             pos = generated_text.find(tok_text, current_idx)
@@ -374,3 +441,4 @@ def compute_entropy_reduction(
     if h_b0 is None or h_rag is None:
         return 0.0
     return float(h_b0 - h_rag)
+

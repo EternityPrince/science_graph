@@ -324,6 +324,10 @@ def generate_baseline_case(
                             "delta_h_gen": 0.0,
                         }
                     else:
+                        if n_cit == 0 and isinstance(answer, str) and answer != raw_response:
+                            h_cit_ans, n_cit_ans = compute_citation_entropy(tokens_info, answer)
+                            if n_cit_ans > 0:
+                                h_cit, n_cit = h_cit_ans, n_cit_ans
                         post_scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in chunks]
                         h_rank_post = compute_rank_entropy(post_scores) if post_scores else 0.0
                         h_lex_post = compute_lexical_entropy(trimmed_text) if trimmed_text else 0.0
@@ -342,6 +346,7 @@ def generate_baseline_case(
                             "delta_h_gen": round(delta_h, 4),
                         }
                     metrics["shannon_diagnostics"] = shannon_diag
+
 
                 if trace:
                     tokens = rag_service.llm_engine.count_tokens(answer)
