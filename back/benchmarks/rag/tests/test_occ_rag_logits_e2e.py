@@ -146,3 +146,67 @@ def test_run_query_on_baseline_shannon_diagnostics():
     assert "n_citation_tokens" in diag
     assert diag["h_gen"] >= 0.0
     assert diag["h_citation"] >= 0.0
+
+
+def test_openai_engine_generate_response_with_logits_mocked():
+    """Verify OpenAILLMEngine parses choice logprobs.content into aligned tokens_info."""
+    from src.llm_engine.openai_impl import OpenAILLMEngine
+    with patch("openai.OpenAI"):
+        engine = OpenAILLMEngine(api_key="test-key", model_name="gpt-4o")
+
+        mock_choice = MagicMock()
+        mock_item1 = MagicMock()
+        mock_item1.token = "Hello"
+        mock_item1.logprob = -0.1
+        mock_top1 = MagicMock()
+        mock_top1.token = "Hello"
+        mock_top1.logprob = -0.1
+        mock_item1.top_logprobs = [mock_top1]
+
+        mock_item2 = MagicMock()
+        mock_item2.token = " world"
+        mock_item2.logprob = -0.2
+        mock_item2.top_logprobs = []
+
+        mock_choice.logprobs.content = [mock_item1, mock_item2]
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        engine._call_completions_with_lock = MagicMock(return_value=mock_response)
+
+        text, tokens_info = engine.generate_response_with_logits("Say Hello world")
+
+        assert text == "Hello world"
+        assert len(tokens_info) == 2
+        assert tokens_info[0]["token_text"] == "Hello"
+        assert tokens_info[0]["logprob"] == -0.1
+        assert tokens_info[0]["top_logprobs"] == {"Hello": -0.1}
+        assert tokens_info[1]["token_text"] == " world"
+        assert tokens_info[1]["logprob"] == -0.2
+
+
+def test_ensure_b0_entropy_caching_and_generation():
+    """Verify _ensure_b0_entropy generates B0 entropy when missing and caches result."""
+    from core.generation import _ensure_b0_entropy
+    rag_service = MagicMock()
+    mock_engine = MagicMock()
+    dummy_tokens = [
+        {"token_text": "Ground", "logprob": -0.5, "top_logprobs": {"Ground": -0.5, "Earth": -1.2}},
+        {"token_text": " truth", "logprob": -0.3, "top_logprobs": {" truth": -0.3}}
+    ]
+    mock_engine.generate_response_with_logits.return_value = (
+        "Ground truth response", dummy_tokens
+    )
+    rag_service.llm_engine = mock_engine
+    mock_config = MagicMock()
+
+    h_b0 = _ensure_b0_entropy(rag_service, "what is gravity?", mock_config)
+    assert h_b0 >= 0.0
+    assert rag_service._query_b0_h_gen["what is gravity?"] == h_b0
+
+    # Ensure second call uses cached value without calling llm_engine again
+    rag_service.llm_engine.generate_response_with_logits.reset_mock()
+    h_b0_cached = _ensure_b0_entropy(rag_service, "what is gravity?", mock_config)
+    assert h_b0_cached == h_b0
+    rag_service.llm_engine.generate_response_with_logits.assert_not_called()
+

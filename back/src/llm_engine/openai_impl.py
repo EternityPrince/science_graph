@@ -5,7 +5,7 @@ OpenAI LLM Engine implementation for cloud model provider.
 import asyncio
 import os
 import time
-from typing import Optional, Type
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel
 from src.config import config
@@ -392,3 +392,77 @@ class OpenAILLMEngine(BaseLLMEngine):
         except Exception:
             # Basic fallback (no response_format)
             return await _call_with_format(None)
+
+    def generate_response_with_logits(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temp: Optional[float] = None,
+        task: Optional[str] = None,
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        resolved_max_tokens = max_tokens
+        if resolved_max_tokens is None:
+            if task == "extraction":
+                resolved_max_tokens = config.llm_extraction_output_limit
+            elif task == "clustering":
+                resolved_max_tokens = config.llm_clustering_output_limit
+            elif task == "synthesis":
+                resolved_max_tokens = config.llm_synthesis_output_limit
+
+        if resolved_max_tokens is None:
+            resolved_max_tokens = config.llm_max_tokens
+
+        temp = temp if temp is not None else config.llm_temp
+
+        kwargs = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": resolved_max_tokens,
+            "temperature": temp,
+            "logprobs": True,
+            "top_logprobs": 5,
+        }
+
+        try:
+            response = self._call_completions_with_lock(**kwargs)
+        except Exception:
+            try:
+                kwargs.pop("top_logprobs", None)
+                response = self._call_completions_with_lock(**kwargs)
+            except Exception:
+                kwargs.pop("logprobs", None)
+                response = self._call_completions_with_lock(**kwargs)
+
+        choice = response.choices[0]
+        tokens_info = []
+        full_text = ""
+        if hasattr(choice, "logprobs") and choice.logprobs and getattr(choice.logprobs, "content", None):
+            for item in choice.logprobs.content:
+                t_text = item.token
+                c_start = len(full_text)
+                full_text += t_text
+                c_end = len(full_text)
+                lp = item.logprob
+                top_lps = {}
+                if getattr(item, "top_logprobs", None):
+                    for top in item.top_logprobs:
+                        top_lps[top.token] = top.logprob
+                tokens_info.append({
+                    "token_text": t_text,
+                    "logprob": lp,
+                    "top_logprobs": top_lps,
+                    "char_start": c_start,
+                    "char_end": c_end
+                })
+        else:
+            full_text = choice.message.content or ""
+
+        clean_text = strip_thinking_tokens(full_text)
+        try:
+            from core.shannon_estimator import align_tokens_info
+            aligned_tokens = align_tokens_info(full_text, clean_text, tokens_info)
+        except Exception:
+            aligned_tokens = tokens_info
+
+        return clean_text, aligned_tokens
+
