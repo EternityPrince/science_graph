@@ -815,6 +815,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                     continue
                 summary_stats[baseline_name][k].append(val)
 
+            shannon_diag = baseline_data.get("shannon_diagnostics") or (baseline_data.get("metrics", {}).get("shannon_diagnostics") if isinstance(baseline_data.get("metrics"), dict) else None)
             case_output["baselines"][baseline_name] = {
                 "status": baseline_data.get("status", "success"),
                 "latency_sec": latency,
@@ -829,8 +830,11 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                 "context_token": baseline_data.get("context_token"),
                 "max_input_token": baseline_data.get("max_input_token"),
                 "context_fillness": baseline_data.get("context_fillness"),
-                "trace": baseline_data.get("trace")
+                "trace": baseline_data.get("trace"),
+                "metrics": baseline_data.get("metrics"),
             }
+            if shannon_diag:
+                case_output["baselines"][baseline_name]["shannon_diagnostics"] = shannon_diag
 
         final_results.append(case_output)
 

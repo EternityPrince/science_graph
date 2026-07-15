@@ -432,3 +432,82 @@ async def test_evaluate_all_metrics_fallback_with_context(mock_sleep):
         assert res["answer_relevance"]["score"] == 0.0
         assert res["semantic_accuracy"]["score"] == 0.0
 
+
+@pytest.mark.asyncio
+async def test_run_evaluation_forwards_shannon_diagnostics_and_metrics(tmp_path):
+    input_file = tmp_path / "input.yaml"
+    input_data = {
+        "metadata": {"version": "1.0"},
+        "results": [
+            {
+                "id": "q1",
+                "query": "Q1",
+                "golden_answer": "G1",
+                "expected_papers": ["p1"],
+                "baselines": {
+                    "B0": {
+                        "status": "success",
+                        "generated_answer": "ans0",
+                        "latency_sec": 1.0,
+                        "shannon_diagnostics": {"H_prior": 1.5, "delta": 0.5},
+                        "metrics": {"token_count": 10}
+                    },
+                    "B1": {
+                        "status": "success",
+                        "generated_answer": "ans1",
+                        "latency_sec": 1.2,
+                        "metrics": {
+                            "shannon_diagnostics": {"H_prior": 2.0, "delta": 0.8},
+                            "token_count": 15
+                        }
+                    }
+                }
+            }
+        ]
+    }
+    with open(input_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump(input_data, f)
+        
+    prompts_file = tmp_path / "judge_prompts.yaml"
+    prompts_data = {
+        "unified_without_context_evaluator": {"system_prompt": "sys", "user_prompt_template": "user {answer}"},
+        "unified_with_context_evaluator": {"system_prompt": "sys", "user_prompt_template": "user {answer}"}
+    }
+    with open(prompts_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump(prompts_data, f)
+        
+    args = MagicMock()
+    args.input = str(input_file)
+    args.output = str(tmp_path / "output.yaml")
+    args.baselines = "B0,B1"
+    args.concurrency = 1
+    args.rpm = 0
+    args.limit = None
+    args.clear_checkpoint = False
+    
+    output_file = tmp_path / "output.yaml"
+    
+    mock_eval_metrics = {"is_answerable": True, "predicted_abstained": False, "answerability_outcome": "TP", "eval_details": {}}
+    
+    with patch("core.evaluator.CloudEvaluator") as mock_cloud_cls, \
+         patch("core.evaluator.evaluate_baseline_case", new_callable=AsyncMock) as mock_eval_case, \
+         patch("core.evaluator.get_cloud_credentials", return_value=("key", "url", "model")):
+        mock_eval_case.return_value = mock_eval_metrics
+        mock_config = MagicMock()
+        mock_con = MagicMock()
+        await run_evaluation(args, mock_config, mock_con)
+        
+    with open(output_file, "r", encoding="utf-8") as f:
+        out_yaml = yaml.safe_load(f)
+        
+    baselines = out_yaml["results"][0]["baselines"]
+    assert baselines["B0"]["shannon_diagnostics"] == {"H_prior": 1.5, "delta": 0.5}
+    assert baselines["B0"]["metrics"] == {"token_count": 10}
+    assert baselines["B1"]["shannon_diagnostics"] == {"H_prior": 2.0, "delta": 0.8}
+    assert baselines["B1"]["metrics"] == {
+        "shannon_diagnostics": {"H_prior": 2.0, "delta": 0.8},
+        "token_count": 15
+    }
+
+
+
