@@ -357,12 +357,14 @@ class MlxLLMEngine(BaseLLMEngine):
                 entropy_val = 0.0
                 if logprobs is not None and mx is not None:
                     try:
-                        logprobs_f32 = logprobs.astype(mx.float32)
-                        p = mx.exp(logprobs_f32)
-                        entropy_val = -float(mx.sum(p * (logprobs_f32 / math.log(2))))
+                        top_indices = mx.argpartition(logprobs, -50)[-50:]
+                        top_logprobs = logprobs[top_indices].astype(mx.float32)
+                        p = mx.softmax(top_logprobs)
+                        entropy_val = -float(mx.sum(p * mx.log2(p + 1e-12)))
                     except Exception:
                         try:
-                            p = mx.softmax(logprobs)
+                            logprobs_f32 = logprobs.astype(mx.float32)
+                            p = mx.softmax(logprobs_f32)
                             entropy_val = -float(mx.sum(p * mx.log2(p + 1e-12)))
                         except Exception:
                             entropy_val = 0.0

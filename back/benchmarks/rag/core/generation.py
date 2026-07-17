@@ -1,5 +1,6 @@
 import sys
 import time
+import json
 import yaml
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +54,10 @@ def _generate_with_logits_safe(llm_engine: Any, prompt: str) -> Tuple[str, List[
 
 def _ensure_b0_entropy(rag_service: Any, query: str, config: Any) -> float:
     """Ensures H_b0 baseline generation entropy is computed and cached for the given query."""
+    cache_dir = Path(__file__).resolve().parents[1] / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "b0_entropy.json"
+
     cache = getattr(rag_service, "_query_b0_h_gen", None)
     if not isinstance(cache, dict):
         cache = {}
@@ -61,13 +66,29 @@ def _ensure_b0_entropy(rag_service: Any, query: str, config: Any) -> float:
         except Exception:
             pass
 
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                disk_cache = json.load(f)
+                if isinstance(disk_cache, dict):
+                    cache.update(disk_cache)
+        except Exception:
+            pass
+
     if query in cache:
-        return cache[query]
+        return float(cache[query])
 
     b0_prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
     _, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, b0_prompt)
-    h_gen_b0 = compute_generation_entropy(tokens_info)
+    h_gen_b0 = float(compute_generation_entropy(tokens_info))
     cache[query] = h_gen_b0
+
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
     return h_gen_b0
 
 
