@@ -1,5 +1,19 @@
+"""
+Science Graph — Configuration Management, Presets, and Dataset Loading.
+Contains baseline definitions, configuration presets, argument parsers, dataset loaders,
+and run directory creation utilities.
+"""
+
+import copy
+import argparse
+import random
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+
+import yaml
+
+from src.config import config
 
 # Map of baselines and their descriptions
 BASELINES_INFO: Dict[str, str] = {
@@ -13,6 +27,322 @@ BASELINES_INFO: Dict[str, str] = {
     "CUSTOM": "Custom Run (Конфигурация с пользовательскими параметрами) — для тестирования влияния настроек на поиск."
 }
 
+DEFAULT_LIMIT = 50
+
+# Store default config settings for reference and rollback
+DEFAULT_COMPONENTS = copy.deepcopy(config.data.get("rag_components", {}))
+DEFAULT_HYPERPARAMS = copy.deepcopy(config.data.get("hyperparameters", {}))
+
+# Hardcoded CUSTOM preset configuration (components and hyperparameters).
+CUSTOM_PRESET_COMPONENTS = {
+    "intent_classifier": False,
+    "graph_ontology_lookup": True,
+    "llm_query_expansion": False,
+    "hyde": False,
+    "lexical_search": True,
+    "dense_search": True,
+    "dynamic_alpha_blending": False,
+    "rrf": True,
+    "graph_expansion": False,
+    "reranker": True,
+    "score_blending": False,
+    "context_trimming": True,
+    "citation_repair": True,
+}
+
+
+class RAGPreset(NamedTuple):
+    score_blend_reranker_weight: float
+    score_blend_rrf_weight: float
+    rrf_k: float
+    dynamic_alpha_threshold_low: float
+    dynamic_alpha_val_low: float
+    dynamic_alpha_threshold_mid: float
+    dynamic_alpha_val_mid: float
+    dynamic_alpha_val_high: float
+
+
+class GraphPreset(NamedTuple):
+    p_base: float
+    gamma: float
+    crawl_stop_threshold: float
+    semantic_score_threshold: float
+    semantic_score_top_p: float
+    sigmoid_score_threshold: float
+    sigmoid_score_top_p: float
+    essential_fact_threshold: float
+    sigmoid_slope: float
+    sigmoid_center: float
+    weight_authored: float
+    weight_cites: float
+    weight_mentions_concept: float
+    weight_default: float
+
+
+class BM25Preset(NamedTuple):
+    k1: float
+    b: float
+
+
+class CustomPresetHyperparams(NamedTuple):
+    rag: RAGPreset
+    graph: GraphPreset
+    bm25: BM25Preset
+
+
+CUSTOM_PRESET_HYPERPARAMS_NT = CustomPresetHyperparams(
+    rag=RAGPreset(
+        score_blend_reranker_weight=0.75,
+        score_blend_rrf_weight=0.25,
+        rrf_k=60.0,
+        dynamic_alpha_threshold_low=1.2,
+        dynamic_alpha_val_low=1.0,
+        dynamic_alpha_threshold_mid=3.0,
+        dynamic_alpha_val_mid=0.5,
+        dynamic_alpha_val_high=1.0,
+    ),
+    graph=GraphPreset(
+        p_base=0.0,
+        gamma=0.0,
+        crawl_stop_threshold=1.0,
+        semantic_score_threshold=0.35,
+        semantic_score_top_p=0.9,
+        sigmoid_score_threshold=0.4,
+        sigmoid_score_top_p=0.9,
+        essential_fact_threshold=0.5,
+        sigmoid_slope=0.0,
+        sigmoid_center=0.5,
+        weight_authored=1.0,
+        weight_cites=1.0,
+        weight_mentions_concept=1.0,
+        weight_default=1.0,
+    ),
+    bm25=BM25Preset(
+        k1=1.5,
+        b=0.75,
+    )
+)
+
+CUSTOM_PRESET_HYPERPARAMS = {
+    "rag": CUSTOM_PRESET_HYPERPARAMS_NT.rag._asdict(),
+    "graph": CUSTOM_PRESET_HYPERPARAMS_NT.graph._asdict(),
+    "bm25": CUSTOM_PRESET_HYPERPARAMS_NT.bm25._asdict(),
+}
+
+
+def get_custom_preset_weights(preset_hype: CustomPresetHyperparams) -> dict:
+    """Returns the custom preset weights configured for edge-type heuristics from the provided NamedTuple."""
+    return {
+        "weight_authored": preset_hype.graph.weight_authored,
+        "weight_cites": preset_hype.graph.weight_cites,
+        "weight_mentions_concept": preset_hype.graph.weight_mentions_concept,
+        "weight_default": preset_hype.graph.weight_default,
+    }
+
+
+def add_custom_config_arguments(parser: argparse.ArgumentParser) -> None:
+    """Adds custom config command line arguments to the parser."""
+    parser.add_argument(
+        "--config-file", type=str, default=None,
+        help="Path to a custom YAML configuration file containing overrides."
+    )
+    parser.add_argument(
+        "--custom", action="store_true",
+        help="Apply the hardcoded custom preset components and hyperparameters."
+    )
+
+    # Component overrides (Boolean Optional actions)
+    parser.add_argument("--intent-classifier", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--graph-ontology-lookup", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--llm-query-expansion", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--hyde", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--lexical-search", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--dense-search", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--dynamic-alpha-blending", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--rrf", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--graph-expansion", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--reranker", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--score-blending", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--context-trimming", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--citation-repair", action=argparse.BooleanOptionalAction, default=None)
+
+    # RAG Hyperparameters overrides
+    parser.add_argument("--score-blend-reranker-weight", type=float, default=None)
+    parser.add_argument("--score-blend-rrf-weight", type=float, default=None)
+    parser.add_argument("--rrf-k", type=float, default=None)
+    parser.add_argument("--dynamic-alpha-threshold-low", type=float, default=None)
+    parser.add_argument("--dynamic-alpha-val-low", type=float, default=None)
+    parser.add_argument("--dynamic-alpha-threshold-mid", type=float, default=None)
+    parser.add_argument("--dynamic-alpha-val-mid", type=float, default=None)
+    parser.add_argument("--dynamic-alpha-val-high", type=float, default=None)
+
+    # Graph Hyperparameters overrides
+    parser.add_argument("--graph-p-base", type=float, default=None)
+    parser.add_argument("--graph-gamma", type=float, default=None)
+    parser.add_argument("--graph-crawl-stop-threshold", type=float, default=None)
+    parser.add_argument("--graph-semantic-score-threshold", type=float, default=None)
+    parser.add_argument("--graph-semantic-score-top-p", type=float, default=None)
+    parser.add_argument("--graph-sigmoid-score-threshold", type=float, default=None)
+    parser.add_argument("--graph-sigmoid-score-top-p", type=float, default=None)
+    parser.add_argument("--graph-essential-fact-threshold", type=float, default=None)
+    parser.add_argument("--graph-sigmoid-slope", type=float, default=None)
+    parser.add_argument("--graph-sigmoid-center", type=float, default=None)
+    parser.add_argument("--graph-weight-authored", type=float, default=None)
+    parser.add_argument("--graph-weight-cites", type=float, default=None)
+    parser.add_argument("--graph-weight-mentions-concept", type=float, default=None)
+    parser.add_argument("--graph-weight-default", type=float, default=None)
+
+    # BM25 Hyperparameters overrides
+    parser.add_argument("--bm25-k1", type=float, default=None)
+    parser.add_argument("--bm25-b", type=float, default=None)
+
+
+def build_custom_config(args: Any, file_config: Dict[str, Any] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Builds custom components and hyperparameters dictionaries by merging
+    defaults, hardcoded preset (if args.custom), file config (if provided), and CLI overrides.
+    """
+    custom_comp = copy.deepcopy(DEFAULT_COMPONENTS)
+    custom_hype = copy.deepcopy(DEFAULT_HYPERPARAMS)
+
+    if getattr(args, "custom", False):
+        custom_comp.update(CUSTOM_PRESET_COMPONENTS)
+        for section, params in CUSTOM_PRESET_HYPERPARAMS.items():
+            if section not in custom_hype:
+                custom_hype[section] = {}
+            custom_hype[section].update(params)
+
+    if file_config:
+        if "rag_components" in file_config:
+            custom_comp.update(file_config["rag_components"])
+        if "hyperparameters" in file_config:
+            for section, params in file_config["hyperparameters"].items():
+                if section not in custom_hype:
+                    custom_hype[section] = {}
+                if params:
+                    custom_hype[section].update(params)
+
+    comp_fields = [
+        "intent_classifier", "graph_ontology_lookup", "llm_query_expansion", 
+        "hyde", "lexical_search", "dense_search", "dynamic_alpha_blending", 
+        "rrf", "graph_expansion", "reranker", "score_blending", 
+        "context_trimming", "citation_repair"
+    ]
+    for field in comp_fields:
+        val = getattr(args, field, None)
+        if val is not None:
+            custom_comp[field] = val
+
+    rag_hype_fields = [
+        "score_blend_reranker_weight", "score_blend_rrf_weight", "rrf_k",
+        "dynamic_alpha_threshold_low", "dynamic_alpha_val_low",
+        "dynamic_alpha_threshold_mid", "dynamic_alpha_val_mid",
+        "dynamic_alpha_val_high"
+    ]
+    for field in rag_hype_fields:
+        val = getattr(args, field, None)
+        if val is not None:
+            if "rag" not in custom_hype:
+                custom_hype["rag"] = {}
+            custom_hype["rag"][field] = val
+
+    graph_hype_fields = [
+        ("graph_p_base", "p_base"),
+        ("graph_gamma", "gamma"),
+        ("graph_crawl_stop_threshold", "crawl_stop_threshold"),
+        ("graph_semantic_score_threshold", "semantic_score_threshold"),
+        ("graph_semantic_score_top_p", "semantic_score_top_p"),
+        ("graph_sigmoid_score_threshold", "sigmoid_score_threshold"),
+        ("graph_sigmoid_score_top_p", "sigmoid_score_top_p"),
+        ("graph_essential_fact_threshold", "essential_fact_threshold"),
+        ("graph_sigmoid_slope", "sigmoid_slope"),
+        ("graph_sigmoid_center", "sigmoid_center"),
+        ("graph_weight_authored", "weight_authored"),
+        ("graph_weight_cites", "weight_cites"),
+        ("graph_weight_mentions_concept", "weight_mentions_concept"),
+        ("graph_weight_default", "weight_default")
+    ]
+    for arg_name, conf_name in graph_hype_fields:
+        val = getattr(args, arg_name, None)
+        if val is not None:
+            if "graph" not in custom_hype:
+                custom_hype["graph"] = {}
+            custom_hype["graph"][conf_name] = val
+
+    bm25_hype_fields = [
+        ("bm25_k1", "k1"),
+        ("bm25_b", "b")
+    ]
+    for arg_name, conf_name in bm25_hype_fields:
+        val = getattr(args, arg_name, None)
+        if val is not None:
+            if "bm25" not in custom_hype:
+                custom_hype["bm25"] = {}
+            custom_hype["bm25"][conf_name] = val
+
+    return custom_comp, custom_hype
+
+
+_BASELINE_CONFIG_PATCH_STATE: Dict[str, Any] | None = None
+
+
+def restore_baseline_config_patch() -> None:
+    """Restores get_baseline_config after patch_config_for_custom."""
+    global _BASELINE_CONFIG_PATCH_STATE
+    if not _BASELINE_CONFIG_PATCH_STATE:
+        return
+
+    orig = _BASELINE_CONFIG_PATCH_STATE["core.config"]
+    # Reassign local module reference
+    globals()["get_baseline_config"] = orig
+
+    core_retrieval = _BASELINE_CONFIG_PATCH_STATE.get("core.retrieval")
+    if core_retrieval is not None:
+        import core.retrieval as core_retrieval_mod
+        core_retrieval_mod.get_baseline_config = core_retrieval
+
+    core_generation = _BASELINE_CONFIG_PATCH_STATE.get("core.generation")
+    if core_generation is not None:
+        import core.generation as core_generation_mod
+        core_generation_mod.get_baseline_config = core_generation
+
+    _BASELINE_CONFIG_PATCH_STATE = None
+
+
+def patch_config_for_custom(custom_comp: dict, custom_hype: dict):
+    """Dynamically patches core config and retrieval functions to support CUSTOM baseline."""
+    restore_baseline_config_patch()
+
+    orig_get_baseline_config = globals()["get_baseline_config"]
+
+    def custom_get_baseline_config(baseline: str, config_rag_components: dict) -> dict:
+        if baseline == "CUSTOM":
+            config.data["hyperparameters"] = copy.deepcopy(custom_hype)
+            merged = orig_get_baseline_config("CUSTOM", config_rag_components)
+            merged.update(copy.deepcopy(custom_comp))
+            return merged
+
+        config.data["hyperparameters"] = copy.deepcopy(DEFAULT_HYPERPARAMS)
+        return orig_get_baseline_config(baseline, config_rag_components)
+
+    global _BASELINE_CONFIG_PATCH_STATE
+    _BASELINE_CONFIG_PATCH_STATE = {"core.config": orig_get_baseline_config}
+
+    globals()["get_baseline_config"] = custom_get_baseline_config
+
+    try:
+        import core.retrieval as core_retrieval
+        _BASELINE_CONFIG_PATCH_STATE["core.retrieval"] = core_retrieval.get_baseline_config
+        core_retrieval.get_baseline_config = custom_get_baseline_config
+    except ImportError:
+        pass
+
+    try:
+        import core.generation as core_generation
+        _BASELINE_CONFIG_PATCH_STATE["core.generation"] = core_generation.get_baseline_config
+        core_generation.get_baseline_config = custom_get_baseline_config
+    except ImportError:
+        pass
+
 
 def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str, bool]:
     """Returns the RAG components configuration dictionary for a given baseline.
@@ -22,7 +352,6 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
     components = {k: False for k in config_rag_components.keys()}
     
     if baseline == "B0":
-        # Zero-shot has no retrieval components enabled
         pass
     elif baseline == "B1":
         components["lexical_search"] = True
@@ -47,13 +376,11 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
         components["citation_repair"] = True
         components["reranker"] = True
     elif baseline == "B6":
-        # Full pipeline has everything enabled except hyde (respecting user overrides)
         components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
         components["hyde"] = False
         components["reranker"] = True
         components["graph_neighbors_in_rrf"] = True
     elif baseline == "CUSTOM":
-        # Custom has everything enabled except hyde by default (respecting user overrides)
         components = {k: config_rag_components.get(k, True) for k in config_rag_components.keys()}
         components["hyde"] = False
         components["citation_repair"] = bool(config_rag_components.get("citation_repair", True))
@@ -78,32 +405,25 @@ def get_safe_model_name(model_name: str) -> str:
     return name
 
 
-DEFAULT_LIMIT = 50
-
 def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42) -> list:
     """Loads a dataset YAML file, formats it if it's SciQ format,
     and applies random sampling to limit count if specified or if default matches.
     """
-    import yaml
-    import random
-    
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
-        
+
     with open(dataset_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-        
+
     if not data:
         return []
-        
-    # Check if this is the SciQ YAML format (a list of dicts with a "question" key)
+
     is_sciq = False
     if isinstance(data, list) and len(data) > 0:
         if isinstance(data[0], dict) and "question" in data[0]:
             is_sciq = True
-            
+
     if is_sciq:
-        # Convert SciQ format to standard benchmark cases
         converted = []
         for idx, item in enumerate(data):
             q_data = item["question"]
@@ -114,32 +434,28 @@ def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42
                 "query": q_data["q"],
                 "golden_answer": q_data["a"],
                 "is_answerable": True,
-                "c": q_data["c"]  # temporary context string storage
+                "c": q_data["c"]
             })
-            
-        # Resolve context IDs stably
+
         unique_contexts = []
         context_to_id = {}
         for c in [case["c"] for case in converted]:
             if c not in context_to_id:
                 unique_contexts.append(c)
                 context_to_id[c] = len(unique_contexts)
-                
+
         for case in converted:
             c_id = context_to_id[case["c"]]
             case["expected_papers"] = [f"sciq_paper_{c_id}"]
             del case["c"]
-            
+
         data = converted
-        
-        # Default limit is 50 for SciQ when not specified
-        # If limit is explicitly -1, it means "no limit/run all"
+
         if limit is None:
             limit = DEFAULT_LIMIT
         elif limit == -1:
             limit = None
-            
-    # Apply limit if requested and dataset is larger
+
     if limit is not None and limit != -1 and len(data) > limit:
         rng = random.Random(seed)
         data = rng.sample(data, limit)
@@ -147,23 +463,22 @@ def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42
             data.sort(key=lambda x: x.get("id", ""))
         except Exception:
             pass
-            
+
     return data
 
 
 def create_graph_run_dir(
     base_dir: Path,
-    run_name: str | None = None,
-    model_name: str | None = None,
+    run_name: Optional[str] = None,
+    model_name: Optional[str] = None,
     timestamp: Any = None,
 ) -> Path:
     """Creates a unified benchmark run directory inside base_dir with traces/ and parsed/ subfolders."""
-    from datetime import datetime
     if timestamp is None:
         timestamp = datetime.now()
-        
+
     ts_str = timestamp.strftime("%Y%m%d_%H%M%S")
-    
+
     if run_name:
         dir_name = run_name
     elif model_name:
@@ -171,12 +486,10 @@ def create_graph_run_dir(
         dir_name = f"run_{ts_str}_{safe_model}"
     else:
         dir_name = f"run_{ts_str}"
-        
+
     run_dir = base_dir / dir_name
-    
-    # Create the directories
+
     (run_dir / "traces").mkdir(parents=True, exist_ok=True)
     (run_dir / "parsed").mkdir(parents=True, exist_ok=True)
-    
-    return run_dir
 
+    return run_dir

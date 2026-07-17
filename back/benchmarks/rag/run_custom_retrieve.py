@@ -24,12 +24,12 @@ from core.metrics import calculate_retrieval_recall, calculate_context_precision
 import core.config
 import core.retrieval
 
-from config_creator import (
+from core.config import (
     DEFAULT_COMPONENTS,
     DEFAULT_HYPERPARAMS,
     build_custom_config,
     patch_config_for_custom as patch_retrieval_for_custom,
-    add_custom_config_arguments
+    add_custom_config_arguments,
 )
 
 

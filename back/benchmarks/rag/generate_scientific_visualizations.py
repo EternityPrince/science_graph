@@ -22,208 +22,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from core.analytics import analyze_metrics
 from core.models import load_report_file
 
-# Define quality metrics and their printable labels
-METRICS = [
-    "retrieval_recall",
-    "context_precision",
-    "faithfulness",
-    "answer_relevance",
-    "citation_fidelity",
-    "semantic_accuracy"
-]
+from core.analytics import analyze_metrics, METRIC_LABELS
+from core.models import load_report_file
+from core.visualization import (
+    METRICS,
+    COLOR_PALETTE,
+    get_baseline_color,
+    get_category_metric_value,
+    setup_academic_style,
+    create_output_directory,
+    save_plot,
+    find_sciq_results,
+    load_report_data as _core_load_report_data,
+)
 
-METRIC_LABELS = {
-    "retrieval_recall": "Retrieval Recall",
-    "context_precision": "Context Precision",
-    "faithfulness": "Faithfulness",
-    "answer_relevance": "Answer Relevance",
-    "citation_fidelity": "Citation Fidelity",
-    "semantic_accuracy": "Semantic Accuracy",
-    "context_fillness": "Context Fillness",
-    "latency_sec": "Latency",
-    "token_output": "Token Output",
-    "token_answer": "Token Answer",
-    "token_reasoning": "Token Reasoning"
-}
-
-# Cohesive academic colors
 BASELINES = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
-COLOR_PALETTE = {
-    'B1': '#4A5568',  # Charcoal Grey
-    'B2': '#1A365D',  # Deep Navy Blue
-    'B3': '#38A169',  # Vibrant Green
-    'B4': '#DD6B20',  # Rich Orange
-    'B5': '#E53E3E',  # Academic Red
-    'B6': '#805AD5',  # Royal Purple
-    'Custom': '#D53F8C', # Magenta
-    'SciQ': '#2B6CB0'   # Standard Blue
-}
 
-def get_baseline_color(b: str) -> str:
-    """Returns baseline color, with slate grey fallback."""
-    return COLOR_PALETTE.get(b, '#718096')
-
-def get_category_metric_value(stats: dict, category: str, baseline: str, metric: str) -> float:
-    """Safely retrieves category metric value, defaulting to 0.0 if not found."""
-    return stats.get("category_stats", {}).get(category, {}).get(baseline, {}).get(metric, 0.0)
-
-def setup_academic_style():
-    """Configures matplotlib and seaborn for publication-ready figures."""
-    sns.set_theme(style="whitegrid")
-    
-    # Configure font settings to resemble Times New Roman
-    plt.rcParams['font.family'] = 'serif'
-    plt.rcParams['font.serif'] = ['Times New Roman', 'DejaVu Serif', 'Times', 'serif']
-    plt.rcParams['mathtext.fontset'] = 'custom'
-    plt.rcParams['mathtext.rm'] = 'Times New Roman'
-    plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
-    plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
-    
-    # Visual aesthetics
-    plt.rcParams['axes.edgecolor'] = '#CCCCCC'
-    plt.rcParams['axes.linewidth'] = 0.8
-    plt.rcParams['xtick.color'] = '#555555'
-    plt.rcParams['ytick.color'] = '#555555'
-    plt.rcParams['grid.color'] = '#EEEEEE'
-    plt.rcParams['grid.linewidth'] = 0.5
-    plt.rcParams['figure.titlesize'] = 14
-    plt.rcParams['axes.titlesize'] = 12
-    plt.rcParams['axes.labelsize'] = 10
-    plt.rcParams['xtick.labelsize'] = 9
-    plt.rcParams['ytick.labelsize'] = 9
-
-def create_output_directory(input_dir: Path = None) -> Path:
-    """Creates a figures directory. If input_dir is a directory, puts it there. Otherwise inside back/benchmarks/rag/figures."""
-    if input_dir and input_dir.is_dir():
-        run_dir = input_dir / "figures"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        return run_dir
-        
-    base_path = Path(__file__).resolve().parent
-    figures_dir = base_path / "figures"
-    figures_dir.mkdir(exist_ok=True)
-    
-    # Append to .gitignore if not present
-    gitignore_path = base_path / ".gitignore"
-    if gitignore_path.exists():
-        content = gitignore_path.read_text()
-        if "figures/" not in content:
-            with open(gitignore_path, "a") as f:
-                f.write("\nfigures/\n")
-    else:
-        with open(gitignore_path, "w") as f:
-            f.write("figures/\n")
-                
-    # Run specific folder
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = figures_dir / f"run_{timestamp}"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    return run_dir
 
 def load_report_data(yaml_path: Path) -> tuple[pd.DataFrame, dict]:
-    """Loads results YAML, computes all metrics, and returns (DataFrame, stats)."""
-    report = load_report_file(yaml_path)
-    data = report.model_dump()
-    stats = analyze_metrics(data)
-    
-    # Dynamically determine the baselines present
+    """Loads results YAML, computes all metrics, updates global BASELINES, and returns (DataFrame, stats)."""
     global BASELINES
-    found_baselines = set()
-    metadata = data.get("metadata") or {}
-    for b in metadata.get("baselines_evaluated", []):
-        found_baselines.add(b)
-    for r in data.get("results", []):
-        for b in r.get("baselines", {}).keys():
-            found_baselines.add(b)
-            
-    # Preserve preferred order if standard
-    preferred_order = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
-    baselines_list = [b for b in preferred_order if b in found_baselines]
-    for b in sorted(found_baselines):
-        if b not in baselines_list:
-            baselines_list.append(b)
-            
-    if not baselines_list:
-        baselines_list = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']  # Fallback
-        
-    BASELINES = baselines_list
-    
-    rows = []
-    for r in data.get("results", []):
-        q_id = r.get("id")
-        category = r.get("category")
-        for b in BASELINES:
-            b_data = r.get("baselines", {}).get(b, {})
-            if not b_data:
-                continue
-            eval_metrics = b_data.get("eval_metrics", {})
-            row = {
-                "query_id": q_id,
-                "category": category,
-                "baseline": b,
-                "status": b_data.get("status"),
-                "latency_sec": b_data.get("latency_sec"),
-                "expected_papers": r.get("expected_papers", []),
-                "retrieved_papers": b_data.get("retrieved_papers", []),
-                "retrieval_recall": eval_metrics.get("retrieval_recall"),
-                "context_precision": eval_metrics.get("context_precision"),
-                "faithfulness": eval_metrics.get("faithfulness"),
-                "answer_relevance": eval_metrics.get("answer_relevance"),
-                "citation_fidelity": eval_metrics.get("citation_fidelity"),
-                "semantic_accuracy": eval_metrics.get("semantic_accuracy"),
-                "context_fillness": eval_metrics.get("context_fillness"),
-                "token_output": eval_metrics.get("token_output"),
-                "token_answer": eval_metrics.get("token_answer"),
-                "token_reasoning": eval_metrics.get("token_reasoning")
-            }
-            rows.append(row)
-            
-    df = pd.DataFrame(rows)
+    df, stats = _core_load_report_data(yaml_path)
+    if not df.empty and "baseline" in df.columns:
+        found_baselines = set(df["baseline"].unique())
+        preferred_order = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
+        baselines_list = [b for b in preferred_order if b in found_baselines]
+        for b in sorted(found_baselines):
+            if b not in baselines_list:
+                baselines_list.append(b)
+        if baselines_list:
+            BASELINES = baselines_list
     return df, stats
+
 
 def load_data(yaml_path: Path) -> pd.DataFrame:
     """Backward compatible loader wrapper."""
     df, _ = load_report_data(yaml_path)
     return df
 
-def find_sciq_results(base_path: Path, input_dir: Path = None) -> Path:
-    """Finds SciQ results inside reports directory or near input directory."""
-    search_dirs = []
-    if input_dir:
-        search_dirs.append(input_dir.parent)
-        search_dirs.append(input_dir)
-        
-    reports_dir = base_path / "reports"
-    search_dirs.append(reports_dir)
-    
-    for r_dir in search_dirs:
-        if not r_dir or not r_dir.exists() or not r_dir.is_dir():
-            continue
-            
-        for item in r_dir.iterdir():
-            if item.is_dir() and ("SciQ" in item.name or "sciq" in item.name.lower()):
-                for yaml_name in ["result_metrics.yaml", "evaluation_results.yaml"]:
-                    yaml_file = item / yaml_name
-                    if yaml_file.exists():
-                        return yaml_file
-                        
-        # Fallback to general files matching SciQ pattern
-        for yaml_file in r_dir.glob("**/result_metrics.yaml"):
-            if "sciq" in str(yaml_file).lower():
-                return yaml_file
-        for yaml_file in r_dir.glob("**/evaluation_results.yaml"):
-            if "sciq" in str(yaml_file).lower():
-                return yaml_file
-                
-    return None
-
-def save_plot(fig, run_dir: Path, name: str):
-    """Saves the figure in PNG, SVG, and PDF formats."""
-    fig.tight_layout()
-    fig.savefig(run_dir / f"{name}.png", bbox_inches='tight', dpi=300)
-    fig.savefig(run_dir / f"{name}.svg", bbox_inches='tight')
-    fig.savefig(run_dir / f"{name}.pdf", bbox_inches='tight')
-    plt.close(fig)
 
 # --- Plotting Functions (Figures 1-15) ---
 
