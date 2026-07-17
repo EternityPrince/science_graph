@@ -885,40 +885,43 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         con.success(f"[{case_id}] Completed.")
         con.blank()
 
-        # Incremental Autosave
-        try:
-            autosave_data = {
-                "metadata": {
-                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "llm": {
-                        "provider": llm_provider_detail,
-                        "model_name": llm_model,
-                        "temperature": config.data["llm"].get("temp", 0.1),
-                        "max_tokens": config.data["llm"].get("max_tokens", 1000),
-                        "model_max_context": config.llm_model_max_context
+        # Incremental Autosave (buffered: every 5 cases or final case)
+        if idx % 5 == 0 or idx == len(test_cases):
+            try:
+
+                autosave_data = {
+                    "metadata": {
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "llm": {
+                            "provider": llm_provider_detail,
+                            "model_name": llm_model,
+                            "temperature": config.data["llm"].get("temp", 0.1),
+                            "max_tokens": config.data["llm"].get("max_tokens", 1000),
+                            "model_max_context": config.llm_model_max_context
+                        },
+                        "embeddings": {
+                            "model_name": embedding_model
+                        },
+                        "reranker": {
+                            "model_name": reranker_model
+                        },
+                        "baselines_evaluated": baselines_to_run,
+                        "autosave_in_progress": True,
+                        "completed_cases": len(results),
+                        "total_cases": len(test_cases)
                     },
-                    "embeddings": {
-                        "model_name": embedding_model
-                    },
-                    "reranker": {
-                        "model_name": reranker_model
-                    },
-                    "baselines_evaluated": baselines_to_run,
-                    "autosave_in_progress": True,
-                    "completed_cases": len(results),
-                    "total_cases": len(test_cases)
-                },
-                "results": results
-            }
-            if existing_data:
-                autosave_data = merge_evaluation_data(existing_data, autosave_data)
-                
-            temp_output = output_path.with_suffix(".yaml.tmp")
-            with open(temp_output, "w", encoding="utf-8") as f:
-                yaml.dump(autosave_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-            temp_output.replace(output_path)
-        except Exception as e:
-            con.warning(f"Autosave failed: {e}")
+                    "results": results
+                }
+                if existing_data:
+                    autosave_data = merge_evaluation_data(existing_data, autosave_data)
+                    
+                temp_output = output_path.with_suffix(".yaml.tmp")
+                with open(temp_output, "w", encoding="utf-8") as f:
+                    yaml.dump(autosave_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+                temp_output.replace(output_path)
+            except Exception as e:
+                con.warning(f"Autosave failed: {e}")
+
 
     output_data = {
         "metadata": {

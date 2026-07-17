@@ -22,46 +22,107 @@ from core.metrics import (
 
 thread_lock = threading.Lock()
 
-def safe_read_modify_write_yaml(file_path: Path, modify_fn):
-    import yaml
-    
-    def run_locked():
-        existing_data = None
-        if file_path.exists():
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    existing_data = yaml.safe_load(f)
-            except Exception:
+
+class BufferedYAMLWriter:
+    """Buffers in-memory YAML structure and flushes atomically to disk on interval or completion."""
+
+    def __init__(self, flush_interval_sec: float = 3.0, max_unflushed: int = 10):
+        self.documents = {}
+        self.lock = threading.Lock()
+        self.last_flush_time = {}
+        self.unflushed_counts = {}
+        self.flush_interval_sec = flush_interval_sec
+        self.max_unflushed = max_unflushed
+
+    def modify(self, file_path: Path, modify_fn, force_flush: bool = False):
+        import yaml
+
+        path_str = str(file_path)
+        with self.lock:
+            if path_str not in self.documents or self.documents[path_str] is None:
                 existing_data = None
-                
-        new_data = modify_fn(existing_data)
-        
-        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+                p = Path(path_str)
+                if p.exists():
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            existing_data = yaml.safe_load(f)
+                    except Exception:
+                        existing_data = None
+                self.documents[path_str] = existing_data
+                self.last_flush_time[path_str] = time.time()
+                self.unflushed_counts[path_str] = 0
+
+            current_doc = self.documents[path_str]
+            new_doc = modify_fn(current_doc)
+            self.documents[path_str] = new_doc
+            self.unflushed_counts[path_str] += 1
+
+            now = time.time()
+            time_passed = (now - self.last_flush_time[path_str]) >= self.flush_interval_sec
+            count_passed = self.unflushed_counts[path_str] >= self.max_unflushed
+
+            if force_flush or time_passed or count_passed:
+                self._flush_locked(path_str)
+
+    def flush(self, file_path: Path = None):
+        with self.lock:
+            if file_path is not None:
+                path_str = str(file_path)
+                if path_str in self.documents:
+                    self._flush_locked(path_str)
+            else:
+                for path_str in list(self.documents.keys()):
+                    self._flush_locked(path_str)
+
+
+    def clear(self):
+        with self.lock:
+            self.documents.clear()
+            self.last_flush_time.clear()
+            self.unflushed_counts.clear()
+
+    def _flush_locked(self, path_str: str):
+        import yaml
+
+        doc = self.documents.get(path_str)
+        if doc is None:
+            return
+        p = Path(path_str)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = p.with_suffix(p.suffix + ".tmp")
         with open(temp_path, "w", encoding="utf-8") as f:
-            yaml.dump(new_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        temp_path.replace(file_path)
-
-    if HAS_FCNTL:
-        lock_file_path = file_path.with_suffix(file_path.suffix + ".lock")
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(lock_file_path, "w") as lock_f:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
-            try:
-                run_locked()
-            finally:
-                fcntl.flock(lock_f, fcntl.LOCK_UN)
-    else:
-        with thread_lock:
-            run_locked()
+            yaml.dump(doc, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        temp_path.replace(p)
+        self.last_flush_time[path_str] = time.time()
+        self.unflushed_counts[path_str] = 0
 
 
-def save_generation_baseline_result(file_path: Path, case_id: str, case_info: dict, baseline_name: str, baseline_data: dict, metadata: dict):
+global_yaml_writer = BufferedYAMLWriter()
+
+
+def safe_read_modify_write_yaml(file_path: Path, modify_fn, force_flush: bool = True):
+    global_yaml_writer.modify(file_path, modify_fn, force_flush=force_flush)
+
+
+def flush_yaml_buffer(file_path: Path = None):
+    global_yaml_writer.flush(file_path)
+
+
+def save_generation_baseline_result(
+    file_path: Path,
+    case_id: str,
+    case_info: dict,
+    baseline_name: str,
+    baseline_data: dict,
+    metadata: dict,
+    force_flush: bool = True
+):
     def modify_fn(existing_data):
         if not existing_data or not isinstance(existing_data, dict):
             existing_data = {"metadata": metadata, "results": []}
         else:
             existing_data["metadata"] = {**existing_data.get("metadata", {}), **metadata}
-            
+
         results = existing_data.get("results", [])
         case_item = next((r for r in results if r.get("id") == case_id), None)
         if not case_item:
@@ -75,15 +136,24 @@ def save_generation_baseline_result(file_path: Path, case_id: str, case_info: di
                 "baselines": {}
             }
             results.append(case_item)
-            
+
         case_item["baselines"][baseline_name] = baseline_data
         existing_data["results"] = results
         return existing_data
-        
-    safe_read_modify_write_yaml(file_path, modify_fn)
+
+    safe_read_modify_write_yaml(file_path, modify_fn, force_flush=force_flush)
 
 
-def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: dict, baseline_name: str, baseline_data: dict, eval_metrics_raw: dict, metadata: dict):
+def save_evaluation_baseline_result(
+    file_path: Path,
+    case_id: str,
+    case_info: dict,
+    baseline_name: str,
+    baseline_data: dict,
+    eval_metrics_raw: dict,
+    metadata: dict,
+    force_flush: bool = True
+):
     eval_metrics = {k: v for k, v in eval_metrics_raw.items() if k != "eval_details"}
     eval_details = eval_metrics_raw.get("eval_details", {})
 
@@ -92,7 +162,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
             existing_data = {"metadata": metadata, "results": []}
         else:
             existing_data["metadata"] = {**existing_data.get("metadata", {}), **metadata}
-            
+
         results = existing_data.get("results", [])
         case_item = next((r for r in results if r.get("id") == case_id), None)
         if not case_item:
@@ -106,7 +176,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                 "baselines": {}
             }
             results.append(case_item)
-            
+
         case_item["baselines"][baseline_name] = {
             "status": baseline_data.get("status", "success"),
             "latency_sec": baseline_data.get("latency_sec"),
@@ -121,7 +191,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
             "trace": baseline_data.get("trace")
         }
         existing_data["results"] = results
-        
+
         # Recalculate summary averages
         summary = {}
         summary_stats = {}
@@ -145,7 +215,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                 latency = b_val.get("latency_sec")
                 if latency is not None:
                     summary_stats[b_name]["latency_sec"].append(latency)
-                
+
                 metrics = b_val.get("eval_metrics", {})
                 for k, val in metrics.items():
                     if k not in summary_stats[b_name]:
@@ -159,7 +229,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                     if val is None:
                         continue
                     summary_stats[b_name][k].append(val)
-                    
+
         for b_name, metrics in summary_stats.items():
             summary[b_name] = {}
             for m_name, values in metrics.items():
@@ -168,11 +238,12 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                     summary[b_name][f"avg_{m_name}"] = round(sum(numeric) / len(numeric), 4)
                 else:
                     summary[b_name][f"avg_{m_name}"] = 0.0
-                    
+
         existing_data["summary"] = summary
         return existing_data
-        
-    safe_read_modify_write_yaml(file_path, modify_fn)
+
+    safe_read_modify_write_yaml(file_path, modify_fn, force_flush=force_flush)
+
 
 
 def generate_baseline_case(
@@ -468,7 +539,8 @@ async def run_pipelined_stage_async(
     from src.services.container import container
     from src.prompts import prompts
     from core.config import load_benchmark_dataset
-    from core.evaluator import CloudEvaluator, get_cloud_credentials, evaluate_baseline_case
+    from core.evaluator import CloudEvaluator, get_cloud_credentials, evaluate_baseline_case, save_checkpoint
+
     
     con.info("Initializing repositories and models for pipelined run...")
     rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
@@ -638,7 +710,8 @@ async def run_pipelined_stage_async(
                             case,
                             baseline,
                             baseline_data,
-                            gen_metadata
+                            gen_metadata,
+                            force_flush=False
                         )
                         
                     await queue.put((
@@ -688,7 +761,8 @@ async def run_pipelined_stage_async(
                         baseline,
                         baseline_data,
                         eval_metrics,
-                        eval_metadata
+                        eval_metadata,
+                        force_flush=False
                     )
                 except Exception as e:
                     con.error(f"Error evaluating {case_id} [{baseline}]: {e}")
@@ -697,9 +771,13 @@ async def run_pipelined_stage_async(
                     queue.task_done()
 
         eval_workers = [asyncio.create_task(evaluator_worker()) for _ in range(args.concurrency)]
-        await generator_task()
-        await queue.join()
-        await asyncio.gather(*eval_workers)
+        try:
+            await generator_task()
+            await queue.join()
+            await asyncio.gather(*eval_workers)
+        finally:
+            flush_yaml_buffer()
+            save_checkpoint(checkpoint_path, checkpoint_data, force=True)
         
     try:
         from core.reporting import save_judge_report, save_individual_judge_reports
@@ -718,3 +796,4 @@ async def run_pipelined_stage_async(
         pass
         
     con.success("Pipelined RAG Generation and Evaluation complete!")
+

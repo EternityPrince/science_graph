@@ -407,7 +407,8 @@ async def evaluate_baseline_case(
             "metrics": res,
             "details": eval_details
         }
-        save_checkpoint(checkpoint_path, checkpoint_data)
+        save_checkpoint(checkpoint_path, checkpoint_data, force=True)
+
         return res
 
     retrieved_papers = baseline_data.get("retrieved_papers", [])
@@ -479,7 +480,8 @@ async def evaluate_baseline_case(
             "metrics": eval_metrics,
             "details": eval_details
         }
-        save_checkpoint(checkpoint_path, checkpoint_data)
+        save_checkpoint(checkpoint_path, checkpoint_data, force=True)
+
         
         rec = eval_metrics.get('retrieval_recall')
         rec_str = f"{rec:.2f}" if rec is not None else "N/A"
@@ -501,7 +503,8 @@ async def evaluate_baseline_case(
             "metrics": eval_metrics,
             "details": eval_details
         }
-        save_checkpoint(checkpoint_path, checkpoint_data)
+        save_checkpoint(checkpoint_path, checkpoint_data, force=True)
+
         res = dict(eval_metrics)
         res["eval_details"] = eval_details
         return res
@@ -588,7 +591,8 @@ async def evaluate_baseline_case(
         "metrics": eval_metrics,
         "details": eval_details
     }
-    save_checkpoint(checkpoint_path, checkpoint_data)
+    save_checkpoint(checkpoint_path, checkpoint_data, force=True)
+
     
     rec = eval_metrics.get('retrieval_recall')
     faith = eval_metrics.get('faithfulness')
@@ -611,6 +615,10 @@ async def evaluate_baseline_case(
     return res
 
 
+_checkpoint_last_save = 0.0
+_checkpoint_counter = 0
+
+
 def load_checkpoint(path: Path) -> Dict[str, Any]:
     """Loads checkpoint JSON dict from path."""
     from src import console as con
@@ -623,9 +631,18 @@ def load_checkpoint(path: Path) -> Dict[str, Any]:
     return {}
 
 
-def save_checkpoint(path: Path, data: Dict[str, Any]) -> None:
+def save_checkpoint(path: Path, data: Dict[str, Any], force: bool = False) -> None:
     """Safely writes checkpoint JSON dict to path using a temp file."""
+    global _checkpoint_last_save, _checkpoint_counter
     from src import console as con
+
+    now = time.time()
+    _checkpoint_counter += 1
+
+    if not force and (now - _checkpoint_last_save < 3.0) and (_checkpoint_counter % 10 != 0):
+        return
+
+    _checkpoint_last_save = now
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_suffix(".tmp")
     try:
@@ -634,6 +651,7 @@ def save_checkpoint(path: Path, data: Dict[str, Any]) -> None:
         temp_path.replace(path)
     except Exception as e:
         con.warning(f"Failed to save checkpoint: {e}")
+
 
 
 async def run_evaluation(args: Any, config: Any, con: Any) -> None:
@@ -758,6 +776,8 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
         con.info(f"Evaluated case {completed_count}/{total_count}")
 
     con.info("All evaluations complete. Aggregating results...")
+    save_checkpoint(checkpoint_path, checkpoint_data, force=True)
+
     
     final_results = []
     summary_stats = {}
