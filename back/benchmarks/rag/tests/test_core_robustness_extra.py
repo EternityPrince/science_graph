@@ -15,6 +15,8 @@ import asyncio
 import numpy as np
 import pytest
 from pathlib import Path
+from unittest.mock import patch
+
 
 from core.statistics import (
     compute_mcc,
@@ -171,8 +173,9 @@ class TestCoreMetricsRobustness:
         assert count_text_tokens("") == 0
         assert count_text_tokens("Short sentence") > 0
         long_str = "A" * 400
-        tokens = count_text_tokens(long_str)
-        assert tokens >= 90  # 400 chars // 4 = ~100 tokens
+        with patch("core.metrics.tiktoken", None):
+            tokens = count_text_tokens(long_str)
+            assert tokens >= 90  # 400 chars // 4 = 100 tokens
 
     def test_get_is_answerable_types(self):
         assert get_is_answerable({}) is True
