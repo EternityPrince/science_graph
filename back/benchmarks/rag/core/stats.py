@@ -44,6 +44,7 @@ class BenchmarkStatsCollector:
             finally:
                 stats[key]["time_sec"] += time.perf_counter() - t0
                 
+        wrapper.__wrapped__ = orig_method
         setattr(obj, method_name, wrapper)
         self.interceptors.append((obj, method_name, orig_method))
 

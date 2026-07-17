@@ -1,6 +1,8 @@
 """E2E Test for MLX Logits Streaming, Token Entropy, and Citation Alignment.
 """
 
+import json
+from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from unittest.mock import MagicMock, patch
 
@@ -209,4 +211,214 @@ def test_ensure_b0_entropy_caching_and_generation():
     h_b0_cached = _ensure_b0_entropy(rag_service, "what is gravity?", mock_config)
     assert h_b0_cached == h_b0
     rag_service.llm_engine.generate_response_with_logits.assert_not_called()
+
+
+def test_b0_entropy_disk_cache_persistence_e2e():
+    """Test that _ensure_b0_entropy writes to .cache/b0_entropy.json and a new rag_service instance reads directly from disk."""
+    from core.generation import _ensure_b0_entropy
+    cache_file = Path(__file__).resolve().parents[1] / ".cache" / "b0_entropy.json"
+    test_query = "e2e_disk_cache_persistence_test_query"
+
+    # Pre-test cleanup if query exists in disk cache from prior runs
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if test_query in data:
+                del data[test_query]
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    rag_service1 = MagicMock()
+    mock_engine1 = MagicMock()
+    dummy_tokens = [
+        {"token_text": "Disk", "entropy": 0.3},
+        {"token_text": " cache", "entropy": 0.2},
+    ]
+    mock_engine1.generate_response_with_logits.return_value = (
+        "Disk cache", dummy_tokens
+    )
+    rag_service1.llm_engine = mock_engine1
+    rag_service1._query_b0_h_gen = {}
+    mock_config = MagicMock()
+
+    try:
+        # 1. Generate B0 entropy and ensure it's written to disk cache
+        h1 = _ensure_b0_entropy(rag_service1, test_query, mock_config)
+        assert h1 >= 0.0
+        mock_engine1.generate_response_with_logits.assert_called_once()
+        assert cache_file.exists()
+
+        with open(cache_file, "r", encoding="utf-8") as f:
+            disk_cache = json.load(f)
+        assert test_query in disk_cache
+        assert float(disk_cache[test_query]) == pytest.approx(h1)
+
+        # 2. Separate new rag_service instance with empty in-memory cache
+        rag_service2 = MagicMock()
+        mock_engine2 = MagicMock()
+        rag_service2.llm_engine = mock_engine2
+        rag_service2._query_b0_h_gen = {}
+
+        h2 = _ensure_b0_entropy(rag_service2, test_query, mock_config)
+        assert h2 == pytest.approx(h1)
+        # Verify llm_engine was NOT called for rag_service2 because disk cache was hit
+        mock_engine2.generate_response_with_logits.assert_not_called()
+        assert rag_service2._query_b0_h_gen[test_query] == pytest.approx(h1)
+
+    finally:
+        # Clean up test query from disk cache to keep workspace clean
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if test_query in data:
+                    del data[test_query]
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+
+def test_mlx_topk_logits_correctness_and_fallback():
+    """Test MlxLLMEngine logprobs top-50 argpartition calculation, fallback for small arrays, and exception handling."""
+    try:
+        import mlx.core as mx
+    except ImportError:
+        pytest.skip("mlx is not installed")
+
+    with patch("os.path.isdir", return_value=True), \
+         patch("src.llm_engine.mlx_impl.MlxLLMEngine._ensure_model_loaded") as mock_ensure:
+        mock_ensure.return_value = None
+        engine = MlxLLMEngine(model_path="/dummy/path")
+        engine.model = MagicMock()
+        engine.tokenizer = MagicMock()
+
+        # 1. Test large logprob array (vocab size 100,000) using top-50 argpartition
+        large_logprobs = mx.full((100000,), -10.0, dtype=mx.float32)
+        large_logprobs[1234] = 0.0
+        large_logprobs[5678] = -1.0
+
+        def stream_large(model, tokenizer, prompt, max_tokens=100, sampler=None):
+            yield DummyResponse(1, "large", large_logprobs)
+
+        with patch("mlx_lm.stream_generate", side_effect=stream_large):
+            text_large, tokens_large = engine.generate_response_with_logits("test large")
+            assert text_large == "large"
+            assert len(tokens_large) == 1
+            assert isinstance(tokens_large[0]["entropy"], float)
+            assert tokens_large[0]["entropy"] >= 0.0
+
+        # 2. Test small logprob array (< 50 elements) triggering argpartition exception fallback
+        small_logprobs = mx.array([-1.0, -2.0, -0.5, -3.0, -1.5, -2.5, -4.0, -0.1, -2.2, -3.3])
+
+        def stream_small(model, tokenizer, prompt, max_tokens=100, sampler=None):
+            yield DummyResponse(2, "small", small_logprobs)
+
+        with patch("mlx_lm.stream_generate", side_effect=stream_small):
+            text_small, tokens_small = engine.generate_response_with_logits("test small")
+            assert text_small == "small"
+            assert len(tokens_small) == 1
+            assert isinstance(tokens_small[0]["entropy"], float)
+            assert tokens_small[0]["entropy"] >= 0.0
+
+        # 3. Test exception fallback setting entropy to 0.0 on invalid logprobs
+        bad_logprobs = MagicMock()
+        bad_logprobs.astype.side_effect = RuntimeError("MLX conversion failure")
+
+        def stream_bad(model, tokenizer, prompt, max_tokens=100, sampler=None):
+            yield DummyResponse(3, "bad", bad_logprobs)
+
+        with patch("mlx_lm.stream_generate", side_effect=stream_bad):
+            text_bad, tokens_bad = engine.generate_response_with_logits("test bad")
+            assert text_bad == "bad"
+            assert len(tokens_bad) == 1
+            assert tokens_bad[0]["entropy"] == 0.0
+
+
+def test_b1_b2_pipeline_uses_cached_b0_entropy():
+    """Test running run_query_on_baseline sequentially for B1 and B2 on the same query, verifying B0 entropy is generated only once."""
+    query = "Does B1 and B2 reuse cached B0 entropy?"
+    cache_file = Path(__file__).resolve().parents[1] / ".cache" / "b0_entropy.json"
+
+    # Pre-test cleanup if query exists in disk cache
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if query in data:
+                del data[query]
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    mock_rag_service = MagicMock()
+    mock_engine = MagicMock()
+    mock_rag_service.llm_engine = mock_engine
+    mock_rag_service._query_b0_h_gen = {}
+
+    mock_chunk = MagicMock()
+    mock_chunk.paper_id = "paper_1"
+    mock_chunk.text_content = "Relevant text block"
+    mock_rag_service.retrieve_relevant_chunks.return_value = [(mock_chunk, 0.9)]
+    mock_rag_service.ask.return_value = "Answer for baseline"
+
+    dummy_tokens = [
+        {"token_id": 1, "token_text": "Answer ", "char_start": 0, "char_end": 7, "entropy": 0.4},
+        {"token_id": 2, "token_text": "text", "char_start": 7, "char_end": 11, "entropy": 0.2},
+    ]
+    mock_engine.generate_response_with_logits.return_value = ("Answer text", dummy_tokens)
+    mock_engine.generate_response.return_value = "Answer text"
+
+    mock_config = MagicMock()
+    mock_config.is_component_enabled.side_effect = lambda k: True if k == "shannon_estimator_enabled" else False
+    mock_config.rag_components = {"shannon_estimator_enabled": True}
+    mock_config.data = {"rag_components": {"shannon_estimator_enabled": True}, "llm": {"hyde_enabled": False}}
+
+    def mock_get_baseline_config(baseline, rag_comp):
+        return {"shannon_estimator_enabled": True, "lexical_search": (baseline == "B1"), "dense_search": (baseline == "B2")}
+
+    try:
+        with patch("core.generation.get_baseline_config", side_effect=mock_get_baseline_config):
+            # First baseline run: B1
+            res_b1 = run_query_on_baseline(
+                mock_rag_service, query=query, baseline="B1", use_cloud=False, config=mock_config
+            )
+
+            # Second baseline run: B2 on the same query
+            res_b2 = run_query_on_baseline(
+                mock_rag_service, query=query, baseline="B2", use_cloud=False, config=mock_config
+            )
+
+            # Verify B0 zero-shot generation (prompt "Ответь на основе своих общих знаний") was called ONLY ONCE
+            b0_calls = [
+                call_item for call_item in mock_engine.generate_response_with_logits.call_args_list
+                if "Ответь на основе своих общих знаний" in str(call_item)
+            ]
+            assert len(b0_calls) == 1
+
+        # Verify both runs produced valid Shannon diagnostics
+        assert "shannon_diagnostics" in res_b1[2]
+        assert "shannon_diagnostics" in res_b2[2]
+
+    finally:
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if query in data:
+                    del data[query]
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+
+
+
+
+
 
