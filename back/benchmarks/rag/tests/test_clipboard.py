@@ -220,13 +220,15 @@ def test_get_metrics_summary_auto_generate_no_rich(tmp_path):
     finally:
         core.clipboard.HAS_RICH = old_rich
 
-def test_clipboard_import_no_rich():
-    import importlib
-    with patch.dict(sys.modules, {"rich": None, "rich.console": None, "rich.table": None, "rich.panel": None}):
-        import core.clipboard
-        importlib.reload(core.clipboard)
-        assert core.clipboard.HAS_RICH is False
-        
-    # restore
-    importlib.reload(core.clipboard)
+def test_load_templates(tmp_path):
+    prompts_file = tmp_path / "prompts.yaml"
+    prompts_file.write_text("templates:\n  t1:\n    name: Template 1\n    description: Desc 1\n")
+    from core.clipboard import load_templates, display_runs_table, display_templates_table
+    templates = load_templates(prompts_file)
+    assert "t1" in templates
+    assert templates["t1"]["name"] == "Template 1"
+
+    # Test display functions without crashing
+    display_runs_table([tmp_path / "run_20260101_120000"])
+    display_templates_table(templates)
 

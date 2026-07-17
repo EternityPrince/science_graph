@@ -17,10 +17,9 @@ import yaml
 from src.config import config
 from src import console as con
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config_creator import (
+from core.config import (
     build_custom_config,
-    add_custom_config_arguments
+    add_custom_config_arguments,
 )
 
 
@@ -127,7 +126,7 @@ def main():
         con.info(f"Outputs will be saved directly to: {run_dir}")
         try:
             con.blank()
-            from run_custom_retrieve import evaluate_and_compare
+            from core.retrieval import evaluate_and_compare
             evaluate_and_compare(dataset_path)
         except Exception as e:
             con.warning(f"Could not generate retrieval metrics table: {e}")
