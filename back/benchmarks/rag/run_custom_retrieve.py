@@ -19,6 +19,13 @@ from src.services.container import container
 from src.config import config
 from src import console as con
 from src.prompts import prompts
+from core.config import (
+    DEFAULT_COMPONENTS,
+    DEFAULT_HYPERPARAMS,
+    add_custom_config_arguments,
+    build_custom_config,
+    patch_config_for_custom as patch_retrieval_for_custom,
+)
 from core.retrieval import (
     run_staged_retrieval,
     evaluate_and_compare,
