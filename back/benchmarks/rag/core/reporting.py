@@ -728,11 +728,11 @@ def generate_markdown_report(
                 m_stats = {"mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0}
             else:
                 m_stats = stats["summary"][b][m]
-            mean_val = m_stats["mean"]
-            min_val = m_stats["min"]
-            max_val = m_stats["max"]
-            med_val = m_stats["median"]
-            std_val = m_stats["stdev"]
+            mean_val = m_stats.get("mean", 0.0)
+            min_val = m_stats.get("min", 0.0)
+            max_val = m_stats.get("max", 0.0)
+            med_val = m_stats.get("median", 0.0)
+            std_val = m_stats.get("stdev", 0.0)
             
             if m == "latency_sec":
                 lines.append(
@@ -995,7 +995,7 @@ def generate_markdown_report(
         lines.append("")
 
     if stats_analysis and stats_analysis.get("enabled"):
-        from metrics_stats_connector import build_statistical_markdown
+        from core.connector import build_statistical_markdown
 
         stat_md = build_statistical_markdown(stats_analysis)
         if stat_md:

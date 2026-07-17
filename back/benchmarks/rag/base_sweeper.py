@@ -24,10 +24,8 @@ from src.services.container import container
 from src.config import config
 from src import console as con
 from src.prompts import prompts
-from core.retrieval import run_staged_retrieval
-
-# Import helper functions from run_custom_retrieve to avoid code duplication
-import run_custom_retrieve
+from core.retrieval import run_staged_retrieval, evaluate_and_compare
+from core.config import build_custom_config, patch_config_for_custom as patch_retrieval_for_custom
 
 
 class BaseHyperparameterSweeper(abc.ABC):
@@ -185,7 +183,7 @@ class BaseHyperparameterSweeper(abc.ABC):
             if not output_path.exists():
                 raise FileNotFoundError(f"Subprocess output file was not created at {output_path}")
 
-            metrics_summary = run_custom_retrieve.evaluate_and_compare(output_path)
+            metrics_summary = evaluate_and_compare(output_path)
             return self._extract_summary_metrics(metrics_summary)
 
         finally:
@@ -207,10 +205,10 @@ class BaseHyperparameterSweeper(abc.ABC):
         )
 
         # Build configurations
-        custom_comp, custom_hype = run_custom_retrieve.build_custom_config(args, run_cfg)
+        custom_comp, custom_hype = build_custom_config(args, run_cfg)
 
         # Dynamically patch retrieval config
-        run_custom_retrieve.patch_retrieval_for_custom(custom_comp, custom_hype)
+        patch_retrieval_for_custom(custom_comp, custom_hype)
 
         # Apply settings to the global config data
         orig_comp = copy.deepcopy(config.data.get("rag_components", {}))
@@ -229,7 +227,7 @@ class BaseHyperparameterSweeper(abc.ABC):
         if not output_path.exists():
             raise FileNotFoundError(f"Output file was not created at {output_path}")
 
-        metrics_summary = run_custom_retrieve.evaluate_and_compare(output_path)
+        metrics_summary = evaluate_and_compare(output_path)
         return self._extract_summary_metrics(metrics_summary)
 
     def _extract_summary_metrics(self, metrics_summary: Dict[str, Any]) -> Dict[str, Any]:

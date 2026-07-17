@@ -5,9 +5,16 @@ import yaml
 from pathlib import Path
 from typing import Any
 
-from core.config import BASELINES_INFO, get_baseline_config
+from core.config import BASELINES_INFO, get_baseline_config, DEFAULT_HYPERPARAMS
 from core.stats import BenchmarkStatsCollector
-from core.metrics import normalize_optional_text, get_is_answerable
+from core.metrics import (
+    normalize_optional_text,
+    get_is_answerable,
+    calculate_retrieval_recall,
+    calculate_context_precision,
+)
+from src.config import config
+from src import console as con
 
 
 def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, con: Any) -> None:
@@ -598,4 +605,145 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
             con.success(f"Copied output file to: {original_output_path.resolve()}")
         except Exception as e:
             con.warning(f"Could not copy output file to {original_output_path}: {e}")
+
+
+def evaluate_and_compare(results_file: Path, artifact_dir: Path = None) -> dict:
+    """Loads results, computes retrieval metrics (Recall & Precision),
+    prints comparison table and saves a Markdown report.
+    """
+    with open(results_file, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    if not data:
+        con.error("No retrieval data found in results file.")
+        return {}
+
+    metrics_summary = {}
+
+    for case in data:
+        expected = case.get("expected_papers", [])
+        baselines = case.get("baselines", {})
+
+        for baseline_name, b_data in baselines.items():
+            if baseline_name not in metrics_summary:
+                metrics_summary[baseline_name] = {
+                    "recalls": [],
+                    "precisions": [],
+                    "latencies": [],
+                    "success_count": 0,
+                    "total_count": 0
+                }
+
+            stats = metrics_summary[baseline_name]
+            stats["total_count"] += 1
+
+            if b_data.get("status") == "success":
+                stats["success_count"] += 1
+                retrieved_papers = b_data.get("retrieved_papers", [])
+                retrieved_chunks = b_data.get("retrieved_chunks", [])
+                latency = b_data.get("latency_sec", 0.0)
+
+                recall = calculate_retrieval_recall(expected, retrieved_papers)
+                precision = calculate_context_precision(expected, retrieved_chunks)
+
+                stats["recalls"].append(recall)
+                stats["precisions"].append(precision)
+                stats["latencies"].append(latency)
+            else:
+                stats["recalls"].append(0.0)
+                stats["precisions"].append(0.0)
+                stats["latencies"].append(0.0)
+
+    con.info("\n=== RETRIEVAL STAGE BENCHMARK COMPARISON ===")
+
+    header_fmt = "| {:<15} | {:<12} | {:<12} | {:<17} | {:<13} |"
+    row_fmt = "| {:<15} | {:<12} | {:<12.4f} | {:<17.4f} | {:<12.3f}s |"
+    sep = "+" + "-"*17 + "+" + "-"*14 + "+" + "-"*14 + "+" + "-"*19 + "+" + "-"*15 + "+"
+
+    print(sep)
+    print(header_fmt.format("Baseline", "Success Rate", "Mean Recall", "Mean Precision", "Mean Latency"))
+    print(sep)
+
+    for b_name in sorted(metrics_summary.keys()):
+        stats = metrics_summary[b_name]
+        total = stats["total_count"]
+        success_rate = (stats["success_count"] / total * 100) if total > 0 else 0.0
+
+        mean_recall = sum(stats["recalls"]) / len(stats["recalls"]) if stats["recalls"] else 0.0
+        mean_prec = sum(stats["precisions"]) / len(stats["precisions"]) if stats["precisions"] else 0.0
+        mean_lat = sum(stats["latencies"]) / len(stats["latencies"]) if stats["latencies"] else 0.0
+
+        b_label = b_name
+        if b_name == "CUSTOM":
+            b_label = "CUSTOM (Ours)"
+
+        print(row_fmt.format(b_label, f"{success_rate:.1f}%", mean_recall, mean_prec, mean_lat))
+    print(sep)
+    print()
+
+    return metrics_summary
+
+
+def save_custom_retrieval_report(metrics_summary: dict, custom_comp: dict, custom_hype: dict, report_path: Path):
+    """Saves a rich Markdown report showing configuration diffs and metrics comparison."""
+    import core.config
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("# RAG Custom Retrieval Benchmark Report\n\n")
+        f.write("This report displays the retrieval stage performance of your custom configuration compared against active baselines.\n\n")
+
+        f.write("## ⚙️ Custom Run Configuration Overrides\n\n")
+
+        b6_comp = core.config.get_baseline_config("B6", config.rag_components)
+        f.write("### Component Settings (vs B6 Full Pipeline)\n\n")
+        f.write("| Component | Custom Value | B6 Default | Status |\n")
+        f.write("| :--- | :---: | :---: | :---: |\n")
+        for k in sorted(custom_comp.keys()):
+            custom_val = custom_comp[k]
+            b6_val = b6_comp.get(k)
+            status = "🟢 **Modified**" if custom_val != b6_val else "Unchanged"
+            f.write(f"| `{k}` | `{custom_val}` | `{b6_val}` | {status} |\n")
+        f.write("\n")
+
+        f.write("### Hyperparameter Overrides (vs System Defaults)\n\n")
+        f.write("| Parameter | Custom Value | Default Value | Status |\n")
+        f.write("| :--- | :---: | :---: | :---: |\n")
+
+        has_hype_overrides = False
+        for section in sorted(custom_hype.keys()):
+            for k in sorted(custom_hype[section].keys()):
+                custom_val = custom_hype[section][k]
+                def_val = DEFAULT_HYPERPARAMS.get(section, {}).get(k)
+                if custom_val != def_val:
+                    has_hype_overrides = True
+                    f.write(f"| `{section}.{k}` | `{custom_val}` | `{def_val}` | ⚡ **Overridden** |\n")
+
+        if not has_hype_overrides:
+            f.write("| *None* | | | | \n")
+        f.write("\n\n")
+
+        f.write("## 📊 Retrieval Performance Summary\n\n")
+        f.write("| Baseline | Success Rate | Mean Recall | Context Precision | Mean Latency |\n")
+        f.write("| :--- | :---: | :---: | :---: | :---: |\n")
+
+        for b_name in sorted(metrics_summary.keys()):
+            stats = metrics_summary[b_name]
+            total = stats["total_count"]
+            success_rate = (stats["success_count"] / total * 100) if total > 0 else 0.0
+            mean_recall = sum(stats["recalls"]) / len(stats["recalls"]) if stats["recalls"] else 0.0
+            mean_prec = sum(stats["precisions"]) / len(stats["precisions"]) if stats["precisions"] else 0.0
+            mean_lat = sum(stats["latencies"]) / len(stats["latencies"]) if stats["latencies"] else 0.0
+
+            b_label = b_name
+            if b_name == "CUSTOM":
+                b_label = "🏆 **CUSTOM (Ours)**"
+
+            f.write(f"| {b_label} | {success_rate:.1f}% | {mean_recall:.4f} | {mean_prec:.4f} | {mean_lat:.3f}s |\n")
+
+        f.write("\n\n")
+        f.write("> [!NOTE]\n")
+        f.write("> - **Retrieval Recall**: proportion of expected papers retrieved.\n")
+        f.write("> - **Context Precision**: Mean Average Precision of the retrieved chunks/papers.\n")
+
+
+save_markdown_report = save_custom_retrieval_report
 
