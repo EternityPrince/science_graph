@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import logging
 from typing import Dict, List, Optional
-import spacy
-import spacy.cli
+try:
+    import spacy
+    import spacy.cli
+except ImportError:
+    spacy = None
 from src.models import slugify
 from src.llm_schemas import LLMExtractionResponse, LLMConcept, LLMCitationIntent, LLMConceptRelation, LLMDataset
 
@@ -51,6 +54,8 @@ def get_spacy_nlp() -> Optional[spacy.language.Language]:
     global _nlp, _spacy_attempted
     if _nlp is not None:
         return _nlp
+    if spacy is None:
+        return None
     if _spacy_attempted:
         return None
 

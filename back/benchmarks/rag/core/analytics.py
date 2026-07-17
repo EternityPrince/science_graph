@@ -260,7 +260,7 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 eval_metrics["token_reasoning"] = token_reasoning
 
             # 5. ar_sa_f1
-            is_ans = r.get("is_answerable", True)
+            is_ans = get_is_answerable(r)
             if is_ans:
                 r_relevance = eval_metrics.get("answer_relevance")
                 s_accuracy = eval_metrics.get("semantic_accuracy")

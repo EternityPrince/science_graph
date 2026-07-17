@@ -3,7 +3,10 @@ import asyncio
 import re
 from typing import List, Tuple, AsyncGenerator, Any, Optional, Dict
 from pathlib import Path
-import tiktoken
+try:
+    import tiktoken
+except ImportError:
+    tiktoken = None
 from src.models import Chunk
 from src.repository.base import GraphRepository, VectorRepository
 from src.vector_search import EmbeddingEngine

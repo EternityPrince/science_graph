@@ -480,9 +480,11 @@ async def evaluate_baseline_case(
         }
         save_checkpoint(checkpoint_path, checkpoint_data)
         
+        rec = eval_metrics.get('retrieval_recall')
+        rec_str = f"{rec:.2f}" if rec is not None else "N/A"
         con.info(
             f"  Evaluated {case_id} [{baseline_name}]: (Abstention/Answerability Outcome: {outcome}) "
-            f"Recall={eval_metrics['retrieval_recall']:.2f}, "
+            f"Recall={rec_str}, "
             f"Faithfulness={eval_metrics['faithfulness']}, "
             f"Relevance={eval_metrics['answer_relevance']}, "
             f"Semantic={eval_metrics['semantic_accuracy']}"
@@ -587,12 +589,20 @@ async def evaluate_baseline_case(
     }
     save_checkpoint(checkpoint_path, checkpoint_data)
     
+    rec = eval_metrics.get('retrieval_recall')
+    faith = eval_metrics.get('faithfulness')
+    rel = eval_metrics.get('answer_relevance')
+    sem = eval_metrics.get('semantic_accuracy')
+    rec_str = f"{rec:.2f}" if rec is not None else "N/A"
+    faith_str = f"{faith:.2f}" if faith is not None else "N/A"
+    rel_str = f"{rel:.2f}" if rel is not None else "N/A"
+    sem_str = f"{sem:.2f}" if sem is not None else "N/A"
     con.info(
         f"  Evaluated {case_id} [{baseline_name}]: "
-        f"Recall={eval_metrics['retrieval_recall']:.2f}, "
-        f"Faithfulness={eval_metrics['faithfulness']:.2f}, "
-        f"Relevance={eval_metrics['answer_relevance']:.2f}, "
-        f"Semantic={eval_metrics['semantic_accuracy']:.2f}"
+        f"Recall={rec_str}, "
+        f"Faithfulness={faith_str}, "
+        f"Relevance={rel_str}, "
+        f"Semantic={sem_str}"
     )
 
     res = dict(eval_metrics)
@@ -728,7 +738,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
                     checkpoint_data,
                     checkpoint_path,
                     max_input_token=max_tokens_val,
-                    is_answerable=case.get("is_answerable", True)
+                    is_answerable=get_is_answerable(case)
                 )
             ))
 
@@ -876,7 +886,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
             for case_out in final_results:
                 case_id = case_out.get("id")
                 category = case_out.get("category", "general")
-                is_ans = case_out.get("is_answerable", True)
+                is_ans = get_is_answerable(case_out)
                 for baseline_name, b_data in case_out.get("baselines", {}).items():
                     metrics = b_data.get("eval_metrics", {})
                     entry = {

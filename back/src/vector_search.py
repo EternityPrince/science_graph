@@ -2,7 +2,12 @@ import re
 import time
 import fitz
 from typing import List, Tuple, Dict, Optional
-from rank_bm25 import BM25Okapi
+try:
+    from rank_bm25 import BM25Okapi
+except ImportError:
+    class BM25Okapi:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("rank_bm25 package is required for BM25 search.")
 from src.config import config
 from src.models import Chunk
 

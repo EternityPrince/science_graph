@@ -154,7 +154,7 @@ def save_evaluation_baseline_result(file_path: Path, case_id: str, case_info: di
                         continue
                     if b_name != "B0" and not b_val.get("retrieved_chunks") and k in ("faithfulness", "citation_fidelity", "context_precision"):
                         continue
-                    if k == "ar_sa_f1" and (not r.get("is_answerable", True) or val is None):
+                    if k == "ar_sa_f1" and (not get_is_answerable(r) or val is None):
                         continue
                     if val is None:
                         continue
@@ -678,7 +678,7 @@ async def run_pipelined_stage_async(
                         checkpoint_data,
                         checkpoint_path,
                         max_input_token=max_tokens_val,
-                        is_answerable=case_info.get("is_answerable", True)
+                        is_answerable=get_is_answerable(case_info)
                     )
                     
                     save_evaluation_baseline_result(

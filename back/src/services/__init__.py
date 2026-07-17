@@ -1,4 +1,4 @@
-# PDF Graph Analyzer src package
+# Services package
 import importlib
 
 def __getattr__(name: str):

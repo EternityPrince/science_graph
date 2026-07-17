@@ -64,8 +64,9 @@ def test_count_text_tokens_tiktoken():
     # Test tiktoken normal execution
     assert count_text_tokens("abc") > 0
     
-    # Test when tiktoken get_encoding fails / raises exception
-    with patch("tiktoken.get_encoding", side_effect=Exception("mock get encoding error")):
+    mock_tt = MagicMock()
+    mock_tt.get_encoding.side_effect = Exception("mock get encoding error")
+    with patch("core.metrics.tiktoken", mock_tt):
         assert count_text_tokens("abc") == 1
         assert count_text_tokens("hello world") == 2 # 11 // 4 is 2
         

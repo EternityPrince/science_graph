@@ -2,8 +2,15 @@ import re
 from typing import Tuple, List
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
-import markdownify
-from curl_cffi import requests
+try:
+    import markdownify
+except ImportError:
+    markdownify = None
+
+try:
+    from curl_cffi import requests
+except ImportError:
+    requests = None
 from src.models import Paper, slugify
 from src import console as con
 from src.parsers.base import BaseParser
