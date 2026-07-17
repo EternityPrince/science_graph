@@ -401,7 +401,9 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
             # Quality metrics
             eval_metrics = b_data.get("eval_metrics", {})
             for m in QUALITY_METRICS:
-                val = eval_metrics.get(m)
+                val = eval_metrics.get(m) if isinstance(eval_metrics, dict) else None
+                if val is None:
+                    val = b_data.get(m)
                 if val is not None:
                     raw_values[b][m].append(val)
                     if is_ans:
@@ -414,7 +416,9 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
 
             # Token metrics
             for m in ["token_output", "token_answer", "token_reasoning"]:
-                val = eval_metrics.get(m)
+                val = eval_metrics.get(m) if isinstance(eval_metrics, dict) else None
+                if val is None:
+                    val = b_data.get(m)
                 if val is not None:
                     raw_values[b][m].append(val)
                     category_values[category][b][m].append(val)
@@ -532,63 +536,40 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
         success_rate = (statuses.count("success") / len(statuses)) * 100 if statuses else 0.0
         summary_stats[b]["success_rate"] = success_rate
         
+        import math
+
+        def _calc_stats(raw_list):
+            clean = [v for v in raw_list if v is not None and isinstance(v, (int, float)) and not math.isnan(v) and not math.isinf(v)]
+            if not clean:
+                return {"mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0}
+            return {
+                "mean": statistics.mean(clean),
+                "min": min(clean),
+                "max": max(clean),
+                "median": statistics.median(clean),
+                "stdev": statistics.stdev(clean) if len(clean) > 1 else 0.0,
+                "count": len(clean)
+            }
+
         for m in ALL_METRICS:
-            vals = raw_values_ans[b][m]
-            if not vals:
-                summary_stats[b][m] = {
-                    "mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0
-                }
-            else:
-                summary_stats[b][m] = {
-                    "mean": statistics.mean(vals),
-                    "min": min(vals),
-                    "max": max(vals),
-                    "median": statistics.median(vals),
-                    "stdev": statistics.stdev(vals) if len(vals) > 1 else 0.0,
-                    "count": len(vals)
-                }
+            summary_stats[b][m] = _calc_stats(raw_values_ans[b][m])
 
         # Shannon diagnostics summary calculation
         s_stats = {}
         for skey, svals in shannon_raw[b].items():
-            s_stats[skey] = round(statistics.mean(svals), 4) if svals else 0.0
+            clean_s = [v for v in svals if v is not None and isinstance(v, (int, float)) and not math.isnan(v) and not math.isinf(v)]
+            s_stats[skey] = round(statistics.mean(clean_s), 4) if clean_s else 0.0
         summary_stats[b]["shannon_summary"] = s_stats
 
         # Answerable-only metrics
         summary_stats[b]["answerable_only"] = {}
         for m in ALL_METRICS:
-            vals = raw_values_ans[b][m]
-            if not vals:
-                summary_stats[b]["answerable_only"][m] = {
-                    "mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0
-                }
-            else:
-                summary_stats[b]["answerable_only"][m] = {
-                    "mean": statistics.mean(vals),
-                    "min": min(vals),
-                    "max": max(vals),
-                    "median": statistics.median(vals),
-                    "stdev": statistics.stdev(vals) if len(vals) > 1 else 0.0,
-                    "count": len(vals)
-                }
+            summary_stats[b]["answerable_only"][m] = _calc_stats(raw_values_ans[b][m])
 
         # Unanswerable-only metrics
         summary_stats[b]["unanswerable_only"] = {}
         for m in ALL_METRICS:
-            vals = raw_values_unans[b][m]
-            if not vals:
-                summary_stats[b]["unanswerable_only"][m] = {
-                    "mean": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "stdev": 0.0, "count": 0
-                }
-            else:
-                summary_stats[b]["unanswerable_only"][m] = {
-                    "mean": statistics.mean(vals),
-                    "min": min(vals),
-                    "max": max(vals),
-                    "median": statistics.median(vals),
-                    "stdev": statistics.stdev(vals) if len(vals) > 1 else 0.0,
-                    "count": len(vals)
-                }
+            summary_stats[b]["unanswerable_only"][m] = _calc_stats(raw_values_unans[b][m])
 
         # Classification metrics
         tp, fn, tn, fp = 0, 0, 0, 0

@@ -399,14 +399,15 @@ async def evaluate_baseline_case(
     import copy
     eval_details = copy.deepcopy(cached_details)
 
-    if baseline_data.get("status") == "error":
+    if baseline_data.get("status") in ("error", "failed", "timeout"):
+        res = dict(eval_metrics)
+        res["status"] = baseline_data.get("status")
+        res["eval_details"] = eval_details
         checkpoint_data[checkpoint_key] = {
-            "metrics": eval_metrics,
+            "metrics": res,
             "details": eval_details
         }
         save_checkpoint(checkpoint_path, checkpoint_data)
-        res = dict(eval_metrics)
-        res["eval_details"] = eval_details
         return res
 
     retrieved_papers = baseline_data.get("retrieved_papers", [])

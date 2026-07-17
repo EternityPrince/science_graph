@@ -40,7 +40,7 @@ class BaselineOutput(BaseModel):
     """Represents the results of running a single baseline on a test case."""
     model_config = ConfigDict(extra="allow")
 
-    status: str
+    status: str = "success"
     latency_sec: Optional[float] = 0.0
     retrieved_papers: List[str] = Field(default_factory=list)
     retrieved_chunks: List[RetrievedChunk] = Field(default_factory=list)
@@ -59,7 +59,7 @@ class TestCaseOutput(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    query: str
+    query: str = ""
     category: str = "default"
     golden_answer: Optional[str] = ""
     expected_papers: List[str] = Field(default_factory=list)
