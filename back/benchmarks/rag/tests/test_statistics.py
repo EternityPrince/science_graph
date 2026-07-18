@@ -1,6 +1,7 @@
 """Unit and integration tests for core/statistics.py and metrics_stats_connector.py."""
 
 import math
+import warnings
 
 import numpy as np
 import pytest
@@ -238,6 +239,33 @@ def test_friedman_three_baselines():
     result = friedman_omnibus_test(records, baselines, "semantic_accuracy")
     assert result["p_value"] is not None
     assert result["n"] == 5
+
+
+def test_friedman_identical_scores_no_warning():
+    """Complete within-block ties make scipy's Friedman c=0; should not warn or NaN."""
+    data = {
+        "results": [
+            {
+                "id": f"Q{i}",
+                "is_answerable": True,
+                "baselines": {
+                    "B1": {"status": "success", "eval_metrics": {"answerability_outcome": "TP", "semantic_accuracy": 0.8}},
+                    "B2": {"status": "success", "eval_metrics": {"answerability_outcome": "TP", "semantic_accuracy": 0.8}},
+                    "B3": {"status": "success", "eval_metrics": {"answerability_outcome": "TP", "semantic_accuracy": 0.8}},
+                },
+            }
+            for i in range(5)
+        ]
+    }
+    records, baselines = prepare_per_query_records(data)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = friedman_omnibus_test(records, baselines, "semantic_accuracy")
+    runtime = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+    assert not runtime, f"Unexpected RuntimeWarning(s): {[str(w.message) for w in runtime]}"
+    assert result["n"] == 5
+    assert result["statistic"] == 0.0
+    assert result["p_value"] == 1.0
 
 
 def test_holm_correction():

@@ -11,6 +11,7 @@ Safety / answerability metrics use the full query set.
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass, asdict
 from itertools import combinations
 from typing import Any, Literal
@@ -552,10 +553,26 @@ def friedman_omnibus_test(
         _as_float64_array([by_baseline[b][q] for q in shared_ids])
         for b in baselines
     ]
+    # Stack as (n_queries, n_baselines). When every query has identical scores
+    # across baselines, all ranks are fully tied and scipy's tie correction
+    # factor c becomes 0 → RuntimeWarning + NaN (divide by zero).
+    matrix = np.column_stack(arrays)
+    row_ranges = np.nanmax(matrix, axis=1) - np.nanmin(matrix, axis=1)
+    if not np.any(row_ranges > 0):
+        return {"statistic": 0.0, "p_value": 1.0, "n": len(shared_ids)}
+
     try:
-        stat, p_value = scipy_stats.friedmanchisquare(*arrays)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "error",
+                category=RuntimeWarning,
+                module=r"scipy\.stats\._stats_py",
+            )
+            stat, p_value = scipy_stats.friedmanchisquare(*arrays)
+        if math.isnan(stat) or math.isnan(p_value):
+            return {"statistic": 0.0, "p_value": 1.0, "n": len(shared_ids)}
         return {"statistic": float(stat), "p_value": float(p_value), "n": len(shared_ids)}
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RuntimeWarning):
         return {"statistic": None, "p_value": None, "n": len(shared_ids)}
 
 
