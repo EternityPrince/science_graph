@@ -14,11 +14,11 @@ This report displays the retrieval stage performance of your custom configuratio
 | `dynamic_alpha_blending` | `False` | `False` | Unchanged |
 | `graph_bridge_retrieval` | `False` | `False` | Unchanged |
 | `graph_concept_retrieval` | `False` | `False` | Unchanged |
-| `graph_expansion` | `False` | `False` | Unchanged |
+| `graph_expansion` | `True` | `True` | Unchanged |
 | `graph_neighbors_in_rrf` | `True` | `True` | Unchanged |
 | `graph_ontology_lookup` | `True` | `True` | Unchanged |
-| `graph_retrieval_trace` | `False` | `False` | Unchanged |
-| `graph_selected_sources_card` | `False` | `False` | Unchanged |
+| `graph_retrieval_trace` | `True` | `True` | Unchanged |
+| `graph_selected_sources_card` | `True` | `True` | Unchanged |
 | `hyde` | `False` | `False` | Unchanged |
 | `intent_classifier` | `False` | `False` | Unchanged |
 | `lexical_search` | `True` | `True` | Unchanged |
@@ -26,6 +26,7 @@ This report displays the retrieval stage performance of your custom configuratio
 | `reranker` | `True` | `True` | Unchanged |
 | `rrf` | `True` | `True` | Unchanged |
 | `score_blending` | `True` | `True` | Unchanged |
+| `shannon_estimator_enabled` | `True` | `True` | Unchanged |
 
 ### Hyperparameter Overrides (vs System Defaults)
 
@@ -39,7 +40,10 @@ This report displays the retrieval stage performance of your custom configuratio
 | Baseline | Success Rate | Mean Recall | Context Precision | Mean Latency |
 | :--- | :---: | :---: | :---: | :---: |
 | B0 | 100.0% | 0.0000 | 0.0000 | 0.000s |
-| 🏆 **CUSTOM (Ours)** | 100.0% | 1.0000 | 1.0000 | 3.691s |
+| B1 | 100.0% | 1.0000 | 1.0000 | 0.037s |
+| B4 | 100.0% | 1.0000 | 1.0000 | 0.305s |
+| B5 | 100.0% | 1.0000 | 1.0000 | 0.385s |
+| 🏆 **CUSTOM (Ours)** | 100.0% | 1.0000 | 1.0000 | 16.469s |
 
 
 > [!NOTE]

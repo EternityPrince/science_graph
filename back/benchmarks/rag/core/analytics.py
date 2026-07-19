@@ -432,22 +432,31 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
             if not shannon_diag:
                 retrieved_chunks = b_data.get("retrieved_chunks", [])
                 if retrieved_chunks:
-                    from core.shannon_estimator import compute_rank_entropy, compute_lexical_entropy
-                    scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in retrieved_chunks]
-                    h_rank_post = compute_rank_entropy(scores)
-                    texts = "\n".join([c.get("text_content", "") if isinstance(c, dict) else getattr(c, "text_content", "") for c in retrieved_chunks])
-                    h_lex_post = compute_lexical_entropy(texts)
+                    from core.shannon_estimator import assemble_retrieval_shannon_fields
+                    post_scores = [
+                        c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0)
+                        for c in retrieved_chunks
+                    ]
+                    post_text = b_data.get("trimmed_text") or "\n".join(
+                        [
+                            c.get("text_content", "") if isinstance(c, dict) else getattr(c, "text_content", "")
+                            for c in retrieved_chunks
+                        ]
+                    )
+                    retrieval_fields = assemble_retrieval_shannon_fields(
+                        pre_scores=b_data.get("pre_rerank_scores"),
+                        post_scores=post_scores,
+                        pre_text=b_data.get("context_text"),
+                        post_text=post_text,
+                        relations=b_data.get("graph_relations"),
+                        graph_text=b_data.get("context_graph") or b_data.get("trimmed_graph"),
+                    )
                     shannon_diag = {
-                        "h_rank_pre_rerank": h_rank_post,
-                        "h_rank_post_rerank": h_rank_post,
-                        "h_lexical_pre_trim": h_lex_post,
-                        "h_lexical_post_trim": h_lex_post,
-                        "h_graph_relation_type": 0.0,
-                        "h_graph_degree": 0.0,
+                        **retrieval_fields,
                         "h_gen": 0.0,
                         "h_citation": 0.0,
                         "n_citation_tokens": 0,
-                        "delta_h_gen": 0.0
+                        "delta_h_gen": 0.0,
                     }
                     b_data["shannon_diagnostics"] = shannon_diag
 

@@ -525,6 +525,21 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
                 retrieved_papers = list({c.paper_id for c, _ in final_chunks})
 
+                # Shannon stage inputs: pre-rerank scores (Stage 3 RRF) and pre-trim context
+                stage3_candidates = res.get("candidates") or []
+                stage3_rrf = res.get("rrf_scores") or {}
+                pre_rerank_scores = [
+                    float(stage3_rrf.get(c.id, 0.0)) for c in stage3_candidates
+                ]
+                # Prefer structured relations captured during build_context
+                graph_relations = list(getattr(rag_service, "_last_graph_relations", None) or [])
+                if not graph_relations and context_graph:
+                    try:
+                        from core.shannon_estimator import parse_graph_relations_from_text
+                        graph_relations = parse_graph_relations_from_text(context_graph)
+                    except Exception:
+                        graph_relations = []
+
                 trace = traces_map.get((query, baseline))
                 if trace:
                     final_pids = list(set(c[0].paper_id if isinstance(c, tuple) else c.paper_id for c in trimmed_chunks))
@@ -543,6 +558,10 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                     "latency_sec": round(total_latency, 3),
                     "retrieved_papers": retrieved_papers,
                     "retrieved_chunks": chunks_info,
+                    "pre_rerank_scores": pre_rerank_scores,
+                    "context_text": context_text,
+                    "context_graph": context_graph,
+                    "graph_relations": graph_relations,
                     "trimmed_text": trimmed_text,
                     "trimmed_graph": trimmed_graph,
                     "enrichment_block": enrichment_block,

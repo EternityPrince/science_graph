@@ -18,12 +18,11 @@ from core.metrics import (
 )
 from core.reporting import save_judge_report, save_individual_judge_reports
 from core.shannon_estimator import (
-    compute_rank_entropy,
-    compute_lexical_entropy,
-    compute_graph_entropy,
     compute_generation_entropy,
     compute_citation_entropy,
     compute_entropy_reduction,
+    assemble_retrieval_shannon_fields,
+    empty_retrieval_shannon_fields,
 )
 from src.prompts import prompts
 
@@ -169,12 +168,7 @@ def run_query_on_baseline(
                 rag_service._query_b0_h_gen[query] = h_gen
 
                 shannon_diag = {
-                    "h_rank_pre_rerank": 0.0,
-                    "h_rank_post_rerank": 0.0,
-                    "h_lexical_pre_trim": 0.0,
-                    "h_lexical_post_trim": 0.0,
-                    "h_graph_relation_type": 0.0,
-                    "h_graph_degree": 0.0,
+                    **empty_retrieval_shannon_fields(),
                     "h_gen": round(h_gen, 4),
                     "h_citation": round(h_cit, 4),
                     "n_citation_tokens": n_cit,
@@ -190,12 +184,7 @@ def run_query_on_baseline(
                 answer = "Информация отсутствует в базе данных."
                 if shannon_enabled:
                     shannon_diag = {
-                        "h_rank_pre_rerank": 0.0,
-                        "h_rank_post_rerank": 0.0,
-                        "h_lexical_pre_trim": 0.0,
-                        "h_lexical_post_trim": 0.0,
-                        "h_graph_relation_type": 0.0,
-                        "h_graph_degree": 0.0,
+                        **empty_retrieval_shannon_fields(),
                         "h_gen": 0.0,
                         "h_citation": 0.0,
                         "n_citation_tokens": 0,
@@ -203,9 +192,7 @@ def run_query_on_baseline(
                     }
             else:
                 post_scores = [score for chunk, score in final_chunks]
-                pre_scores = getattr(rag_service, "_last_pre_rerank_scores", None) or post_scores
-                h_rank_pre = compute_rank_entropy(pre_scores)
-                h_rank_post = compute_rank_entropy(post_scores)
+                pre_scores = getattr(rag_service, "_last_pre_rerank_scores", None)
 
                 ctx_res = rag_service.build_context(final_chunks, limit=5)
                 if isinstance(ctx_res, tuple) and len(ctx_res) == 2 and isinstance(ctx_res[0], str) and isinstance(ctx_res[1], str):
@@ -216,8 +203,6 @@ def run_query_on_baseline(
                         for idx, c in enumerate(final_chunks)
                     ])
                     context_graph = "No direct graph relations found."
-
-                h_lex_pre = compute_lexical_entropy(context_text)
 
                 wrapped_query = f"<|query_start|>{query}<|query_end|>"
                 model_max_context = getattr(config, "llm_model_max_context", 4096)
@@ -244,21 +229,7 @@ def run_query_on_baseline(
                 else:
                     trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
 
-                h_lex_post = compute_lexical_entropy(trimmed_text)
-
-                relations = []
-                if context_graph and context_graph not in ("No direct graph relations found.", "Graph enrichment disabled."):
-                    import re
-                    matches = re.findall(r"\((\w+):?\w*\)-\[(\w+)(?:.*?)\]->\((\w+):?\w*\)", context_graph)
-                    for head, r_type, tail in matches:
-                        relations.append({"head": head, "type": r_type, "tail": tail})
-                last_relations = getattr(rag_service, "_last_graph_relations", None)
-                if last_relations:
-                    relations.extend(last_relations)
-
-                graph_entropy_dict = compute_graph_entropy(relations)
-                h_graph_rel = graph_entropy_dict["relation_type_entropy"]
-                h_graph_deg = graph_entropy_dict["degree_entropy"]
+                last_relations = getattr(rag_service, "_last_graph_relations", None) or []
 
                 if components_settings.get("graph_expansion", True) and rag_service.expander:
                     if rag_service.expander.reranker is None:
@@ -325,13 +296,16 @@ def run_query_on_baseline(
                     h_b0 = _ensure_b0_entropy(rag_service, query, config)
                     delta_h = compute_entropy_reduction(h_b0, h_gen)
 
+                    retrieval_fields = assemble_retrieval_shannon_fields(
+                        pre_scores=pre_scores,
+                        post_scores=post_scores,
+                        pre_text=context_text,
+                        post_text=trimmed_text,
+                        relations=last_relations,
+                        graph_text=context_graph or trimmed_graph,
+                    )
                     shannon_diag = {
-                        "h_rank_pre_rerank": round(h_rank_pre, 4),
-                        "h_rank_post_rerank": round(h_rank_post, 4),
-                        "h_lexical_pre_trim": round(h_lex_pre, 4),
-                        "h_lexical_post_trim": round(h_lex_post, 4),
-                        "h_graph_relation_type": round(h_graph_rel, 4),
-                        "h_graph_degree": round(h_graph_deg, 4),
+                        **retrieval_fields,
                         "h_gen": round(h_gen, 4),
                         "h_citation": round(h_cit, 4),
                         "n_citation_tokens": n_cit,
@@ -749,17 +723,28 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                             h_b0 = _ensure_b0_entropy(rag_service, query, config)
                             delta_h = compute_entropy_reduction(h_b0, h_gen)
 
-                            post_scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in chunks]
-                            h_rank_post = compute_rank_entropy(post_scores)
-                            h_lex_post = compute_lexical_entropy(trimmed_text)
-
+                            post_scores = [
+                                c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0)
+                                for c in chunks
+                            ]
+                            pre_scores = pre_baseline.get("pre_rerank_scores")
+                            pre_text = pre_baseline.get("context_text")
+                            graph_relations = pre_baseline.get("graph_relations")
+                            graph_text = (
+                                pre_baseline.get("context_graph")
+                                or trimmed_graph
+                                or pre_baseline.get("trimmed_graph")
+                            )
+                            retrieval_fields = assemble_retrieval_shannon_fields(
+                                pre_scores=pre_scores,
+                                post_scores=post_scores,
+                                pre_text=pre_text,
+                                post_text=trimmed_text,
+                                relations=graph_relations,
+                                graph_text=graph_text,
+                            )
                             shannon_diag = {
-                                "h_rank_pre_rerank": round(h_rank_post, 4),
-                                "h_rank_post_rerank": round(h_rank_post, 4),
-                                "h_lexical_pre_trim": round(h_lex_post, 4),
-                                "h_lexical_post_trim": round(h_lex_post, 4),
-                                "h_graph_relation_type": 0.0,
-                                "h_graph_degree": 0.0,
+                                **retrieval_fields,
                                 "h_gen": round(h_gen, 4),
                                 "h_citation": round(h_cit, 4),
                                 "n_citation_tokens": n_cit,

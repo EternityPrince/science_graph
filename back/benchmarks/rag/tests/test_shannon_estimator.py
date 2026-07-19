@@ -10,6 +10,9 @@ from core.shannon_estimator import (
     compute_generation_entropy,
     compute_citation_entropy,
     compute_entropy_reduction,
+    parse_graph_relations_from_text,
+    assemble_retrieval_shannon_fields,
+    empty_retrieval_shannon_fields,
 )
 
 
@@ -79,6 +82,109 @@ def test_compute_graph_entropy():
     assert "degree_entropy" in res
     assert res["relation_type_entropy"] > 0.0
     assert res["degree_entropy"] > 0.0
+
+
+def test_parse_graph_relations_from_real_cypher_lines():
+    """Real RAG graph lines use quoted titles with spaces — old \\w+ regex failed."""
+    graph_text = (
+        "- ('Increasing the speed of wavelet transforms':Paper)-[CITES]->"
+        "(work:doi:10.1109/access.2019.2903125:ExternalWork)\n"
+        "- (Alice Smith:Author)-[AUTHORED]->('Some Paper Title':Paper)\n"
+        "- (p1:Paper)-[MENTIONS_CONCEPT]->(entropy:Concept)"
+    )
+    rels = parse_graph_relations_from_text(graph_text)
+    assert len(rels) == 3
+    types = {r["type"] for r in rels}
+    assert types == {"CITES", "AUTHORED", "MENTIONS_CONCEPT"}
+    ent = compute_graph_entropy(rels)
+    assert ent["relation_type_entropy"] > 0.0
+    assert ent["degree_entropy"] > 0.0
+
+
+def test_parse_graph_relations_disabled_or_empty():
+    assert parse_graph_relations_from_text("") == []
+    assert parse_graph_relations_from_text("No direct graph relations found.") == []
+    assert parse_graph_relations_from_text("Graph enrichment disabled.") == []
+
+
+def test_assemble_retrieval_shannon_fields_distinct_pre_post():
+    """Distinct pre vs post inputs must produce distinct rank/lexical metrics."""
+    # Peaked post-rerank scores → lower entropy than flat pre-rerank
+    pre_scores = [1.0, 1.0, 1.0, 1.0]  # flat → log2(4) = 2.0
+    post_scores = [10.0, 0.1, 0.1, 0.1]  # peaked → lower H
+    pre_text = "alpha beta gamma delta epsilon zeta eta theta"
+    post_text = "alpha alpha alpha beta"  # lower unigram diversity
+
+    fields = assemble_retrieval_shannon_fields(
+        pre_scores=pre_scores,
+        post_scores=post_scores,
+        pre_text=pre_text,
+        post_text=post_text,
+        relations=[
+            {"source": "A", "target": "B", "type": "CITES"},
+            {"source": "B", "target": "C", "type": "AUTHORED"},
+        ],
+    )
+    assert fields["h_rank_pre_rerank"] != fields["h_rank_post_rerank"]
+    assert fields["h_rank_pre_rerank"] > fields["h_rank_post_rerank"]
+    assert fields["h_lexical_pre_trim"] != fields["h_lexical_post_trim"]
+    assert fields["h_graph_relation_type"] > 0.0
+    assert fields["h_graph_degree"] > 0.0
+
+
+def test_assemble_does_not_force_pre_equal_post_when_pre_exists():
+    """Regression: pre must not be overwritten with post when pre scores/text exist."""
+    fields = assemble_retrieval_shannon_fields(
+        pre_scores=[0.5, 0.5, 0.5, 0.5],
+        post_scores=[5.0, 0.01, 0.01, 0.01],
+        pre_text="one two three four five six seven eight",
+        post_text="one one one one",
+    )
+    # Hard failure if someone reintroduces pre := post copy
+    assert fields["h_rank_pre_rerank"] != fields["h_rank_post_rerank"]
+    assert fields["h_lexical_pre_trim"] != fields["h_lexical_post_trim"]
+
+
+def test_assemble_fallback_when_pre_missing_uses_post():
+    """When pre boundary is absent (stage off / not captured), pre equals post honestly."""
+    post_scores = [1.0, 2.0, 3.0]
+    post_text = "hello world hello"
+    fields = assemble_retrieval_shannon_fields(
+        pre_scores=None,
+        post_scores=post_scores,
+        pre_text=None,
+        post_text=post_text,
+    )
+    assert fields["h_rank_pre_rerank"] == fields["h_rank_post_rerank"]
+    assert fields["h_lexical_pre_trim"] == fields["h_lexical_post_trim"]
+
+
+def test_assemble_graph_from_text_when_relations_missing():
+    graph_text = (
+        "- (p1:Paper)-[CITES]->(p2:Paper)\n"
+        "- (p1:Paper)-[AUTHORED]->(a1:Author)"
+    )
+    fields = assemble_retrieval_shannon_fields(
+        post_scores=[1.0, 2.0],
+        post_text="context",
+        relations=None,
+        graph_text=graph_text,
+    )
+    assert fields["h_graph_relation_type"] > 0.0
+    assert fields["h_graph_degree"] > 0.0
+
+
+def test_empty_retrieval_shannon_fields():
+    z = empty_retrieval_shannon_fields()
+    assert all(v == 0.0 for v in z.values())
+    assert set(z.keys()) == {
+        "h_rank_pre_rerank",
+        "h_rank_post_rerank",
+        "h_lexical_pre_trim",
+        "h_lexical_post_trim",
+        "h_graph_relation_type",
+        "h_graph_degree",
+    }
 
 
 def test_find_citation_spans():

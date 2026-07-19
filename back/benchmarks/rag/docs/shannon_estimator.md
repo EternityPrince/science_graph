@@ -1,115 +1,179 @@
-# Shannon Estimator: Information-Theoretic Diagnostics for RAG Baselines
+# Shannon Estimator: Component-Level Framework for RAG Development
 
-The **Shannon Estimator** is a component-level diagnostic layer designed to measure information uncertainty, vocabulary richness, graph structural complexity, predictive token entropy, citation uncertainty, and predictive entropy reduction ($\Delta H_{\text{gen}}$) across individual components of the RAG pipeline.
+The Shannon Estimator is a **diagnostic framework** for inspecting how individual RAG components change information uncertainty. Use it when adding, ablating, or tuning retrieval, reranking, graph expansion, context trimming, or generation — not only as a final quality score.
 
-Unlike end-to-end evaluation metrics (such as recall, precision, or LLM-as-a-judge scores), the Shannon Estimator acts as a **component estimator**, measuring how uncertainty changes at each stage of processing (retrieval, reranking, context assembly/trimming, graph expansion, and generation).
+Unlike end-to-end metrics (recall, precision, judge scores), Shannon metrics answer:
 
----
+> *At this pipeline stage, how uncertain is the ranking / context / graph / model prediction — and what did this component do to that uncertainty?*
 
-## 1. Core Entropy Diagnostics & Mathematical Formulas
-
-All Shannon entropy values are expressed in **bits** ($\log_2$):
-
-1. **Retrieval / Rank Entropy ($H_{\text{rank}}$)**:
-   - **Formula**:
-     $$H_{\text{rank}} = -\sum_{i=1}^K P(c_i) \log_2 P(c_i)$$
-     where candidate probabilities $P(c_i)$ are obtained via softmax over relevance scores $s_i$:
-     $$P(c_i) = \frac{\exp(s_i / \tau)}{\sum_{j=1}^K \exp(s_j / \tau)}$$
-   - **Diagnostic Insight**: Sharp probability distributions yield low entropy (high confidence in top candidates); flat distributions yield higher entropy approaching $\log_2(K)$ bits. Measuring $H_{\text{rank\_pre}}$ (before reranker) vs $H_{\text{rank\_post}}$ (after reranker) quantifies how much candidate uncertainty the Cross-Encoder eliminates.
-
-2. **Lexical Context Entropy ($H_{\text{lexical}}$)**:
-   - **Formula**:
-     $$H_{\text{lexical}} = -\sum_{t \in V} P(t) \log_2 P(t)$$
-     where $P(t) = \frac{\text{count}(t)}{N}$ is the unigram token frequency distribution.
-   - **Diagnostic Insight**: Tracks vocabulary diversity and information density before vs after context trimming ($H_{\text{lexical\_pre}}$ vs $H_{\text{lexical\_post}}$).
-
-3. **Graph Topology Entropy ($H_{\text{graph}}$)**:
-   - **Formula**:
-     $$H_{\text{rel}} = -\sum_{r \in R} P(r) \log_2 P(r), \quad H_{\text{deg}} = -\sum_{v \in V} P(v) \log_2 P(v)$$
-   - **Diagnostic Insight**: Measures relation diversity ($H_{\text{rel}}$) and node connection degree distribution ($H_{\text{deg}}$) in Graph-RAG subgraphs (B5/B6).
-
-4. **Generation / Predictive Entropy ($H_{\text{gen}}$)**:
-   - **Formula**:
-     $$H_t = -\sum_{v \in V} P_t(v) \log_2 P_t(v), \quad H_{\text{gen}} = \frac{1}{T}\sum_{t=1}^T H_t$$
-     where $P_t(v) = \text{softmax}(\text{logits}_t)_v$ from local `OCC-RAG-1.7B` via `mlx`.
-   - **Diagnostic Insight**: Quantifies average next-token uncertainty across the model's generated response.
-
-5. **Citation-Specific Token Entropy ($H_{\text{citation}}$)**:
-   - **Formula**: Average Shannon entropy $H_t$ restricted to tokens $t \in S_{\text{citation}}$ located inside citation marker spans.
-   - **Diagnostic Insight**: Isolates model uncertainty specifically during paper/chunk citation generation, serving as a diagnostic for citation fidelity.
-
-6. **Predictive Entropy Reduction ($\Delta H_{\text{gen}}$)**:
-   - **Formula**:
-     $$\Delta H_{\text{gen}} = H_{\text{gen}}^{\text{B0}} - H_{\text{gen}}^{\text{RAG}}$$
-   - **Diagnostic Insight**: Measures how many bits of predictive uncertainty are eliminated when the model is supplied with retrieved context ($C$) versus zero-shot generation ($B0$).
+All values are in **bits** ($\log_2$).
 
 ---
 
-## 2. How Citation Token Entropy is Calculated
+## 1. Metrics
 
-Citation fidelity is often the most fragile metric in RAG evaluation. To compute $H_{\text{citation}}$ without adding runtime latency or secondary LLM calls, the estimator employs a deterministic **character-to-token span alignment algorithm**.
+| Metric | Symbol | What it measures | Stage boundary |
+|--------|--------|------------------|----------------|
+| Rank entropy | $H_{\text{rank}}$ | Uncertainty over candidate relevance scores | pre-rerank → post-rerank |
+| Lexical entropy | $H_{\text{lexical}}$ | Unigram diversity of assembled context text | pre-trim → post-trim |
+| Graph relation entropy | $H_{\text{graph,rel}}$ | Diversity of edge relation types | graph context for the query |
+| Graph degree entropy | $H_{\text{graph,deg}}$ | Diversity of node degree mass | same subgraph |
+| Generation entropy | $H_{\text{gen}}$ | Mean per-token predictive entropy of the answer | generation (logits) |
+| Citation entropy | $H_{\text{citation}}$ | Mean token entropy inside citation spans | generation |
+| Entropy reduction | $\Delta H_{\text{gen}}$ | $H_{\text{gen}}^{B0} - H_{\text{gen}}^{RAG}$ | zero-shot vs RAG |
 
-### Step-by-Step Character-to-Token Alignment:
+### Formulas (short)
 
-1. **Token Streaming & Offset Recording**:
-   During answer generation, `MlxLLMEngine.generate_response_with_logits` streams generated tokens. For each token $t_i$, it computes token entropy $H_{t_i}$ via `mx.softmax(logprobs)` and records character offsets $[char\_start_i, char\_end_i)$ relative to the accumulated text string.
+**Rank** (softmax over scores $s_i$, temperature $\tau$):
 
-   *Example token sequence*:
-   - Token 0 (`"According"`): range `[0, 9)`, entropy `1.20`
-   - Token 1 (`" to"`): range `[9, 12)`, entropy `0.45`
-   - Token 2 (`" ["`): range `[12, 14)`, entropy `1.80`
-   - Token 3 (`"sciq_paper_1"`): range `[14, 26)`, entropy `2.10`
-   - Token 4 (`"]"`): range `[26, 27)`, entropy `0.30`
+$$
+P(c_i) = \frac{\exp(s_i / \tau)}{\sum_j \exp(s_j / \tau)}, \quad
+H_{\text{rank}} = -\sum_i P(c_i)\log_2 P(c_i)
+$$
 
-2. **Regex Citation Span Extraction**:
-   Once the full answer string is constructed, `find_citation_spans(generated_text)` runs a suite of regular expression patterns to identify citation boundary ranges $[start, end)$:
-   - `\[sciq_paper_\w+\]`
-   - `\[Block[\s_]?\w+\]`
-   - Numbered citations: `\[\d+\]`, `\[\d+,\s*\d+\]`, `\[\d+-\d+\]`
-   - Generic paper markers: `\[paper_\w+\]`, `\[doc_\w+\]`
-   - DOIs: `10.\d{4,9}/[-._;()/:A-Z0-9]+`
-   - Author-year patterns: `\([A-Z][a-z]+(?:\s+et\s+al\.)?,\s+\d{4}\)`
+Also supports `minmax` and `sum` normalization (`compute_rank_entropy`).
 
-   *Extracted span*: `[12, 27)` matching `"[sciq_paper_1]"`.
+**Lexical** (unigram frequencies over `\w+` tokens):
 
-3. **Overlap Alignment**:
-   For each token $t_i$, the estimator checks whether its character range $[char\_start_i, char\_end_i)$ intersects any detected citation span $[start, end)$:
-   $$\text{Overlap}(t_i) = \Big(char\_end_i > start\Big) \;\land\; \Big(char\_start_i < end\Big)$$
-   Tokens matching this criterion (Token 2 `" ["`, Token 3 `"sciq_paper_1"`, and Token 4 `"]"`) are collected into the citation subset $S_{\text{citation}}$.
+$$
+H_{\text{lexical}} = -\sum_t P(t)\log_2 P(t)
+$$
 
-4. **Raw Uncertainty Pre-Repair Calculation**:
-   The average entropy $H_{\text{citation}}$ is computed over $S_{\text{citation}}$ **before citation repair (B5)** so that true model output uncertainty is preserved.
+**Graph** over structured edges `{source, target, type}`:
+
+$$
+H_{\text{rel}} = -\sum_r P(r)\log_2 P(r), \quad
+H_{\text{deg}} = -\sum_v \frac{d(v)}{\sum_u d(u)}\log_2\frac{d(v)}{\sum_u d(u)}
+$$
+
+**Generation**: average of per-token entropy from logits / top logprobs.
+
+**ΔH_gen**: bits of predictive uncertainty removed by supplying retrieved context vs B0 zero-shot.
 
 ---
 
-## 3. Configuration & Enabling/Disabling
+## 2. Pre / post semantics (important)
 
-The Shannon Estimator is controlled by the configuration option `shannon_estimator_enabled: bool` (default `True`).
+| Column | Pre | Post | When equality is expected |
+|--------|-----|------|---------------------------|
+| `H_rank (pre/post)` | Scores **before** cross-encoder rerank (RRF / hybrid) | Scores **after** rerank (blended or CE raw) | Reranker off, or only one score list captured |
+| `H_lexical (pre/post)` | Full `context_text` from `build_context` | `trimmed_text` after `trim_context` | Trimming disabled or context already fits budget |
+| `H_graph (rel/deg)` | Structured relations for the assembled subgraph | (single stage — not pre/post) | Graph disabled, no neighbors, or empty relation list |
 
-In `config.yaml`:
+**Do not interpret pre == post as “Shannon is broken”** when the stage is legitimately off.  
+**Do treat universal pre == post across B4/B5/B6 with reranker and graph on as a wiring bug** — that was the old hard-copy bug (pre assigned from post; graph forced to `0.0`).
+
+### Data flow
+
+```
+retrieve (Stage 3: RRF scores)
+    └─ pre_rerank_scores  ─────────────────────────────┐
+rerank (Stage 4)                                       │
+    └─ retrieved_chunks[].score (post)                 │
+build_context                                          │
+    └─ context_text, context_graph, graph_relations    │
+trim_context                                           │
+    └─ trimmed_text, trimmed_graph                     │
+generate                                               │
+    └─ assemble_retrieval_shannon_fields(...) ◄────────┘
+         + H_gen / H_citation / ΔH_gen from logits
+```
+
+Persisted on each baseline in `retrieved_contexts.yaml` (Stage 5):
+
+- `pre_rerank_scores`
+- `context_text`, `context_graph`
+- `graph_relations` (structured; preferred over regex)
+- `trimmed_text`, `trimmed_graph`, `retrieved_chunks`
+
+Live path side-channels on `RAGService`:
+
+- `_last_pre_rerank_scores` — set in `retrieve_relevant_chunks` before CE
+- `_last_graph_relations` — set in `_get_scored_graph_lines` / `build_context`
+
+Assembly helper (single source of truth):
+
+```python
+from core.shannon_estimator import assemble_retrieval_shannon_fields
+
+fields = assemble_retrieval_shannon_fields(
+    pre_scores=pre_rerank_scores,
+    post_scores=post_scores,
+    pre_text=context_text,
+    post_text=trimmed_text,
+    relations=graph_relations,
+    graph_text=context_graph,  # fallback parser if relations empty
+)
+```
+
+Used by `generation.py` (live + consume), `pipelined.py`, and offline backfill in `analytics.py`.
+
+---
+
+## 3. Enable / disable
+
 ```yaml
 rag_components:
-  shannon_estimator_enabled: true
+  shannon_estimator_enabled: true   # default true
 ```
 
-Or programmatically:
-```python
-config.data["rag_components"]["shannon_estimator_enabled"] = True
-```
-
-When set to `False`:
-- Standard text generation is used (`generate_response`).
-- Logit streaming and per-token entropy calls are bypassed for maximum performance.
+When `false`: skip logit streaming; no Shannon fields (or zeros on B0 paths only).
 
 ---
 
-## 4. Diagnostics Interpretation across Baselines (B4, B5, B6)
+## 4. Using Shannon to develop new RAG components
 
-- **B4 (Hybrid + Reranker)**:
-  Compare $H_{\text{rank\_pre}}$ vs $H_{\text{rank\_post}}$. A significant entropy reduction after reranking indicates that the Cross-Encoder successfully concentrated candidate probability onto relevant top chunks.
+1. **Add a component boundary** where scores, text, or edges change (e.g. a new fusion step).
+2. **Capture pre-stage observables** before the component and post-stage after it.
+3. **Pass them into** `assemble_retrieval_shannon_fields` (or extend it with a new metric).
+4. **Compare baselines**:
+   - Reranker: $H_{\text{rank,pre}} - H_{\text{rank,post}}$ — large positive Δ means sharper ranking.
+   - Trimming: $H_{\text{lexical,pre}}$ vs post — collapse may mean over-pruning diversity; flat may mean no trim.
+   - Graph: non-zero $H_{\text{graph}}$ only when relations exist — use to validate graph expansion actually injects structure.
+   - Generation: higher $\Delta H_{\text{gen}}$ means RAG context reduces predictive uncertainty vs B0; pair with faithfulness/citation metrics.
 
-- **B5 (Hybrid + Graph + Trimming)**:
-  Examine $H_{\text{graph\_relation}}$ and $H_{\text{graph\_degree}}$ to evaluate subgraph structural variety. Compare $H_{\text{lexical\_pre}}$ vs $H_{\text{lexical\_post}}$ to ensure context trimming removes redundant vocabulary without dropping essential information.
+### Baseline reading guide
 
-- **B6 (Full Pipeline)**:
-  Track $H_{\text{citation}}$ alongside $\Delta H_{\text{gen}}$. Lower $H_{\text{citation}}$ indicates the model generates paper citations with high confidence, correlating with improved citation fidelity scores.
+| Baseline | Expect rank pre≠post? | Lexical pre≠post? | Graph > 0? |
+|----------|----------------------|-------------------|------------|
+| B0 | no (zeros) | no | no |
+| B1 / B2 (no CE) | often equal (honest) | maybe if trim prunes | no if graph off |
+| B4 (hybrid + CE) | **yes** when CE reshapes scores | if trim active | no if graph off |
+| B5 / B6 (+ graph) | **yes** with CE | if trim active | **yes** when neighbors exist |
+
+---
+
+## 5. Module map
+
+| Path | Role |
+|------|------|
+| `core/shannon_estimator.py` | Pure math + `assemble_retrieval_shannon_fields` / graph text parser |
+| `core/retrieval.py` | Persists pre-stage fields into contexts YAML |
+| `core/generation.py` | Live + consume-path diagnostics |
+| `core/pipelined.py` | Pipelined consume-path diagnostics |
+| `core/analytics.py` | Aggregation + offline backfill |
+| `core/reporting.py` | Console / markdown Shannon table |
+| `src/services/rag_service.py` | Captures `_last_pre_rerank_scores`, `_last_graph_relations` |
+
+Math unit tests: `tests/test_shannon_estimator.py`.  
+Wiring / regression tests: `tests/test_shannon_diagnostics_wiring.py`.
+
+---
+
+## 6. Citation token entropy (generation detail)
+
+During `generate_response_with_logits`, each token stores entropy and character offsets. After the full string is built:
+
+1. `find_citation_spans(text)` finds citation markers (`[sciq_paper_X]`, `[1]`, DOIs, author-year, …).
+2. Tokens whose char ranges overlap those spans contribute to $H_{\text{citation}}$.
+3. Prefer measuring on **raw** model text before citation repair so uncertainty reflects the model, not post-processing.
+
+---
+
+## 7. Caveats
+
+- Empty or single-candidate score lists → $H_{\text{rank}} = 0$.
+- Softmax temperature $\tau \le 0$ is clamped to a tiny positive value.
+- Graph entropy is zero for empty relation lists — that is correct for graph-off baselines.
+- Offline backfill without stored pre fields falls back to post for both pre and post (honest “unknown pre”, not invented structure).
+- B0 $\Delta H_{\text{gen}}$ is defined as 0; RAG baselines need B0 $H_{\text{gen}}$ cached (`_query_b0_h_gen` / disk cache).

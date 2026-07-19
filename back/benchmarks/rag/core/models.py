@@ -44,6 +44,11 @@ class BaselineOutput(BaseModel):
     latency_sec: Optional[float] = 0.0
     retrieved_papers: List[str] = Field(default_factory=list)
     retrieved_chunks: List[RetrievedChunk] = Field(default_factory=list)
+    # Shannon stage inputs captured at retrieve/trim boundaries
+    pre_rerank_scores: Optional[List[float]] = None
+    context_text: Optional[str] = None
+    context_graph: Optional[str] = None
+    graph_relations: Optional[List[Dict[str, Any]]] = None
     trimmed_text: Optional[str] = ""
     trimmed_graph: Optional[str] = ""
     enrichment_block: Optional[str] = ""
@@ -51,6 +56,7 @@ class BaselineOutput(BaseModel):
     baseline_config: Optional[Dict[str, Any]] = None
     metrics: Optional[StageMetrics] = None
     eval_metrics: Optional[Dict[str, Any]] = None
+    shannon_diagnostics: Optional[Dict[str, Any]] = None
     trace: Optional[Dict[str, Any]] = None
 
 

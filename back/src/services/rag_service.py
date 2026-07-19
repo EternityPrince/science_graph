@@ -278,8 +278,12 @@ class RAGService:
         """
         Retrieves graph neighbor relations for the given paper IDs, formats them,
         and assigns importance scores.
+
+        Also populates ``self._last_graph_relations`` with structured edge dicts
+        for Shannon graph entropy (source/target/type).
         """
-        scored_lines = []
+        scored_lines: List[Tuple[str, float]] = []
+        relations_acc: List[dict] = []
         seen_edges = set()
 
         for paper_id in paper_ids:
@@ -322,11 +326,25 @@ class RAGService:
                         line = f"- ({src_name}:{src_label})-[{edge_type}]->({tgt_name}:{tgt_label})"
 
                     scored_lines.append((line, score))
+                    relations_acc.append({
+                        "source": str(src_id),
+                        "target": str(tgt_id),
+                        "type": str(edge_type),
+                        "source_label": str(src_label) if src_label is not None else "",
+                        "target_label": str(tgt_label) if tgt_label is not None else "",
+                        "source_name": str(src_name) if src_name is not None else "",
+                        "target_name": str(tgt_name) if tgt_name is not None else "",
+                    })
 
         if limit is not None:
-            scored_lines.sort(key=lambda x: x[1], reverse=True)
-            scored_lines = scored_lines[:limit * 2]
+            # Keep relations aligned with the limited scored lines
+            paired = list(zip(scored_lines, relations_acc))
+            paired.sort(key=lambda x: x[0][1], reverse=True)
+            paired = paired[:limit * 2]
+            scored_lines = [p[0] for p in paired]
+            relations_acc = [p[1] for p in paired]
 
+        self._last_graph_relations = relations_acc
         return scored_lines
 
     def build_context(self, similar_chunks: List[tuple[Chunk, float]], limit: Optional[int] = None) -> Tuple[str, str]:
@@ -362,8 +380,10 @@ class RAGService:
         if config.rag_components.get("graph_expansion", True):
             scored_lines = self._get_scored_graph_lines(paper_ids, limit=limit)
             graph_lines = [line for line, _ in scored_lines]
+            # _last_graph_relations already set by _get_scored_graph_lines
             context_graph = "\n".join(graph_lines) if graph_lines else "No direct graph relations found."
         else:
+            self._last_graph_relations = []
             context_graph = "Graph enrichment disabled."
         return context_text, context_graph
 
@@ -402,7 +422,11 @@ class RAGService:
             
             while len(scored_lines) > 0 and total_tokens > tokens_limit:
                 scored_lines.pop()
-                current_graph = "\n".join([line for line, _ in scored_lines]) if scored_lines else "No direct graph relations found."
+                current_graph = (
+                    "\n".join([line for line, _ in scored_lines])
+                    if scored_lines
+                    else "No direct graph relations found."
+                )
                 total_tokens = get_total_tokens(current_text, current_graph)
 
         if total_tokens <= tokens_limit:
@@ -1299,6 +1323,7 @@ class RAGService:
             
             # Apply reranking on candidate chunks if reranker is available
             candidates = [s[0] for s in scored[:limit * 2]]
+            self._last_pre_rerank_scores = [float(s[1]) for s in scored[:limit * 2]]
             if config.rag_components.get("reranker", True):
                 try:
                     reranker = self._get_reranker()
@@ -2027,6 +2052,11 @@ class RAGService:
                 self._write_graph_retrieval_trace(query, [], None)
             return []
             
+        # Capture pre-rerank (RRF) scores for Shannon diagnostics before any CE reordering
+        self._last_pre_rerank_scores = [
+            float(rrf_scores.get(c.id, 0.0)) for c in candidates
+        ]
+
         returned_chunks = []
         if config.rag_components.get("reranker", True):
             try:

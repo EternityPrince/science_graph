@@ -314,11 +314,8 @@ def generate_baseline_case(
                 if shannon_enabled:
                     from core.generation import _generate_with_logits_safe
                     from core.shannon_estimator import (
-                        compute_rank_entropy,
-                        compute_lexical_entropy,
                         compute_generation_entropy,
                         compute_citation_entropy,
-                        compute_entropy_reduction,
                     )
                     raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                     answer = raw_response
@@ -378,17 +375,17 @@ def generate_baseline_case(
                 metrics["prompt_tokens"] = prompt_tokens
 
                 if shannon_enabled:
+                    from core.shannon_estimator import (
+                        assemble_retrieval_shannon_fields,
+                        empty_retrieval_shannon_fields,
+                        compute_entropy_reduction,
+                    )
                     if baseline == "B0":
                         if not hasattr(rag_service, "_query_b0_h_gen"):
                             rag_service._query_b0_h_gen = {}
                         rag_service._query_b0_h_gen[query] = h_gen
                         shannon_diag = {
-                            "h_rank_pre_rerank": 0.0,
-                            "h_rank_post_rerank": 0.0,
-                            "h_lexical_pre_trim": 0.0,
-                            "h_lexical_post_trim": 0.0,
-                            "h_graph_relation_type": 0.0,
-                            "h_graph_degree": 0.0,
+                            **empty_retrieval_shannon_fields(),
                             "h_gen": round(h_gen, 4),
                             "h_citation": round(h_cit, 4),
                             "n_citation_tokens": n_cit,
@@ -399,18 +396,26 @@ def generate_baseline_case(
                             h_cit_ans, n_cit_ans = compute_citation_entropy(tokens_info, answer)
                             if n_cit_ans > 0:
                                 h_cit, n_cit = h_cit_ans, n_cit_ans
-                        post_scores = [c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0) for c in chunks]
-                        h_rank_post = compute_rank_entropy(post_scores) if post_scores else 0.0
-                        h_lex_post = compute_lexical_entropy(trimmed_text) if trimmed_text else 0.0
+                        post_scores = [
+                            c.get("score", 0.0) if isinstance(c, dict) else getattr(c, "score", 0.0)
+                            for c in chunks
+                        ]
                         h_b0 = getattr(rag_service, "_query_b0_h_gen", {}).get(query)
                         delta_h = compute_entropy_reduction(h_b0, h_gen) if h_b0 is not None else 0.0
+                        retrieval_fields = assemble_retrieval_shannon_fields(
+                            pre_scores=pre_baseline.get("pre_rerank_scores"),
+                            post_scores=post_scores,
+                            pre_text=pre_baseline.get("context_text"),
+                            post_text=trimmed_text,
+                            relations=pre_baseline.get("graph_relations"),
+                            graph_text=(
+                                pre_baseline.get("context_graph")
+                                or trimmed_graph
+                                or pre_baseline.get("trimmed_graph")
+                            ),
+                        )
                         shannon_diag = {
-                            "h_rank_pre_rerank": round(h_rank_post, 4),
-                            "h_rank_post_rerank": round(h_rank_post, 4),
-                            "h_lexical_pre_trim": round(h_lex_post, 4),
-                            "h_lexical_post_trim": round(h_lex_post, 4),
-                            "h_graph_relation_type": 0.0,
-                            "h_graph_degree": 0.0,
+                            **retrieval_fields,
                             "h_gen": round(h_gen, 4),
                             "h_citation": round(h_cit, 4),
                             "n_citation_tokens": n_cit,

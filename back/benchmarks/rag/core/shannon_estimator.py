@@ -442,3 +442,126 @@ def compute_entropy_reduction(
         return 0.0
     return float(h_b0 - h_rag)
 
+
+_GRAPH_DISABLED_MARKERS = frozenset({
+    "",
+    "No direct graph relations found.",
+    "Graph enrichment disabled.",
+})
+
+# Matches real Cypher-style lines produced by rag_service._get_scored_graph_lines, e.g.:
+# - ('Long title with spaces':Paper)-[CITES {preview: "..."}]->(work:doi:10.1:ExternalWork)
+# - (Author Name:Author)-[AUTHORED]->(Paper Title:Paper)
+_GRAPH_LINE_RE = re.compile(
+    r"\("
+    r"(?:'([^']*)'|\"([^\"]*)\"|([^):\]]+))"  # src name (quoted or bare)
+    r":"
+    r"([^)]+)"  # src label
+    r"\)-"
+    r"\["
+    r"(\w+)"  # relation type
+    r"[^\]]*"
+    r"\]->"
+    r"\("
+    r"(?:'([^']*)'|\"([^\"]*)\"|([^):\]]+))"  # tgt name
+    r":"
+    r"([^)]+)"  # tgt label
+    r"\)"
+)
+
+
+def parse_graph_relations_from_text(graph_text: str) -> List[Dict[str, Any]]:
+    """Parse formatted graph context lines into relation dicts for compute_graph_entropy.
+
+    Accepts the Cypher-like lines emitted by RAGService._get_scored_graph_lines.
+    Returns an empty list for missing/disabled graph text.
+    """
+    if not graph_text or graph_text.strip() in _GRAPH_DISABLED_MARKERS:
+        return []
+
+    relations: List[Dict[str, Any]] = []
+    for match in _GRAPH_LINE_RE.finditer(graph_text):
+        src_name = match.group(1) or match.group(2) or (match.group(3) or "").strip()
+        src_label = (match.group(4) or "").strip()
+        rel_type = match.group(5)
+        tgt_name = match.group(6) or match.group(7) or (match.group(8) or "").strip()
+        tgt_label = (match.group(9) or "").strip()
+        source = f"{src_name}:{src_label}" if src_label else src_name
+        target = f"{tgt_name}:{tgt_label}" if tgt_label else tgt_name
+        if not source or not target or not rel_type:
+            continue
+        relations.append({
+            "source": source,
+            "target": target,
+            "type": rel_type,
+            "source_label": src_label,
+            "target_label": tgt_label,
+        })
+    return relations
+
+
+def _coerce_score_list(scores: Optional[List[Any]]) -> List[float]:
+    if not scores:
+        return []
+    out: List[float] = []
+    for s in scores:
+        try:
+            out.append(float(s))
+        except (TypeError, ValueError):
+            out.append(0.0)
+    return out
+
+
+def assemble_retrieval_shannon_fields(
+    *,
+    pre_scores: Optional[List[Any]] = None,
+    post_scores: Optional[List[Any]] = None,
+    pre_text: Optional[str] = None,
+    post_text: Optional[str] = None,
+    relations: Optional[List[Dict[str, Any]]] = None,
+    graph_text: Optional[str] = None,
+) -> Dict[str, float]:
+    """Assemble rank / lexical / graph Shannon fields from staged inputs.
+
+    Semantics:
+    - When distinct pre_scores / pre_text are provided, pre metrics use them.
+    - When pre is missing, post is used for both pre and post (honest fallback when
+      the stage was off or pre boundary was not captured).
+    - Graph entropy prefers structured ``relations``; falls back to parsing
+      ``graph_text`` with parse_graph_relations_from_text.
+    """
+    post_score_list = _coerce_score_list(post_scores)
+    pre_score_list = _coerce_score_list(pre_scores)
+    if not pre_score_list:
+        pre_score_list = list(post_score_list)
+
+    post_text_val = post_text if post_text is not None else ""
+    pre_text_val = pre_text if pre_text is not None else post_text_val
+
+    rels: List[Dict[str, Any]] = list(relations) if relations else []
+    if not rels and graph_text:
+        rels = parse_graph_relations_from_text(graph_text)
+
+    graph_ent = compute_graph_entropy(rels)
+
+    return {
+        "h_rank_pre_rerank": round(compute_rank_entropy(pre_score_list), 4),
+        "h_rank_post_rerank": round(compute_rank_entropy(post_score_list), 4),
+        "h_lexical_pre_trim": round(compute_lexical_entropy(pre_text_val), 4),
+        "h_lexical_post_trim": round(compute_lexical_entropy(post_text_val), 4),
+        "h_graph_relation_type": round(graph_ent["relation_type_entropy"], 4),
+        "h_graph_degree": round(graph_ent["degree_entropy"], 4),
+    }
+
+
+def empty_retrieval_shannon_fields() -> Dict[str, float]:
+    """Zero retrieval-stage Shannon fields (B0 / empty retrieval)."""
+    return {
+        "h_rank_pre_rerank": 0.0,
+        "h_rank_post_rerank": 0.0,
+        "h_lexical_pre_trim": 0.0,
+        "h_lexical_post_trim": 0.0,
+        "h_graph_relation_type": 0.0,
+        "h_graph_degree": 0.0,
+    }
+
