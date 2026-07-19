@@ -25,6 +25,7 @@ from core.metrics import (
     detect_abstention,
     classify_answerability
 )
+from core.subprocess_runner import format_progress_marker
 
 class CloudEvaluator:
     """Interacts with the Cloud LLM provider (OpenAI API compatible) to score generated answers."""
@@ -774,6 +775,7 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
         await fut
         completed_count += 1
         con.info(f"Evaluated case {completed_count}/{total_count}")
+        print(format_progress_marker("evaluation", completed_count, total_count), flush=True)
 
     con.info("All evaluations complete. Aggregating results...")
     save_checkpoint(checkpoint_path, checkpoint_data, force=True)

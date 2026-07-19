@@ -13,6 +13,7 @@ from core.metrics import (
     calculate_retrieval_recall,
     calculate_context_precision,
 )
+from core.subprocess_runner import format_progress_marker
 from src.config import config
 from src import console as con
 
@@ -403,6 +404,9 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     # =========================================================================
     con.info("=== STAGE 5: Graph & Trimming Stage ===")
     contexts_to_save = {}
+    non_b0_baselines = [b for b in baselines_to_run if b != "B0"]
+    retrieval_total = max(len(test_cases) * len(non_b0_baselines), 1)
+    retrieval_done = 0
 
     for case in test_cases:
         query = case.get("query")
@@ -437,6 +441,8 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
             res = stage3_results.get((query, baseline))
             if not res:
+                retrieval_done += 1
+                print(format_progress_marker("retrieval", retrieval_done, retrieval_total), flush=True)
                 continue
 
             components_settings = get_baseline_config(baseline, config.rag_components)
@@ -587,6 +593,8 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 for k, v in orig_components.items():
                     config.data["rag_components"][k] = v
                 config.data["llm"]["hyde_enabled"] = orig_hyde
+                retrieval_done += 1
+                print(format_progress_marker("retrieval", retrieval_done, retrieval_total), flush=True)
 
     # Unload Reranker at the end of Stage 5
     if has_reranker_baselines:

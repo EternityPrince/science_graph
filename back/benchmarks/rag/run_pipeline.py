@@ -187,12 +187,17 @@ def main():
         con.info(f"Generated pipeline custom configuration overrides at: {temp_config_file}")
 
     # Load dataset to determine total questions and total runs
+    test_cases = []
     try:
         from core.config import load_benchmark_dataset
         test_cases = load_benchmark_dataset(dataset_path, limit=args.limit)
         num_cases = len(test_cases)
-    except Exception:
-        num_cases = 50
+    except Exception as e:
+        num_cases = max(getattr(args, "limit", None) or 1, 1)
+        con.warning(
+            f"Could not load dataset for progress totals ({e}); "
+            f"using num_cases={num_cases}."
+        )
 
     # Replicate baselines list
     if args.baselines.lower() == "all":
@@ -313,7 +318,11 @@ def main():
     # STEP 1a: Pre-Retrieval Stage
     if not is_already_retrieved:
         con.blank()
-        con.info("=== STEP 1a: Running Pre-Retrieval Stage ===")
+        con.section("STEP 1a · Pre-Retrieval")
+        con.info(
+            f"Planned units: {total_retrieval_steps} "
+            f"({num_cases} cases × {num_baselines_with_retrieval} baselines excl. B0)"
+        )
         retrieve_cmd = [
             python_bin, str(script_dir / "run_custom_retrieve.py"),
             "--dataset", str(dataset_path),
@@ -329,7 +338,12 @@ def main():
 
         con.dim(f"Running command: {' '.join(retrieve_cmd)}")
         try:
-            elapsed_ret = run_command_with_progress(retrieve_cmd, "Pre-Retrieval Stage", total_retrieval_steps, "retrieval")
+            elapsed_ret = run_command_with_progress(
+                retrieve_cmd,
+                f"Pre-Retrieval · {total_retrieval_steps} units (case×baseline excl. B0)",
+                total_retrieval_steps,
+                "retrieval",
+            )
             con.success(f"Pre-Retrieval completed in {elapsed_ret:.2f} seconds.")
             try:
                 con.blank()
@@ -349,7 +363,11 @@ def main():
     if args.pipelined:
         import asyncio
         con.blank()
-        con.info("=== Running Pipelined RAG Generation and Evaluation ===")
+        con.section("Pipelined · Generation + Judge Eval")
+        con.info(
+            f"Planned units: {total_generation_steps} "
+            f"({num_cases} cases × {num_baselines} baselines)"
+        )
         
         # Apply custom config overrides to this process if we have them
         if has_overrides:
@@ -384,7 +402,7 @@ def main():
         if not args.skip_eval:
             # STEP 3: Quality Metrics Parsing & Exporting CSVs
             con.blank()
-            con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
+            con.section("STEP 3 · Metrics Parsing")
             parse_cmd = [
                 python_bin, str(script_dir / "parse_metrics.py"),
                 str(run_dir)
@@ -402,7 +420,11 @@ def main():
     else:
         # STEP 1b: RAG Generation Stage (consuming pre-retrieved contexts)
         con.blank()
-        con.info("=== STEP 1b: Running RAG Generation Stage ===")
+        con.section("STEP 1b · RAG Generation")
+        con.info(
+            f"Planned units: {total_generation_steps} "
+            f"({num_cases} cases × {num_baselines} baselines)"
+        )
         gen_cmd = [
             python_bin, str(script_dir / "run_benchmarks.py"),
             "--dataset", str(dataset_path),
@@ -419,7 +441,12 @@ def main():
 
         con.dim(f"Running command: {' '.join(gen_cmd)}")
         try:
-            elapsed_gen = run_command_with_progress(gen_cmd, "RAG Generation Stage", total_generation_steps, "generation")
+            elapsed_gen = run_command_with_progress(
+                gen_cmd,
+                f"Generation · {total_generation_steps} units (case×baseline)",
+                total_generation_steps,
+                "generation",
+            )
             con.success(f"RAG Generation completed in {elapsed_gen:.2f} seconds.")
         except subprocess.CalledProcessError as e:
             con.error(f"RAG Generation failed with exit code {e.returncode}.")
@@ -433,7 +460,11 @@ def main():
         if not args.skip_eval:
             # STEP 2: LLM-as-a-Judge Evaluation
             con.blank()
-            con.info("=== STEP 2: Running LLM-as-a-Judge Evaluation ===")
+            con.section("STEP 2 · LLM-as-a-Judge Evaluation")
+            con.info(
+                f"Planned units: {total_evaluation_steps} "
+                f"({num_cases} cases × {num_baselines} baselines)"
+            )
             eval_cmd = [
                 python_bin, str(script_dir / "run_evaluator.py"),
                 "--input", str(eval_results),
@@ -449,7 +480,12 @@ def main():
 
             con.dim(f"Running command: {' '.join(eval_cmd)}")
             try:
-                elapsed_eval = run_command_with_progress(eval_cmd, "LLM-as-a-Judge Evaluation Stage", total_evaluation_steps, "evaluation")
+                elapsed_eval = run_command_with_progress(
+                    eval_cmd,
+                    f"Judge Eval · {total_evaluation_steps} units (case×baseline)",
+                    total_evaluation_steps,
+                    "evaluation",
+                )
                 con.success(f"LLM-as-a-Judge Evaluation completed in {elapsed_eval:.2f} seconds.")
             except subprocess.CalledProcessError as e:
                 con.error(f"LLM-as-a-Judge Evaluation failed with exit code {e.returncode}.")
@@ -457,7 +493,7 @@ def main():
 
             # STEP 3: Quality Metrics Parsing & Exporting CSVs
             con.blank()
-            con.info("=== STEP 3: Parsing Metrics and Exporting Reports ===")
+            con.section("STEP 3 · Metrics Parsing")
             parse_cmd = [
                 python_bin, str(script_dir / "parse_metrics.py"),
                 str(run_dir)

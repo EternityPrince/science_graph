@@ -529,16 +529,7 @@ async def run_pipelined_stage_async(
     retrieved_contexts_file: Path,
     total_steps: int
 ):
-    from rich.progress import ProgressColumn
-    from rich.text import Text
-    
-    class IterationSpeedColumn(ProgressColumn):
-        def render(self, task):
-            speed = task.finished_speed or task.speed
-            if speed is None or speed == 0:
-                return Text("- sec/it", style="progress.data.speed")
-            sec_per_it = 1.0 / speed
-            return Text(f"{sec_per_it:.2f} sec/it", style="progress.data.speed")
+    from core.subprocess_runner import IterationSpeedColumn
 
     # 1. Initialize RAG service and Cloud Evaluator
     from src.services.container import container
@@ -650,28 +641,31 @@ async def run_pipelined_stage_async(
     
     # Progress bars
     from rich.progress import (
+        SpinnerColumn,
         Progress,
         TextColumn,
         BarColumn,
         TaskProgressColumn,
         MofNCompleteColumn,
         TimeElapsedColumn,
-        TimeRemainingColumn
+        TimeRemainingColumn,
     )
     
     with Progress(
+        SpinnerColumn(),
         TextColumn("[bold blue]{task.description}"),
-        BarColumn(bar_width=40, finished_style="green"),
+        BarColumn(bar_width=40, finished_style="green", complete_style="cyan"),
         TaskProgressColumn(),
         MofNCompleteColumn(),
         IterationSpeedColumn(),
         TimeElapsedColumn(),
         TimeRemainingColumn(),
-        console=con.console
+        console=con.console,
+        transient=False,
     ) as progress:
         
-        gen_task = progress.add_task("[cyan]RAG Generation", total=total_steps)
-        eval_task = progress.add_task("[magenta]LLM Judge Evaluation", total=total_steps)
+        gen_task = progress.add_task(f"[cyan]RAG Generation ({total_steps} units)", total=total_steps)
+        eval_task = progress.add_task(f"[magenta]LLM Judge Evaluation ({total_steps} units)", total=total_steps)
         
         async def generator_task():
             for case_idx, case in enumerate(test_cases, start=1):

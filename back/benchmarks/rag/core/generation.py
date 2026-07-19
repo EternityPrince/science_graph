@@ -24,6 +24,7 @@ from core.shannon_estimator import (
     assemble_retrieval_shannon_fields,
     empty_retrieval_shannon_fields,
 )
+from core.subprocess_runner import format_progress_marker
 from src.prompts import prompts
 
 
@@ -681,6 +682,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     reranker_model = config.reranker_model_name if config.data["rag_components"].get("reranker", True) else "disabled"
 
     results = []
+    planned = len(test_cases) * len(baselines_to_run)
+    done = 0
 
     for idx, case in enumerate(test_cases, start=1):
         query = case.get("query")
@@ -704,6 +707,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 if existing_b_data and existing_b_data.get("status") == "success" and "generated_answer" in existing_b_data:
                     con.dim(f"  Reusing previously generated answer for {baseline} from checkpoint.")
                     case_result["baselines"][baseline] = existing_b_data
+                    done += 1
+                    print(format_progress_marker("generation", done, planned), flush=True)
                     continue
 
             description = BASELINES_INFO.get(baseline, "")
@@ -968,6 +973,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 "retrieved_chunks": chunks,
                 "trace": trace
             }
+            done += 1
+            print(format_progress_marker("generation", done, planned), flush=True)
             
         results.append(case_result)
         con.success(f"[{case_id}] Completed.")

@@ -67,15 +67,22 @@ def test_run_command_with_progress_retrieval(mock_popen, mock_progress_class):
         "[Q01] Query: 'What is deep learning?' (B1)\n",
         "Loaded some index\n",
         "Query: 'Is this working?'\n",
+        "PROGRESS retrieval 2/10\n",
         ""
     ]
     mock_proc.wait.return_value = 0
     
     run_command_with_progress(["python", "dummy.py"], "Title", 10, "retrieval")
     
-    # Check that progress was advanced twice
-    assert mock_progress.advance.call_count == 2
-    mock_progress.advance.assert_called_with(mock_task, 1)
+    # Advances via Query (1,2) then PROGRESS set 2; success reconciles to 10
+    completed_values = [
+        c.kwargs.get("completed")
+        for c in mock_progress.update.call_args_list
+        if "completed" in c.kwargs
+    ]
+    assert 1 in completed_values
+    assert 2 in completed_values
+    assert completed_values[-1] == 10
 
 
 @patch("rich.progress.Progress")
@@ -95,15 +102,23 @@ def test_run_command_with_progress_generation(mock_popen, mock_progress_class):
         "Running CUSTOM: Custom baseline details\n",
         "Loaded model successfully\n",
         "Running B1: baseline B1 details\n",
+        "Reusing previously generated answer for B2 from checkpoint.\n",
         ""
     ]
     mock_proc.wait.return_value = 0
     
     run_command_with_progress(["python", "dummy.py"], "Title", 10, "generation")
     
-    # Should advance on "Running CUSTOM:" and "Running B1:", but NOT on "Running command:"
-    assert mock_progress.advance.call_count == 2
-    mock_progress.advance.assert_called_with(mock_task, 1)
+    # Running CUSTOM, Running B1, Reusing B2 -> completed 1,2,3 then reconcile 10
+    completed_values = [
+        c.kwargs.get("completed")
+        for c in mock_progress.update.call_args_list
+        if "completed" in c.kwargs
+    ]
+    assert 1 in completed_values
+    assert 2 in completed_values
+    assert 3 in completed_values
+    assert completed_values[-1] == 10
 
 
 @patch("rich.progress.Progress")
@@ -129,7 +144,6 @@ def test_run_command_with_progress_evaluation(mock_popen, mock_progress_class):
     run_command_with_progress(["python", "dummy.py"], "Title", 10, "evaluation")
     
     # Should call progress.update for completed counts
-    assert mock_progress.update.call_count == 3
     mock_progress.update.assert_any_call(mock_task, completed=1)
     mock_progress.update.assert_any_call(mock_task, completed=2)
     mock_progress.update.assert_any_call(mock_task, completed=10)
