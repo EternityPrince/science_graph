@@ -208,3 +208,74 @@ def test_simulated_run_failure_does_not_force_reconcile_to_total(
     assert completed_values
     assert all(v < 5 for v in completed_values)
     assert completed_values[-1] == 2  # set 1 then advance → 2; no success reconcile
+
+
+def test_retrieval_query_lines_do_not_parse_as_progress():
+    """Stage-3 Query logs are not retrieval units; only Stage-5 PROGRESS is."""
+    assert parse_progress_line("[Q01] Query: 'x' (B1)", "retrieval") is None
+    assert parse_progress_line("Query: 'hello'", "retrieval") is None
+    assert parse_progress_line(format_progress_marker("retrieval", 1, 3), "retrieval") == (
+        "set",
+        1,
+    )
+
+
+@patch("rich.progress.Progress")
+@patch("subprocess.Popen")
+def test_retrieval_real_emission_order_no_early_100_no_backward_snap(
+    mock_popen, mock_progress_class
+):
+    """Real retrieval order: N Stage-3 Query lines, then N Stage-5 PROGRESS sets.
+
+    Must not race to 100% on Query lines, then snap completed backward when
+    PROGRESS markers arrive. Trajectory after all queries stays at 0; PROGRESS
+    1..N is non-decreasing; final completed == N.
+    """
+    mock_progress = MagicMock()
+    mock_progress_class.return_value.__enter__.return_value = mock_progress
+    mock_task = MagicMock()
+    mock_progress.add_task.return_value = mock_task
+
+    n = 4
+    # All Stage-3 Query logs first (as in real run), then Stage-5 PROGRESS sets
+    query_lines = [f"[Q{i:02d}] Query: 'q{i}' (B1)\n" for i in range(1, n + 1)]
+    progress_lines = [
+        f"{format_progress_marker('retrieval', i, n)}\n" for i in range(1, n + 1)
+    ]
+    mock_proc = MagicMock()
+    mock_popen.return_value = mock_proc
+    mock_proc.stdout.readline.side_effect = query_lines + progress_lines + [""]
+    mock_proc.wait.return_value = 0
+
+    run_command_with_progress(["mock_cmd"], "Retrieval", n, "retrieval")
+
+    trajectory = [
+        c.kwargs.get("completed")
+        for c in mock_progress.update.call_args_list
+        if "completed" in c.kwargs
+    ]
+
+    # After all N Query lines: completed still 0 — no early 100%
+    # First update should be from PROGRESS set 1, not Query advances
+    assert trajectory, "expected at least one progress update from PROGRESS markers"
+    assert trajectory[0] == 1, (
+        f"Query lines must not advance; first completed should be 1, got {trajectory}"
+    )
+
+    # PROGRESS set 1..N: non-decreasing sequence ending at N
+    progress_portion = trajectory[:n]
+    assert progress_portion == list(range(1, n + 1)), (
+        f"expected non-decreasing 1..{n}, got {progress_portion}"
+    )
+    for prev, cur in zip(progress_portion, progress_portion[1:]):
+        assert cur >= prev, f"backward snap: {prev} -> {cur} in {trajectory}"
+
+    # Never has completed go from N down to 1 (no backward snap after early 100%)
+    assert not any(
+        trajectory[i] == n and trajectory[i + 1] == 1
+        for i in range(len(trajectory) - 1)
+    ), f"backward snap N->1 in trajectory: {trajectory}"
+
+    # Final completed == N (success reconcile keeps N)
+    assert trajectory[-1] == n
+    assert all(0 <= v <= n for v in trajectory)

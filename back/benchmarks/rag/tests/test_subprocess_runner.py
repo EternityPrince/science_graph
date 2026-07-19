@@ -24,9 +24,11 @@ def test_parse_progress_line_primary_protocol():
 
 
 def test_parse_progress_line_legacy_retrieval():
-    assert parse_progress_line("Query: 'hello'", "retrieval") == ("advance", 1)
-    assert parse_progress_line("[Q01] Query: 'what?' (B1)", "retrieval") == ("advance", 1)
+    # Stage-3 Query lines are human-facing only; units are Stage-5 PROGRESS.
+    assert parse_progress_line("Query: 'hello'", "retrieval") is None
+    assert parse_progress_line("[Q01] Query: 'what?' (B1)", "retrieval") is None
     assert parse_progress_line("no match here", "retrieval") is None
+    assert parse_progress_line("PROGRESS retrieval 2/10", "retrieval") == ("set", 2)
 
 
 def test_parse_progress_line_legacy_generation():
@@ -162,7 +164,7 @@ def test_run_command_with_progress_clamp_and_reconcile(mock_popen, mock_progress
 
     mock_proc = MagicMock()
     mock_popen.return_value = mock_proc
-    # Overshoot via PROGRESS set beyond total, and extra advances
+    # Overshoot via PROGRESS set beyond total; Query lines must not advance
     mock_proc.stdout.readline.side_effect = [
         "PROGRESS retrieval 99/5\n",
         "Query: 'a'\n",
@@ -180,6 +182,8 @@ def test_run_command_with_progress_clamp_and_reconcile(mock_popen, mock_progress
     ]
     assert all(v <= 5 for v in completed_values)
     assert completed_values[0] == 5  # clamped set
+    # Query lines after the clamp must not change completed (no advance)
+    assert completed_values == [5] or all(v == 5 for v in completed_values)
 
 
 @patch("rich.progress.Progress")

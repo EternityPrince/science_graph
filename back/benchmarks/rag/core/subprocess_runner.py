@@ -22,7 +22,10 @@ def parse_progress_line(line: str, step_pattern: str) -> tuple[str, int] | None:
     case-insensitively, otherwise ignored).
 
     Legacy fallbacks:
-      retrieval: ``Query: '`` or ``] Query:``
+      retrieval: none — Stage-3 ``Query:`` logs are human-facing only. Counting
+        them would race the bar to 100% before Stage 5 finishes and then snap
+        backward when Stage-5 ``PROGRESS retrieval`` markers arrive. Units are
+        Stage-5 completions only (or success-exit reconcile if no markers).
       generation: startswith ``Running `` with ``:`` and not ``Running command:``
                   also: ``Reusing previously generated`` (checkpoint counts as a unit)
       evaluation: ``Evaluated case N/M`` -> set completed=N
@@ -42,9 +45,9 @@ def parse_progress_line(line: str, step_pattern: str) -> tuple[str, int] | None:
         return None
 
     if step_pattern == "retrieval":
-        if "Query: '" in line_str or "] Query:" in line_str:
-            return ("advance", 1)
-    elif step_pattern == "generation":
+        # Do not advance on Stage-3 Query lines — work unit is Stage-5 PROGRESS.
+        return None
+    if step_pattern == "generation":
         if line_str.startswith("Running ") and ":" in line_str and not line_str.startswith("Running command:"):
             return ("advance", 1)
         if "Reusing previously generated" in line_str:

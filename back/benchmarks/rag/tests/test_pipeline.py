@@ -59,7 +59,7 @@ def test_run_command_with_progress_retrieval(mock_popen, mock_progress_class):
     mock_task = MagicMock()
     mock_progress.add_task.return_value = mock_task
     
-    # Mock subprocess output lines
+    # Mock subprocess output lines — Stage-3 Query logs then Stage-5 PROGRESS
     mock_proc = MagicMock()
     mock_popen.return_value = mock_proc
     mock_proc.stdout.readline.side_effect = [
@@ -67,6 +67,7 @@ def test_run_command_with_progress_retrieval(mock_popen, mock_progress_class):
         "[Q01] Query: 'What is deep learning?' (B1)\n",
         "Loaded some index\n",
         "Query: 'Is this working?'\n",
+        "PROGRESS retrieval 1/10\n",
         "PROGRESS retrieval 2/10\n",
         ""
     ]
@@ -74,13 +75,13 @@ def test_run_command_with_progress_retrieval(mock_popen, mock_progress_class):
     
     run_command_with_progress(["python", "dummy.py"], "Title", 10, "retrieval")
     
-    # Advances via Query (1,2) then PROGRESS set 2; success reconciles to 10
+    # Query lines do not advance; only PROGRESS set 1,2 then success reconciles to 10
     completed_values = [
         c.kwargs.get("completed")
         for c in mock_progress.update.call_args_list
         if "completed" in c.kwargs
     ]
-    assert 1 in completed_values
+    assert completed_values[0] == 1
     assert 2 in completed_values
     assert completed_values[-1] == 10
 
