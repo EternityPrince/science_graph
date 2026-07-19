@@ -47,6 +47,34 @@ def test_compute_rank_entropy_methods():
     assert h_invalid_tau >= 0.0
 
 
+def test_compute_rank_entropy_sum_closed_form_scores_10_20_30():
+    """Exact Shannon H for sum-normalized P = [10,20,30]/60 = [1/6, 1/3, 1/2]."""
+    scores = [10.0, 20.0, 30.0]
+    p = [10 / 60, 20 / 60, 30 / 60]  # [1/6, 1/3, 1/2]
+    expected = -sum(pi * math.log2(pi) for pi in p if pi > 0)
+    got = compute_rank_entropy(scores, method="sum")
+    assert math.isclose(got, expected, rel_tol=1e-9, abs_tol=1e-12)
+    # aliases
+    assert math.isclose(compute_rank_entropy(scores, method="l1"), expected, rel_tol=1e-9)
+    assert math.isclose(compute_rank_entropy(scores, method="linear"), expected, rel_tol=1e-9)
+
+
+def test_compute_rank_entropy_minmax_closed_form_scores_10_20_30():
+    """Minmax: n=[0, 0.5, 1], sum=1.5 → P=[0, 1/3, 2/3]; zero-mass term drops out."""
+    scores = [10.0, 20.0, 30.0]
+    # n_i = (s - min)/(max-min) → [0, 0.5, 1.0]; P = n/sum(n) = [0, 1/3, 2/3]
+    p_nonzero = [1.0 / 3.0, 2.0 / 3.0]
+    expected = -sum(pi * math.log2(pi) for pi in p_nonzero)
+    got = compute_rank_entropy(scores, method="minmax")
+    assert math.isclose(got, expected, rel_tol=1e-9, abs_tol=1e-12)
+    # sanity: expected formula as written in the plan
+    assert math.isclose(
+        expected,
+        -(1 / 3) * math.log2(1 / 3) - (2 / 3) * math.log2(2 / 3),
+        rel_tol=1e-12,
+    )
+
+
 def test_compute_lexical_entropy():
     # Empty string
     assert compute_lexical_entropy("") == 0.0
@@ -84,6 +112,25 @@ def test_compute_graph_entropy():
     assert res["degree_entropy"] > 0.0
 
 
+def test_compute_graph_entropy_degree_closed_form():
+    """Star-like: A→B cites, A→C cites.
+
+    Degrees: A=2, B=1, C=1; total_degree=4 → P=[1/2, 1/4, 1/4].
+    H_degree = 0.5 + 0.5 = 1.5 bits. Both edges same type → relation_type H = 0.
+    """
+    relations = [
+        {"source": "A", "target": "B", "type": "cites"},
+        {"source": "A", "target": "C", "type": "cites"},
+    ]
+    res = compute_graph_entropy(relations)
+    expected_degree = (
+        -0.5 * math.log2(0.5) - 0.25 * math.log2(0.25) - 0.25 * math.log2(0.25)
+    )
+    assert math.isclose(res["degree_entropy"], expected_degree, rel_tol=1e-9)
+    assert math.isclose(res["degree_entropy"], 1.5, rel_tol=1e-9)
+    assert res["relation_type_entropy"] == 0.0
+
+
 def test_parse_graph_relations_from_real_cypher_lines():
     """Real RAG graph lines use quoted titles with spaces — old \\w+ regex failed."""
     graph_text = (
@@ -99,6 +146,21 @@ def test_parse_graph_relations_from_real_cypher_lines():
     ent = compute_graph_entropy(rels)
     assert ent["relation_type_entropy"] > 0.0
     assert ent["degree_entropy"] > 0.0
+
+
+def test_parse_graph_relations_cypher_with_preview_attrs_and_fields():
+    """Cypher-like line with relation attributes still yields typed source/target."""
+    line = (
+        "- ('Long title with spaces':Paper)-[CITES {preview: \"cite snippet\"}]->"
+        "(work:doi:10.1/xyz:ExternalWork)"
+    )
+    rels = parse_graph_relations_from_text(line)
+    assert len(rels) == 1
+    r = rels[0]
+    assert r["type"] == "CITES"
+    assert "Long title with spaces" in r["source"]
+    assert r["source_label"] == "Paper"
+    assert "ExternalWork" in r["target"] or "work" in r["target"]
 
 
 def test_parse_graph_relations_disabled_or_empty():
@@ -130,6 +192,17 @@ def test_assemble_retrieval_shannon_fields_distinct_pre_post():
     assert fields["h_lexical_pre_trim"] != fields["h_lexical_post_trim"]
     assert fields["h_graph_relation_type"] > 0.0
     assert fields["h_graph_degree"] > 0.0
+
+
+def test_assemble_pre_flat_vs_post_peaked_h_rank_strictly_decreases():
+    """Required case: pre=[1,1,1,1] post=[10,0.1,0.1,0.1] ⇒ h_rank_pre > h_rank_post."""
+    fields = assemble_retrieval_shannon_fields(
+        pre_scores=[1, 1, 1, 1],
+        post_scores=[10, 0.1, 0.1, 0.1],
+    )
+    assert fields["h_rank_pre_rerank"] > fields["h_rank_post_rerank"]
+    # flat softmax/default → log2(4)=2.0 bits (rounded to 4 dp in assemble)
+    assert math.isclose(fields["h_rank_pre_rerank"], 2.0, abs_tol=1e-4)
 
 
 def test_assemble_does_not_force_pre_equal_post_when_pre_exists():
@@ -185,6 +258,19 @@ def test_empty_retrieval_shannon_fields():
         "h_graph_relation_type",
         "h_graph_degree",
     }
+    # every key is float 0.0 (not int / None)
+    assert all(isinstance(v, float) and v == 0.0 for v in z.values())
+
+
+def test_docs_pipeline_and_shannon_estimator_exist():
+    """Structural smoke: package docs for pipeline + shannon estimator are present."""
+    from pathlib import Path
+
+    docs = Path(__file__).resolve().parents[1] / "docs"
+    for name in ("pipeline_orchestration.md", "shannon_estimator.md"):
+        path = docs / name
+        assert path.is_file(), f"missing {path}"
+        assert path.stat().st_size > 100, f"{path} is trivially empty"
 
 
 def test_find_citation_spans():
