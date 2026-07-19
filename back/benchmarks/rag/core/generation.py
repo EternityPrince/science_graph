@@ -91,30 +91,21 @@ def _ensure_b0_entropy(rag_service: Any, query: str, config: Any) -> float:
     return h_gen_b0
 
 
-
-def run_query_on_baseline(
-    rag_service: Any, 
-    query: str, 
-    baseline: str, 
-    use_cloud: bool,
-    config: Any
-) -> Tuple[str, List[str], Dict[str, Any], List[Dict[str, Any]]]:
-    """Runs a query under a temporary baseline configuration and returns (answer, retrieved_papers, metrics, chunks)."""
-    
-    # Save original configurations
+def _apply_baseline_config(
+    rag_service: Any, config: Any, baseline: str
+) -> Tuple[Dict[str, Any], Dict[str, Any], bool]:
+    """Save orig settings, apply baseline components/hyde/expander; return (settings, orig_components, orig_hyde)."""
     orig_components = {name: config.is_component_enabled(name) for name in config.rag_components.keys()}
     orig_hyde = config.data["llm"].get("hyde_enabled", False)
-    
-    # Configure baseline components
+
     components_settings = get_baseline_config(baseline, config.rag_components)
     if "rag_components" not in config.data:
         config.data["rag_components"] = {}
     for k, v in components_settings.items():
         config.data["rag_components"][k] = v
-        
+
     config.data["llm"]["hyde_enabled"] = components_settings.get("hyde", False)
-    
-    # Expander setup: B6 uses advanced expander, B5 uses static neighbor graph relations
+
     if baseline == "B6":
         try:
             from src.services.graph_expander import ExperimentalGraphExpander
@@ -127,11 +118,183 @@ def run_query_on_baseline(
             )
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"Could not load Advanced Expander for B6: {e}. Falling back to static graph.")
+            logging.getLogger(__name__).warning(
+                f"Could not load Advanced Expander for B6: {e}. Falling back to static graph."
+            )
             rag_service.expander = None
     else:
         rag_service.expander = None
-        
+
+    return components_settings, orig_components, orig_hyde
+
+
+def _restore_baseline_config(
+    rag_service: Any, config: Any, orig_components: Dict[str, Any], orig_hyde: bool
+) -> None:
+    """Restore rag components, hyde, and expander after a baseline run."""
+    for k, v in orig_components.items():
+        config.data["rag_components"][k] = v
+    config.data["llm"]["hyde_enabled"] = orig_hyde
+    rag_service.expander = None
+
+
+def _build_shannon_diag_for_b0(h_gen: float, h_cit: float, n_cit: int) -> Dict[str, Any]:
+    """Shannon diagnostics for B0 / empty-retrieval paths (no retrieval fields)."""
+    return {
+        **empty_retrieval_shannon_fields(),
+        "h_gen": round(h_gen, 4),
+        "h_citation": round(h_cit, 4),
+        "n_citation_tokens": n_cit,
+        "delta_h_gen": 0.0,
+    }
+
+
+def _build_shannon_diag_for_rag(
+    rag_service: Any,
+    query: str,
+    config: Any,
+    h_gen: float,
+    h_cit: float,
+    n_cit: int,
+    pre_scores: Any,
+    post_scores: Any,
+    context_text: str,
+    trimmed_text: str,
+    last_relations: Any,
+    context_graph: str,
+    trimmed_graph: str,
+) -> Dict[str, Any]:
+    """Assemble full RAG shannon diagnostics from scores, texts, relations, and gen entropy."""
+    h_b0 = _ensure_b0_entropy(rag_service, query, config)
+    delta_h = compute_entropy_reduction(h_b0, h_gen)
+    retrieval_fields = assemble_retrieval_shannon_fields(
+        pre_scores=pre_scores,
+        post_scores=post_scores,
+        pre_text=context_text,
+        post_text=trimmed_text,
+        relations=last_relations,
+        graph_text=context_graph or trimmed_graph,
+    )
+    return {
+        **retrieval_fields,
+        "h_gen": round(h_gen, 4),
+        "h_citation": round(h_cit, 4),
+        "n_citation_tokens": n_cit,
+        "delta_h_gen": round(delta_h, 4),
+    }
+
+
+def _build_prompt_from_chunks(
+    rag_service: Any,
+    config: Any,
+    components_settings: Dict[str, Any],
+    query: str,
+    final_chunks: List[Any],
+    prompts_mod: Any,
+) -> Tuple[str, List[Any], str, str, str, str, List[Any], Any, List[float]]:
+    """Build context, trim, expand, and select prompt. Returns prompt and intermediate state."""
+    post_scores = [score for chunk, score in final_chunks]
+    pre_scores = getattr(rag_service, "_last_pre_rerank_scores", None)
+
+    ctx_res = rag_service.build_context(final_chunks, limit=5)
+    if (
+        isinstance(ctx_res, tuple)
+        and len(ctx_res) == 2
+        and isinstance(ctx_res[0], str)
+        and isinstance(ctx_res[1], str)
+    ):
+        context_text, context_graph = ctx_res
+    else:
+        context_text = "\n\n".join([
+            f"Block {idx+1}: {c[0].text_content if isinstance(c, tuple) else getattr(c, 'text_content', str(c))}"
+            for idx, c in enumerate(final_chunks)
+        ])
+        context_graph = "No direct graph relations found."
+
+    wrapped_query = f"<|query_start|>{query}<|query_end|>"
+    model_max_context = getattr(config, "llm_model_max_context", 4096)
+    if components_settings.get("graph_expansion", True) and rag_service.expander:
+        system_prompt = prompts_mod.get_prompt(
+            "rag", "ask_expander", enrichment_block="", history_str="", query=wrapped_query
+        )
+    else:
+        system_prompt = prompts_mod.get_prompt(
+            "rag", "ask_no_expander", context_text="", context_graph="", history_str="", query=wrapped_query
+        )
+
+    if components_settings.get("context_trimming", True):
+        trim_res = rag_service.trim_context(
+            context_text=context_text,
+            context_graph=context_graph,
+            final_chunks=final_chunks,
+            query=wrapped_query,
+            history_str="",
+            system_prompt=system_prompt,
+            model_max_context=model_max_context,
+            reserved_tokens=500
+        )
+        if (
+            isinstance(trim_res, tuple)
+            and len(trim_res) == 3
+            and isinstance(trim_res[0], str)
+            and isinstance(trim_res[1], str)
+            and isinstance(trim_res[2], list)
+        ):
+            trimmed_text, trimmed_graph, trimmed_chunks = trim_res
+        else:
+            trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
+    else:
+        trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
+
+    last_relations = getattr(rag_service, "_last_graph_relations", None) or []
+
+    if components_settings.get("graph_expansion", True) and rag_service.expander:
+        if rag_service.expander.reranker is None:
+            rag_service.expander.reranker = rag_service._get_reranker()
+        enrichment_block = rag_service.expander.expand(query, trimmed_chunks)
+        if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
+            prompt = prompts_mod.get_prompt(
+                "rag", "ask_no_expander",
+                context_text=trimmed_text, context_graph=trimmed_graph,
+                history_str="", query=wrapped_query,
+            )
+        else:
+            prompt = prompts_mod.get_prompt(
+                "rag", "ask_expander",
+                enrichment_block=enrichment_block, history_str="", query=wrapped_query,
+            )
+    else:
+        prompt = prompts_mod.get_prompt(
+            "rag", "ask_no_expander",
+            context_text=trimmed_text, context_graph=trimmed_graph,
+            history_str="", query=wrapped_query,
+        )
+
+    return (
+        prompt,
+        trimmed_chunks,
+        context_text,
+        context_graph,
+        trimmed_text,
+        trimmed_graph,
+        last_relations,
+        pre_scores,
+        post_scores,
+    )
+
+
+def run_query_on_baseline(
+    rag_service: Any, 
+    query: str, 
+    baseline: str, 
+    use_cloud: bool,
+    config: Any
+) -> Tuple[str, List[str], Dict[str, Any], List[Dict[str, Any]]]:
+    """Runs a query under a temporary baseline configuration and returns (answer, retrieved_papers, metrics, chunks)."""
+    components_settings, orig_components, orig_hyde = _apply_baseline_config(
+        rag_service, config, baseline
+    )
+
     collector = BenchmarkStatsCollector(rag_service)
     collector.start()
     
@@ -166,14 +329,7 @@ def run_query_on_baseline(
                 if not hasattr(rag_service, "_query_b0_h_gen"):
                     rag_service._query_b0_h_gen = {}
                 rag_service._query_b0_h_gen[query] = h_gen
-
-                shannon_diag = {
-                    **empty_retrieval_shannon_fields(),
-                    "h_gen": round(h_gen, 4),
-                    "h_citation": round(h_cit, 4),
-                    "n_citation_tokens": n_cit,
-                    "delta_h_gen": 0.0,
-                }
+                shannon_diag = _build_shannon_diag_for_b0(h_gen, h_cit, n_cit)
         else:
             final_chunks = rag_service.retrieve_relevant_chunks(query, limit=5)
             retrieved_papers = list({chunk.paper_id for chunk, _ in final_chunks})
@@ -183,66 +339,22 @@ def run_query_on_baseline(
             if not final_chunks:
                 answer = "Информация отсутствует в базе данных."
                 if shannon_enabled:
-                    shannon_diag = {
-                        **empty_retrieval_shannon_fields(),
-                        "h_gen": 0.0,
-                        "h_citation": 0.0,
-                        "n_citation_tokens": 0,
-                        "delta_h_gen": 0.0,
-                    }
+                    shannon_diag = _build_shannon_diag_for_b0(0.0, 0.0, 0)
             else:
-                post_scores = [score for chunk, score in final_chunks]
-                pre_scores = getattr(rag_service, "_last_pre_rerank_scores", None)
+                (
+                    prompt,
+                    trimmed_chunks,
+                    context_text,
+                    context_graph,
+                    trimmed_text,
+                    trimmed_graph,
+                    last_relations,
+                    pre_scores,
+                    post_scores,
+                ) = _build_prompt_from_chunks(
+                    rag_service, config, components_settings, query, final_chunks, prompts
+                )
 
-                ctx_res = rag_service.build_context(final_chunks, limit=5)
-                if isinstance(ctx_res, tuple) and len(ctx_res) == 2 and isinstance(ctx_res[0], str) and isinstance(ctx_res[1], str):
-                    context_text, context_graph = ctx_res
-                else:
-                    context_text = "\n\n".join([
-                        f"Block {idx+1}: {c[0].text_content if isinstance(c, tuple) else getattr(c, 'text_content', str(c))}"
-                        for idx, c in enumerate(final_chunks)
-                    ])
-                    context_graph = "No direct graph relations found."
-
-                wrapped_query = f"<|query_start|>{query}<|query_end|>"
-                model_max_context = getattr(config, "llm_model_max_context", 4096)
-                if components_settings.get("graph_expansion", True) and rag_service.expander:
-                    system_prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block="", history_str="", query=wrapped_query)
-                else:
-                    system_prompt = prompts.get_prompt("rag", "ask_no_expander", context_text="", context_graph="", history_str="", query=wrapped_query)
-
-                if components_settings.get("context_trimming", True):
-                    trim_res = rag_service.trim_context(
-                        context_text=context_text,
-                        context_graph=context_graph,
-                        final_chunks=final_chunks,
-                        query=wrapped_query,
-                        history_str="",
-                        system_prompt=system_prompt,
-                        model_max_context=model_max_context,
-                        reserved_tokens=500
-                    )
-                    if isinstance(trim_res, tuple) and len(trim_res) == 3 and isinstance(trim_res[0], str) and isinstance(trim_res[1], str) and isinstance(trim_res[2], list):
-                        trimmed_text, trimmed_graph, trimmed_chunks = trim_res
-                    else:
-                        trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
-                else:
-                    trimmed_text, trimmed_graph, trimmed_chunks = context_text, context_graph, final_chunks
-
-                last_relations = getattr(rag_service, "_last_graph_relations", None) or []
-
-                if components_settings.get("graph_expansion", True) and rag_service.expander:
-                    if rag_service.expander.reranker is None:
-                        rag_service.expander.reranker = rag_service._get_reranker()
-                    enrichment_block = rag_service.expander.expand(query, trimmed_chunks)
-                    if not enrichment_block or enrichment_block == "No essential knowledge graph enrichment found.":
-                        prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str="", query=wrapped_query)
-                    else:
-                        prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str="", query=wrapped_query)
-                else:
-                    prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str="", query=wrapped_query)
-
-                # Execute response generation with generate_response_with_logits BEFORE citation repair
                 if shannon_enabled:
                     raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                     h_gen = compute_generation_entropy(tokens_info)
@@ -258,7 +370,6 @@ def run_query_on_baseline(
                 elif hasattr(rag_service, "last_raw_response") and isinstance(getattr(rag_service, "last_raw_response"), str):
                     raw_response = rag_service.last_raw_response
 
-                from src.prompts import prompts as prompts_mod
                 try:
                     from src.prompts import parse_reasoning_response
                     status_code, parsed_answer = parse_reasoning_response(raw_response)
@@ -293,36 +404,28 @@ def run_query_on_baseline(
                         if n_cit_ans > 0:
                             h_cit, n_cit = h_cit_ans, n_cit_ans
 
-                    h_b0 = _ensure_b0_entropy(rag_service, query, config)
-                    delta_h = compute_entropy_reduction(h_b0, h_gen)
-
-                    retrieval_fields = assemble_retrieval_shannon_fields(
-                        pre_scores=pre_scores,
-                        post_scores=post_scores,
-                        pre_text=context_text,
-                        post_text=trimmed_text,
-                        relations=last_relations,
-                        graph_text=context_graph or trimmed_graph,
+                    shannon_diag = _build_shannon_diag_for_rag(
+                        rag_service,
+                        query,
+                        config,
+                        h_gen,
+                        h_cit,
+                        n_cit,
+                        pre_scores,
+                        post_scores,
+                        context_text,
+                        trimmed_text,
+                        last_relations,
+                        context_graph,
+                        trimmed_graph,
                     )
-                    shannon_diag = {
-                        **retrieval_fields,
-                        "h_gen": round(h_gen, 4),
-                        "h_citation": round(h_cit, 4),
-                        "n_citation_tokens": n_cit,
-                        "delta_h_gen": round(delta_h, 4),
-                    }
-
 
         metrics = collector.get_metrics()
         if shannon_enabled and shannon_diag is not None:
             metrics["shannon_diagnostics"] = shannon_diag
     finally:
         collector.stop()
-        # Restore configurations
-        for k, v in orig_components.items():
-            config.data["rag_components"][k] = v
-        config.data["llm"]["hyde_enabled"] = orig_hyde
-        rag_service.expander = None
+        _restore_baseline_config(rag_service, config, orig_components, orig_hyde)
         
     chunks_info = []
     for chunk, score in final_chunks:
