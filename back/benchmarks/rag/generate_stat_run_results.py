@@ -166,7 +166,8 @@ def run_full_statistical_analysis():
     friedman_results: dict[str, dict[str, Any]] = {}
     for m in CONTINUOUS_METRICS:
         piv = df_merged.pivot(index="query_id", columns="baseline", values=m)
-        arrays = [piv[b].values for b in BASELINES]
+        piv = piv.fillna(0.0)
+        arrays = [piv[b].values for b in BASELINES if b in piv.columns]
         
         # Check if all values identical across all baselines
         matrix = np.column_stack(arrays)

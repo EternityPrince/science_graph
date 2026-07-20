@@ -1,4 +1,5 @@
 import csv
+import math
 import yaml
 import json
 from pathlib import Path
@@ -148,6 +149,20 @@ NEW_SUMMARY_HEADERS = [
     "Avg Graph Concept Candidates",
     "Avg Graph Bridge Candidates"
 ]
+
+
+def format_pct(val: float | None, digits: int = 1) -> str:
+    """Consistently formats a ratio to percentage string with standard rounding."""
+    if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+        return "—"
+    return f"{round(val * 100, digits):.{digits}f}%"
+
+
+def format_avg(val: float | None, digits: int = 2) -> str:
+    """Consistently formats a float value to decimal string with standard rounding."""
+    if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+        return "—"
+    return f"{round(val, digits):.{digits}f}"
 
 
 def print_rich_tables(stats: dict) -> None:
@@ -854,16 +869,6 @@ def generate_markdown_report(
         lines.append("## 📊 Graph Retrieval Diagnostics")
         lines.append("")
         
-        def format_pct(val):
-            if val is None:
-                return "—"
-            return f"{val * 100:.1f}%"
-
-        def format_avg(val):
-            if val is None:
-                return "—"
-            return f"{val:.2f}"
-
         # Table 1: Core diagnostics
         lines.append("| Baseline | Enabled Rate | Skipped Rate | Avg Neighbor Nodes | Avg Local Papers | Avg Papers w/ Chunks | Avg Graph Chunks | Graph Survival Rate | Queries w/ Survived Graph Chunks | Avg Best Graph Rank |")
         lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")

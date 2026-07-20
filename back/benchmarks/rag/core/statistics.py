@@ -533,24 +533,31 @@ def friedman_omnibus_test(
         return {"statistic": None, "p_value": None, "n": 0}
 
     by_baseline: dict[str, dict[str, float]] = {b: {} for b in baselines}
-    for row in records:
+    if metric in QUALITY_METRIC_SET:
+        target_records = [r for r in records if r.get("is_answerable", True)]
+    else:
+        target_records = records
+
+    target_query_ids = sorted(list({str(r["query_id"]) for r in target_records if "query_id" in r}))
+    if len(target_query_ids) < 2:
+        return {"statistic": None, "p_value": None, "n": len(target_query_ids)}
+
+    for row in target_records:
         b = row["baseline"]
         if b not in by_baseline:
             continue
-        if metric in QUALITY_METRIC_SET and row["outcome"] not in ANSWERED_OUTCOMES:
-            continue
         val = row.get(metric)
         if val is None or (isinstance(val, float) and math.isnan(val)):
-            continue
-        by_baseline[b][row["query_id"]] = float(val)
+            val = 0.0
+        by_baseline[b][str(row["query_id"])] = float(val)
 
-    shared = set.intersection(*(set(by_baseline[b]) for b in baselines))
-    shared_ids = sorted(shared)
-    if len(shared_ids) < 2:
-        return {"statistic": None, "p_value": None, "n": len(shared_ids)}
+    for b in baselines:
+        for qid in target_query_ids:
+            if qid not in by_baseline[b]:
+                by_baseline[b][qid] = 0.0
 
     arrays = [
-        _as_float64_array([by_baseline[b][q] for q in shared_ids])
+        _as_float64_array([by_baseline[b][q] for q in target_query_ids])
         for b in baselines
     ]
     # Stack as (n_queries, n_baselines). When every query has identical scores
@@ -559,7 +566,7 @@ def friedman_omnibus_test(
     matrix = np.column_stack(arrays)
     row_ranges = np.nanmax(matrix, axis=1) - np.nanmin(matrix, axis=1)
     if not np.any(row_ranges > 0):
-        return {"statistic": 0.0, "p_value": 1.0, "n": len(shared_ids)}
+        return {"statistic": 0.0, "p_value": 1.0, "kendall_w": 0.0, "n": len(target_query_ids)}
 
     try:
         with warnings.catch_warnings():
@@ -570,13 +577,13 @@ def friedman_omnibus_test(
             )
             stat, p_value = scipy_stats.friedmanchisquare(*arrays)
         if math.isnan(stat) or math.isnan(p_value):
-            return {"statistic": 0.0, "p_value": 1.0, "kendall_w": 0.0, "n": len(shared_ids)}
-        n_queries = len(shared_ids)
+            return {"statistic": 0.0, "p_value": 1.0, "kendall_w": 0.0, "n": len(target_query_ids)}
+        n_queries = len(target_query_ids)
         k_baselines = len(baselines)
         kendall_w = float(stat) / (n_queries * (k_baselines - 1)) if n_queries > 0 and k_baselines > 1 else 0.0
         return {"statistic": float(stat), "p_value": float(p_value), "kendall_w": kendall_w, "n": n_queries}
     except (ValueError, TypeError, RuntimeWarning):
-        return {"statistic": None, "p_value": None, "kendall_w": None, "n": len(shared_ids)}
+        return {"statistic": None, "p_value": None, "kendall_w": None, "n": len(target_query_ids)}
 
 
 def holm_correction(p_values: list[float], alpha: float = 0.05) -> list[bool]:

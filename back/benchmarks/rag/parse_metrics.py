@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import statistics
+import math
 import yaml
 from pathlib import Path
 
@@ -26,7 +27,7 @@ while True:
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core.analytics import analyze_metrics
+from core.analytics import analyze_metrics, GRAPH_ENABLED_BASELINES
 from core.reporting import (
     print_rich_tables,
     generate_markdown_report,
@@ -45,6 +46,15 @@ from core.traces import (
     parse_all_traces,
 )
 
+
+
+def format_val(val: float | None, is_pct: bool = False, digits: int = 1) -> str:
+    """Format float values consistently using standard rounding."""
+    if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+        return "N/A"
+    if is_pct:
+        return f"{round(val * 100, digits):.{digits}f}%"
+    return f"{round(val, 4):.4f}"
 
 
 def print_confusion_matrix_and_metrics_tables(data):
@@ -168,13 +178,6 @@ def print_confusion_matrix_and_metrics_tables(data):
         "Specificity", "FPR", "FNR", "Hallucination Rate", "Ans Rate", "Abstention Rate"
     ))
     print(metrics_sep)
-
-    def format_val(val, is_pct=False):
-        if val is None or (isinstance(val, float) and math.isnan(val)):
-            return "N/A"
-        if is_pct:
-            return f"{val * 100:.1f}%"
-        return f"{val:.4f}"
 
     total_q = len(results)
     for b in baselines:
@@ -438,7 +441,7 @@ class MetricsParser:
         if graph_rows:
             for r in graph_rows:
                 key = (str(r.get("query_id") or ""), str(r.get("baseline") or ""))
-                if not key[0] or not key[1]:
+                if not key[0] or not key[1] or key[1] not in GRAPH_ENABLED_BASELINES:
                     continue
                 if key not in joined_data:
                     joined_data[key] = {

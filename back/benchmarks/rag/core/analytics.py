@@ -92,6 +92,9 @@ DETAIL_GRAPH_FIELDS = {
 }
 
 
+GRAPH_ENABLED_BASELINES = {"B5", "B6"}
+
+
 def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
     """Computes all summary statistics, wins, breakdowns, and difficulties from YAML data."""
     # Parsed with Pydantic for strict validation and format unification
@@ -121,37 +124,62 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
     for r in results:
         q_id = r.get("id")
         query = r.get("query")
+        is_ans = get_is_answerable(r)
+
         for b in baselines:
             b_data = r.setdefault("baselines", {}).setdefault(b, {})
             
+            # Pre-calculate deterministic answerability outcome once globally
+            gen_ans = b_data.get("generated_answer", "")
+            outcome = b_data.get("answerability_outcome")
+            if outcome not in ("TP", "FP", "TN", "FN"):
+                pred_abst = b_data.get("predicted_abstained")
+                if pred_abst is None:
+                    try:
+                        from core.metrics import detect_abstention
+                        pred_abst = detect_abstention(gen_ans)
+                    except Exception:
+                        gen_lower = gen_ans.lower()
+                        pred_abst = any(w in gen_lower for w in ["no information", "information missing", "cannot answer", "insufficient information", "нет информации", "отсутствует"])
+                from core.metrics import classify_answerability
+                outcome = classify_answerability(is_ans, pred_abst)
+                b_data["answerability_outcome"] = outcome
+
+            # Graph diagnostics population with strict baseline isolation
             trace_entry = None
-            if trace_map:
+            if b in GRAPH_ENABLED_BASELINES and trace_map:
                 if q_id:
                     trace_entry = trace_map.get((b, str(q_id)))
                 if not trace_entry and query:
                     trace_entry = trace_map.get((b, str(query)))
             
             for field, (default_val, _) in DETAIL_GRAPH_FIELDS.items():
-                val = None
-                if trace_entry:
-                    if field == "query_concepts_all_count":
-                        val = len(trace_entry.get("query_concepts_all", []))
-                    elif field == "query_concepts_strong_count":
-                        val = len(trace_entry.get("query_concepts_strong", []))
-                    elif field == "query_concepts_dropped_count":
-                        val = len(trace_entry.get("query_concepts_dropped", []))
-                    else:
-                        val = trace_entry.get(field)
-                
-                if val is None:
-                    if field == "query_concepts_all_count" and trace_entry:
-                        val = len(trace_entry.get("query_concepts_all", []))
-                    elif field == "query_concepts_strong_count" and trace_entry:
-                        val = len(trace_entry.get("query_concepts_strong", []))
-                    elif field == "query_concepts_dropped_count" and trace_entry:
-                        val = len(trace_entry.get("query_concepts_dropped", []))
+                if b not in GRAPH_ENABLED_BASELINES:
+                    if isinstance(default_val, list):
+                        val = []
+                    elif isinstance(default_val, dict):
+                        val = {}
                     else:
                         val = default_val
+                else:
+                    val = None
+                    if trace_entry:
+                        if field == "query_concepts_all_count":
+                            val = len(trace_entry.get("query_concepts_all", []))
+                        elif field == "query_concepts_strong_count":
+                            val = len(trace_entry.get("query_concepts_strong", []))
+                        elif field == "query_concepts_dropped_count":
+                            val = len(trace_entry.get("query_concepts_dropped", []))
+                        else:
+                            val = trace_entry.get(field)
+                    
+                    if val is None:
+                        if isinstance(default_val, list):
+                            val = []
+                        elif isinstance(default_val, dict):
+                            val = {}
+                        else:
+                            val = default_val
                         
                 b_data[field] = val
     
@@ -727,21 +755,8 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
         for b in baselines:
             tp, fn, tn, fp = 0, 0, 0, 0
             for r in cat_rows:
-                is_ans = get_is_answerable(r)
                 b_data = r.get("baselines", {}).get(b, {})
-                gen_ans = b_data.get("generated_answer", "")
                 outcome = b_data.get("answerability_outcome")
-                if outcome not in ("TP", "FP", "TN", "FN"):
-                    pred_abst = b_data.get("predicted_abstained")
-                    if pred_abst is None:
-                        try:
-                            from core.metrics import detect_abstention
-                            pred_abst = detect_abstention(gen_ans)
-                        except Exception:
-                            gen_lower = gen_ans.lower()
-                            pred_abst = any(w in gen_lower for w in ["no information", "information missing", "cannot answer", "insufficient information", "нет информации", "отсутствует"])
-                    from core.metrics import classify_answerability
-                    outcome = classify_answerability(is_ans, pred_abst)
                 
                 if outcome == "TP": tp += 1
                 elif outcome == "FN": fn += 1
