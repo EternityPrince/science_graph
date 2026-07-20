@@ -570,10 +570,13 @@ def friedman_omnibus_test(
             )
             stat, p_value = scipy_stats.friedmanchisquare(*arrays)
         if math.isnan(stat) or math.isnan(p_value):
-            return {"statistic": 0.0, "p_value": 1.0, "n": len(shared_ids)}
-        return {"statistic": float(stat), "p_value": float(p_value), "n": len(shared_ids)}
+            return {"statistic": 0.0, "p_value": 1.0, "kendall_w": 0.0, "n": len(shared_ids)}
+        n_queries = len(shared_ids)
+        k_baselines = len(baselines)
+        kendall_w = float(stat) / (n_queries * (k_baselines - 1)) if n_queries > 0 and k_baselines > 1 else 0.0
+        return {"statistic": float(stat), "p_value": float(p_value), "kendall_w": kendall_w, "n": n_queries}
     except (ValueError, TypeError, RuntimeWarning):
-        return {"statistic": None, "p_value": None, "n": len(shared_ids)}
+        return {"statistic": None, "p_value": None, "kendall_w": None, "n": len(shared_ids)}
 
 
 def holm_correction(p_values: list[float], alpha: float = 0.05) -> list[bool]:
@@ -590,6 +593,21 @@ def holm_correction(p_values: list[float], alpha: float = 0.05) -> list[bool]:
         else:
             break
     return significant
+
+
+def holm_adjusted_p_values(p_values: list[float]) -> list[float]:
+    """Return adjusted p-values using Holm-Bonferroni method."""
+    m = len(p_values)
+    if m == 0:
+        return []
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+    adjusted = [1.0] * m
+    cum_max = 0.0
+    for rank, (idx, p) in enumerate(indexed, start=1):
+        val = p * (m - rank + 1)
+        cum_max = max(cum_max, val)
+        adjusted[idx] = min(cum_max, 1.0)
+    return adjusted
 
 
 def bonferroni_correction(p_values: list[float], alpha: float = 0.05) -> list[bool]:
@@ -669,11 +687,12 @@ def compute_pairwise_comparisons(
     baselines: list[str],
     config: StatsConfig,
 ) -> list[dict[str, Any]]:
-    """Pairwise Wilcoxon + bootstrap difference CIs with multiple-comparison correction."""
+    """Pairwise Wilcoxon + bootstrap difference CIs with per-metric family multiple-comparison correction."""
     metrics = list(QUALITY_METRICS) + ["latency_sec"]
     rows: list[dict[str, Any]] = []
 
     for metric in metrics:
+        metric_rows: list[dict[str, Any]] = []
         for b_a, b_b in combinations(baselines, 2):
             vec_a, vec_b, _ = paired_metric_vectors(records, b_a, b_b, metric)
             if len(vec_a) == 0:
@@ -682,7 +701,7 @@ def compute_pairwise_comparisons(
             wilcox = wilcoxon_signed_rank_test(vec_a, vec_b)
             diff_ci = bootstrap_paired_difference_ci(vec_a, vec_b, config)
 
-            rows.append(
+            metric_rows.append(
                 {
                     "metric": metric,
                     "baseline_a": b_a,
@@ -693,41 +712,60 @@ def compute_pairwise_comparisons(
                     "ci_lower": diff_ci["ci_lower"],
                     "ci_upper": diff_ci["ci_upper"],
                     "p_value": wilcox["p_value"],
+                    "p_uncorrected": wilcox["p_value"],
                     "effect_size": wilcox["effect_size"],
                     "test": "wilcoxon",
                     "n_pairs": wilcox["n"],
                 }
             )
 
-        # McNemar for answerability correctness
-        for b_a, b_b in combinations(baselines, 2):
-            mcnemar = mcnemar_answerability_test(records, b_a, b_b)
-            if mcnemar["n"] == 0:
-                continue
-            rows.append(
-                {
-                    "metric": "answerability_correct",
-                    "baseline_a": b_a,
-                    "baseline_b": b_b,
-                    "mean_a": None,
-                    "mean_b": None,
-                    "delta": None,
-                    "ci_lower": None,
-                    "ci_upper": None,
-                    "p_value": mcnemar["p_value"],
-                    "effect_size": None,
-                    "test": "mcnemar",
-                    "n_pairs": mcnemar["n"],
-                    "discordant_b": mcnemar["b"],
-                    "discordant_c": mcnemar["c"],
-                }
-            )
+        # Apply per-metric correction
+        p_vals = [r["p_value"] for r in metric_rows]
+        sig_flags = apply_multiple_comparison_correction(p_vals, config)
+        adj_p_vals = holm_adjusted_p_values([p if p is not None else 1.0 for p in p_vals])
+        for r, sig, p_adj in zip(metric_rows, sig_flags, adj_p_vals):
+            r["significant"] = sig
+            r["p_value_corrected"] = p_adj
+            r["stars"] = significance_stars(p_adj if config.correction_method != "none" else r["p_value"], config.alpha) if sig else ""
+            rows.append(r)
 
-    p_vals = [r["p_value"] for r in rows]
-    sig_flags = apply_multiple_comparison_correction(p_vals, config)
-    for row, sig in zip(rows, sig_flags):
-        row["significant"] = sig
-        row["stars"] = significance_stars(row["p_value"], config.alpha) if sig else ""
+    # McNemar for answerability correctness (executed ONCE per baseline pair, not per metric)
+    mcnemar_rows: list[dict[str, Any]] = []
+    for b_a, b_b in combinations(baselines, 2):
+        mcnemar = mcnemar_answerability_test(records, b_a, b_b)
+        if mcnemar["n"] == 0:
+            continue
+        b_cnt = mcnemar["b"]
+        c_cnt = mcnemar["c"]
+        odds_ratio = (b_cnt / c_cnt) if c_cnt > 0 else (b_cnt if b_cnt > 0 else 1.0)
+        mcnemar_rows.append(
+            {
+                "metric": "answerability_correct",
+                "baseline_a": b_a,
+                "baseline_b": b_b,
+                "mean_a": None,
+                "mean_b": None,
+                "delta": None,
+                "ci_lower": None,
+                "ci_upper": None,
+                "p_value": mcnemar["p_value"],
+                "p_uncorrected": mcnemar["p_value"],
+                "effect_size": odds_ratio,
+                "test": "mcnemar",
+                "n_pairs": mcnemar["n"],
+                "discordant_b": b_cnt,
+                "discordant_c": c_cnt,
+            }
+        )
+
+    p_vals_mc = [r["p_value"] for r in mcnemar_rows]
+    sig_flags_mc = apply_multiple_comparison_correction(p_vals_mc, config)
+    adj_p_mc = holm_adjusted_p_values([p if p is not None else 1.0 for p in p_vals_mc])
+    for r, sig, p_adj in zip(mcnemar_rows, sig_flags_mc, adj_p_mc):
+        r["significant"] = sig
+        r["p_value_corrected"] = p_adj
+        r["stars"] = significance_stars(p_adj if config.correction_method != "none" else r["p_value"], config.alpha) if sig else ""
+        rows.append(r)
 
     return rows
 
