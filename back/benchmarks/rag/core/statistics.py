@@ -374,32 +374,75 @@ def _bca_interval(
     return float(np.percentile(boot_stats, 100 * lo_prob)), float(np.percentile(boot_stats, 100 * hi_prob))
 
 
+def hodges_lehmann_delta(diffs: np.ndarray) -> float:
+    """Computes Hodges-Lehmann pseudo-median difference for paired samples."""
+    clean = np.asarray(diffs, dtype=float)
+    clean = clean[~np.isnan(clean)]
+    nonzero = clean[clean != 0]
+    if len(nonzero) == 0:
+        return 0.0
+    iu = np.triu_indices(len(nonzero))
+    walsh = (nonzero[iu[0]] + nonzero[iu[1]]) * 0.5
+    return float(np.median(walsh))
+
+
 def bootstrap_paired_difference_ci(
     vec_a: np.ndarray,
     vec_b: np.ndarray,
     config: StatsConfig,
+    alpha_override: float | None = None,
 ) -> dict[str, float | None]:
-    """Bootstrap CI for mean paired difference (A - B) resampling queries."""
+    """
+    Bootstrap CIs for paired differences (A - B) resampling queries.
+    Computes both arithmetic mean delta CI and Hodges-Lehmann rank-based delta CI.
+    Dynamically adjusts percentile bounds using alpha_override (alpha_adjusted).
+    """
     if len(vec_a) == 0 or len(vec_b) == 0 or len(vec_a) != len(vec_b):
-        return {"delta": None, "ci_lower": None, "ci_upper": None, "n": 0}
+        return {
+            "delta": None,
+            "ci_lower": None,
+            "ci_upper": None,
+            "rank_delta": None,
+            "rank_ci_lower": None,
+            "rank_ci_upper": None,
+            "n": 0,
+        }
 
-    diffs = vec_a - vec_b
-    observed = float(np.mean(diffs))
+    diffs = np.asarray(vec_a, dtype=float) - np.asarray(vec_b, dtype=float)
+    observed_mean = float(np.mean(diffs))
+    observed_hl = hodges_lehmann_delta(diffs)
     n = len(diffs)
+
+    alpha = alpha_override if alpha_override is not None else config.alpha
     rng = np.random.default_rng(config.random_seed + 1)
 
-    boot_deltas = np.empty(config.n_bootstraps, dtype=float)
+    boot_mean = np.empty(config.n_bootstraps, dtype=float)
+    boot_rank = np.empty(config.n_bootstraps, dtype=float)
+
     for i in range(config.n_bootstraps):
         idx = rng.integers(0, n, size=n)
-        boot_deltas[i] = float(np.mean(diffs[idx]))
+        sample = diffs[idx]
+        boot_mean[i] = float(np.mean(sample))
+        boot_rank[i] = hodges_lehmann_delta(sample)
 
     if config.ci_method == "bca":
-        ci_lower, ci_upper = _bca_interval(diffs, boot_deltas, observed, config.alpha, "mean")
+        ci_lower, ci_upper = _bca_interval(diffs, boot_mean, observed_mean, alpha, "mean")
+        rank_ci_lower, rank_ci_upper = _bca_interval(diffs, boot_rank, observed_hl, alpha, "median")
     else:
-        ci_lower = float(np.percentile(boot_deltas, 100 * config.alpha / 2))
-        ci_upper = float(np.percentile(boot_deltas, 100 * (1 - config.alpha / 2)))
+        ci_lower = float(np.percentile(boot_mean, 100.0 * (alpha / 2.0)))
+        ci_upper = float(np.percentile(boot_mean, 100.0 * (1.0 - alpha / 2.0)))
+        rank_ci_lower = float(np.percentile(boot_rank, 100.0 * (alpha / 2.0)))
+        rank_ci_upper = float(np.percentile(boot_rank, 100.0 * (1.0 - alpha / 2.0)))
 
-    return {"delta": observed, "ci_lower": ci_lower, "ci_upper": ci_upper, "n": n}
+    return {
+        "delta": observed_mean,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "rank_delta": observed_hl,
+        "rank_ci_lower": rank_ci_lower,
+        "rank_ci_upper": rank_ci_upper,
+        "n": n,
+    }
 
 
 def rank_biserial_effect_size(differences: np.ndarray) -> float | None:
@@ -622,16 +665,64 @@ def bonferroni_correction(p_values: list[float], alpha: float = 0.05) -> list[bo
     return [p <= alpha / m if m else False for p in p_values]
 
 
+def compute_multiple_comparison_correction(
+    p_values: list[float | None],
+    config: StatsConfig,
+) -> tuple[list[bool], list[float], list[float]]:
+    """
+    Computes FWER multiple-comparison correction returning:
+    - sig_flags: list of bools
+    - adj_p_vals: list of floats
+    - adj_alphas: list of per-test adjusted alpha thresholds (alpha_adjusted floats)
+    """
+    m = len(p_values)
+    if m == 0:
+        return [], [], []
+
+    clean = [p if p is not None and not math.isnan(p) else 1.0 for p in p_values]
+    indexed = sorted(enumerate(clean), key=lambda x: x[1])
+
+    sig_flags = [False] * m
+    adj_p = [1.0] * m
+    adj_alphas = [config.alpha] * m
+
+    if config.correction_method == "holm":
+        all_passed = True
+        cum_max = 0.0
+        for rank, (idx, p) in enumerate(indexed, start=1):
+            step_alpha = config.alpha / (m - rank + 1)
+            adj_alphas[idx] = step_alpha
+            p_adj_val = min(max(cum_max, p * (m - rank + 1)), 1.0)
+            cum_max = p_adj_val
+            adj_p[idx] = p_adj_val
+
+            if all_passed and p <= step_alpha:
+                sig_flags[idx] = True
+            else:
+                all_passed = False
+                sig_flags[idx] = False
+
+    elif config.correction_method == "bonferroni":
+        bonf_alpha = config.alpha / m
+        adj_alphas = [bonf_alpha] * m
+        for idx, p in enumerate(clean):
+            adj_p[idx] = min(p * m, 1.0)
+            sig_flags[idx] = p <= bonf_alpha
+    else:
+        adj_alphas = [config.alpha] * m
+        for idx, p in enumerate(clean):
+            adj_p[idx] = p
+            sig_flags[idx] = p < config.alpha
+
+    return sig_flags, adj_p, adj_alphas
+
+
 def apply_multiple_comparison_correction(
     p_values: list[float | None],
     config: StatsConfig,
 ) -> list[bool]:
-    clean = [p if p is not None and not math.isnan(p) else 1.0 for p in p_values]
-    if config.correction_method == "holm":
-        return holm_correction(clean, config.alpha)
-    if config.correction_method == "bonferroni":
-        return bonferroni_correction(clean, config.alpha)
-    return [p < config.alpha for p in clean]
+    sig_flags, _, _ = compute_multiple_comparison_correction(p_values, config)
+    return sig_flags
 
 
 def compute_baseline_summary_with_ci(
@@ -694,21 +785,32 @@ def compute_pairwise_comparisons(
     baselines: list[str],
     config: StatsConfig,
 ) -> list[dict[str, Any]]:
-    """Pairwise Wilcoxon + bootstrap difference CIs with per-metric family multiple-comparison correction."""
+    """Pairwise Wilcoxon + FWER-synchronized bootstrap CIs with rank-based delta."""
     metrics = list(QUALITY_METRICS) + ["latency_sec"]
     rows: list[dict[str, Any]] = []
 
     for metric in metrics:
-        metric_rows: list[dict[str, Any]] = []
+        metric_pairs: list[tuple[str, str, np.ndarray, np.ndarray, dict[str, Any]]] = []
         for b_a, b_b in combinations(baselines, 2):
             vec_a, vec_b, _ = paired_metric_vectors(records, b_a, b_b, metric)
             if len(vec_a) == 0:
                 continue
-
             wilcox = wilcoxon_signed_rank_test(vec_a, vec_b)
-            diff_ci = bootstrap_paired_difference_ci(vec_a, vec_b, config)
+            metric_pairs.append((b_a, b_b, vec_a, vec_b, wilcox))
 
-            metric_rows.append(
+        if not metric_pairs:
+            continue
+
+        p_vals = [w["p_value"] for _, _, _, _, w in metric_pairs]
+        sig_flags, adj_p_vals, adj_alphas = compute_multiple_comparison_correction(p_vals, config)
+
+        for (b_a, b_b, vec_a, vec_b, wilcox), sig, p_adj, alpha_adj in zip(
+            metric_pairs, sig_flags, adj_p_vals, adj_alphas
+        ):
+            diff_ci = bootstrap_paired_difference_ci(
+                vec_a, vec_b, config, alpha_override=alpha_adj
+            )
+            rows.append(
                 {
                     "metric": metric,
                     "baseline_a": b_a,
@@ -718,61 +820,65 @@ def compute_pairwise_comparisons(
                     "delta": diff_ci["delta"],
                     "ci_lower": diff_ci["ci_lower"],
                     "ci_upper": diff_ci["ci_upper"],
+                    "rank_delta": diff_ci["rank_delta"],
+                    "rank_ci_lower": diff_ci["rank_ci_lower"],
+                    "rank_ci_upper": diff_ci["rank_ci_upper"],
+                    "alpha_adjusted": alpha_adj,
                     "p_value": wilcox["p_value"],
                     "p_uncorrected": wilcox["p_value"],
+                    "p_value_corrected": p_adj,
+                    "significant": sig,
                     "effect_size": wilcox["effect_size"],
                     "test": "wilcoxon",
                     "n_pairs": wilcox["n"],
+                    "stars": significance_stars(p_adj if config.correction_method != "none" else wilcox["p_value"], config.alpha) if sig else "",
                 }
             )
 
-        # Apply per-metric correction
-        p_vals = [r["p_value"] for r in metric_rows]
-        sig_flags = apply_multiple_comparison_correction(p_vals, config)
-        adj_p_vals = holm_adjusted_p_values([p if p is not None else 1.0 for p in p_vals])
-        for r, sig, p_adj in zip(metric_rows, sig_flags, adj_p_vals):
-            r["significant"] = sig
-            r["p_value_corrected"] = p_adj
-            r["stars"] = significance_stars(p_adj if config.correction_method != "none" else r["p_value"], config.alpha) if sig else ""
-            rows.append(r)
-
     # McNemar for answerability correctness (executed ONCE per baseline pair, not per metric)
-    mcnemar_rows: list[dict[str, Any]] = []
+    mcnemar_pairs: list[tuple[str, str, dict[str, Any]]] = []
     for b_a, b_b in combinations(baselines, 2):
         mcnemar = mcnemar_answerability_test(records, b_a, b_b)
         if mcnemar["n"] == 0:
             continue
-        b_cnt = mcnemar["b"]
-        c_cnt = mcnemar["c"]
-        odds_ratio = (b_cnt / c_cnt) if c_cnt > 0 else (b_cnt if b_cnt > 0 else 1.0)
-        mcnemar_rows.append(
-            {
-                "metric": "answerability_correct",
-                "baseline_a": b_a,
-                "baseline_b": b_b,
-                "mean_a": None,
-                "mean_b": None,
-                "delta": None,
-                "ci_lower": None,
-                "ci_upper": None,
-                "p_value": mcnemar["p_value"],
-                "p_uncorrected": mcnemar["p_value"],
-                "effect_size": odds_ratio,
-                "test": "mcnemar",
-                "n_pairs": mcnemar["n"],
-                "discordant_b": b_cnt,
-                "discordant_c": c_cnt,
-            }
-        )
+        mcnemar_pairs.append((b_a, b_b, mcnemar))
 
-    p_vals_mc = [r["p_value"] for r in mcnemar_rows]
-    sig_flags_mc = apply_multiple_comparison_correction(p_vals_mc, config)
-    adj_p_mc = holm_adjusted_p_values([p if p is not None else 1.0 for p in p_vals_mc])
-    for r, sig, p_adj in zip(mcnemar_rows, sig_flags_mc, adj_p_mc):
-        r["significant"] = sig
-        r["p_value_corrected"] = p_adj
-        r["stars"] = significance_stars(p_adj if config.correction_method != "none" else r["p_value"], config.alpha) if sig else ""
-        rows.append(r)
+    if mcnemar_pairs:
+        p_vals_mc = [m["p_value"] for _, _, m in mcnemar_pairs]
+        sig_flags_mc, adj_p_mc, adj_alphas_mc = compute_multiple_comparison_correction(p_vals_mc, config)
+
+        for (b_a, b_b, mcnemar), sig, p_adj, alpha_adj in zip(
+            mcnemar_pairs, sig_flags_mc, adj_p_mc, adj_alphas_mc
+        ):
+            b_cnt = mcnemar["b"]
+            c_cnt = mcnemar["c"]
+            odds_ratio = (b_cnt / c_cnt) if c_cnt > 0 else (b_cnt if b_cnt > 0 else 1.0)
+            rows.append(
+                {
+                    "metric": "answerability_correct",
+                    "baseline_a": b_a,
+                    "baseline_b": b_b,
+                    "mean_a": None,
+                    "mean_b": None,
+                    "delta": None,
+                    "ci_lower": None,
+                    "ci_upper": None,
+                    "rank_delta": None,
+                    "rank_ci_lower": None,
+                    "rank_ci_upper": None,
+                    "alpha_adjusted": alpha_adj,
+                    "p_value": mcnemar["p_value"],
+                    "p_uncorrected": mcnemar["p_value"],
+                    "p_value_corrected": p_adj,
+                    "significant": sig,
+                    "effect_size": odds_ratio,
+                    "test": "mcnemar",
+                    "n_pairs": mcnemar["n"],
+                    "discordant_b": b_cnt,
+                    "discordant_c": c_cnt,
+                    "stars": significance_stars(p_adj if config.correction_method != "none" else mcnemar["p_value"], config.alpha) if sig else "",
+                }
+            )
 
     return rows
 

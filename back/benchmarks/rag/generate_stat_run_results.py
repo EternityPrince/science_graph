@@ -39,6 +39,7 @@ from core.statistics import (
     mcnemar_answerability_test,
     friedman_omnibus_test,
     holm_adjusted_p_values,
+    compute_multiple_comparison_correction,
     compute_classification_metrics,
 )
 
@@ -221,7 +222,6 @@ def run_full_statistical_analysis():
                 })
 
             wilcox = wilcoxon_signed_rank_test(vec_a, vec_b)
-            delta_ci = bootstrap_paired_difference_ci(vec_a, vec_b, config)
             r_b = rank_biserial_effect_size(diffs)
 
             metric_rows.append({
@@ -230,9 +230,6 @@ def run_full_statistical_analysis():
                 "baseline_b": b_b,
                 "mean_a": float(np.mean(vec_a)),
                 "mean_b": float(np.mean(vec_b)),
-                "delta": delta_ci["delta"],
-                "ci_lower": delta_ci["ci_lower"],
-                "ci_upper": delta_ci["ci_upper"],
                 "p_uncorrected": wilcox["p_value"],
                 "effect_size_r_b": r_b,
                 "n_pairs": n_pairs,
@@ -241,13 +238,23 @@ def run_full_statistical_analysis():
                 "heavy_ties": heavy_ties_flag,
             })
 
-        # Holm-Bonferroni correction within metric
+        # Holm-Bonferroni correction within metric with FWER-synchronized CIs
         p_uncorrected_list = [r["p_uncorrected"] for r in metric_rows]
-        p_holm_list = holm_adjusted_p_values(p_uncorrected_list)
+        sig_flags, p_holm_list, alpha_adj_list = compute_multiple_comparison_correction(p_uncorrected_list, config)
 
-        for r, p_h in zip(metric_rows, p_holm_list):
+        for r, sig, p_h, alpha_adj in zip(metric_rows, sig_flags, p_holm_list, alpha_adj_list):
             r["p_holm"] = p_h
-            r["significant"] = bool(p_h <= ALPHA)
+            r["significant"] = sig
+            r["alpha_adjusted"] = alpha_adj
+            vec_a = piv[r["baseline_a"]].values
+            vec_b = piv[r["baseline_b"]].values
+            delta_ci = bootstrap_paired_difference_ci(vec_a, vec_b, config, alpha_override=alpha_adj)
+            r["delta"] = delta_ci["delta"]
+            r["ci_lower"] = delta_ci["ci_lower"]
+            r["ci_upper"] = delta_ci["ci_upper"]
+            r["rank_delta"] = delta_ci["rank_delta"]
+            r["rank_ci_lower"] = delta_ci["rank_ci_lower"]
+            r["rank_ci_upper"] = delta_ci["rank_ci_upper"]
             pairwise_continuous.append(r)
 
     # 5. Pairwise Answerability Comparisons (McNemar, Holm)

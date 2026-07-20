@@ -7,6 +7,7 @@ Tests validating the four core evaluation pipeline refactoring fixes:
 """
 
 import math
+import numpy as np
 import pytest
 from core.analytics import analyze_metrics, GRAPH_ENABLED_BASELINES
 from core.statistics import friedman_omnibus_test
@@ -127,3 +128,56 @@ def test_precision_standard_rounding():
     assert format_pct(0.67666) == "67.7%"
     assert format_pct(0.67644) == "67.6%"
     assert format_avg(3.14159) == "3.14"
+
+
+def test_fwer_synchronized_alpha_bootstrap_ci():
+    """Verify that non-significant comparisons (significant==False) capture 0.0 in their CI."""
+    from core.statistics import compute_pairwise_comparisons, StatsConfig
+
+    records = []
+    # 5 baselines with subtle differences so Holm correction renders some non-significant
+    for i in range(50):
+        qid = f"Q{i}"
+        for b, mean_val in [("B1", 0.80), ("B2", 0.81), ("B4", 0.815), ("B5", 0.82), ("B6", 0.825)]:
+            records.append({
+                "query_id": qid,
+                "category": "general",
+                "baseline": b,
+                "is_answerable": True,
+                "outcome": "TP",
+                "predicted_abstained": False,
+                "answerability_correct": True,
+                "semantic_accuracy": mean_val + 0.05 * ((i % 5) - 2),
+                "latency_sec": 1.0,
+            })
+
+    config = StatsConfig(n_bootstraps=500, alpha=0.05, correction_method="holm", random_seed=42)
+    pairwise = compute_pairwise_comparisons(records, ["B1", "B2", "B4", "B5", "B6"], config)
+
+    for row in pairwise:
+        if row.get("test") != "wilcoxon" or row.get("ci_lower") is None:
+            continue
+        lo = row["ci_lower"]
+        hi = row["ci_upper"]
+        sig = row["significant"]
+        # If marked non-significant, CI must capture 0.0
+        if not sig:
+            assert lo <= 0.0 <= hi, f"Non-significant pair {row['baseline_a']}-{row['baseline_b']} CI [{lo}, {hi}] excludes 0.0"
+
+
+def test_hodges_lehmann_rank_delta():
+    """Verify Hodges-Lehmann pseudo-median calculation and rank-based CIs."""
+    from core.statistics import hodges_lehmann_delta, bootstrap_paired_difference_ci, StatsConfig
+
+    vec_a = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    vec_b = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+
+    hl = hodges_lehmann_delta(vec_a - vec_b)
+    assert hl == 1.0
+
+    config = StatsConfig(n_bootstraps=300, random_seed=42)
+    res = bootstrap_paired_difference_ci(vec_a, vec_b, config)
+    assert res["rank_delta"] == 1.0
+    assert res["rank_ci_lower"] is not None
+    assert res["rank_ci_upper"] is not None
+
