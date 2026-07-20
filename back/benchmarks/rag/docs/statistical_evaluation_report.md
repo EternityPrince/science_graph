@@ -1,54 +1,54 @@
 # 📊 Paired Statistical Evaluation Report: RAG Baselines (B1, B2, B4, B5, B6)
 
-**One-line Summary of Sample Sizes:** Quality metrics use **n=50** complete paired rows (Context Fillness is unavailable, n=0); Latency uses **n=50** complete paired rows; Answerability metrics use **n=50** complete paired rows (out of 75 queries in the golden dataset, 50 answerable queries were evaluated across all 5 baselines).
+**One-line Summary of Sample Sizes:** Quality metrics use **n=50** complete paired rows; Latency uses **n=50** complete paired rows; Answerability metrics use **n=50** complete paired rows (50 answerable queries evaluated across all 5 baselines).
 
 > [!NOTE]
-> All statistical tests follow strict non-parametric protocols: Friedman omnibus test (k=5), Wilcoxon signed-rank paired tests, McNemar exact tests for answerability, bootstrap 95% percentile CIs (10,000 resamples, seed=42), rank-biserial correlation (r_b) effect sizes, and Holm-Bonferroni step-down correction applied within each metric.
+> All statistical tests follow strict non-parametric protocols: Friedman omnibus test (k=5), Wilcoxon signed-rank paired tests, McNemar exact tests for answerability, bootstrap 95% percentile CIs (10,000 resamples, seed=42), rank-biserial correlation (r_b) effect sizes, and Holm-Bonferroni step-down correction applied within each metric family.
 
-## Table A: Baseline Summary — Mean (95% CI) and Sample Size (n)
+## Table A: Baseline Summary — Mean (95% CI) and Explicit Sample Size (n)
 
-| Baseline | Metric | Mean | 95% CI Lower | 95% CI Upper | n | Status / Warning |
+| Baseline | Metric | Mean | 95% CI Lower | 95% CI Upper | n | Status / Diagnostic Note |
 | :--- | :--- | ---: | ---: | ---: | ---: | :--- |
-| **B1** | Retrieval Recall | 0.1600 | 0.0800 | 0.2600 | 50 | Complete paired evaluation |
-| **B2** | Retrieval Recall | 0.8000 | 0.7100 | 0.8800 | 50 | Complete paired evaluation |
-| **B4** | Retrieval Recall | 0.7600 | 0.6700 | 0.8400 | 50 | Complete paired evaluation |
-| **B5** | Retrieval Recall | 0.7600 | 0.6700 | 0.8400 | 50 | Complete paired evaluation |
+| **B1** | Retrieval Recall | 0.1600 | 0.0800 | 0.2600 | 50 | Heavy floor effect (>40% at min) |
+| **B2** | Retrieval Recall | 0.8000 | 0.7100 | 0.8800 | 50 | Heavy ceiling effect (>40% at max) |
+| **B4** | Retrieval Recall | 0.7600 | 0.6700 | 0.8400 | 50 | Heavy ceiling effect (>40% at max) |
+| **B5** | Retrieval Recall | 0.7600 | 0.6700 | 0.8400 | 50 | Heavy ceiling effect (>40% at max) |
 | **B6** | Retrieval Recall | 0.5100 | 0.3900 | 0.6300 | 50 | Complete paired evaluation |
-| **B1** | Context Precision | 0.1620 | 0.0730 | 0.2620 | 50 | Complete paired evaluation |
-| **B2** | Context Precision | 0.8222 | 0.7374 | 0.8954 | 50 | Complete paired evaluation |
+| **B1** | Context Precision | 0.1620 | 0.0730 | 0.2620 | 50 | Heavy floor effect (>40% at min) |
+| **B2** | Context Precision | 0.8222 | 0.7374 | 0.8954 | 50 | Heavy ceiling effect (>40% at max) |
 | **B4** | Context Precision | 0.6840 | 0.6023 | 0.7609 | 50 | Complete paired evaluation |
 | **B5** | Context Precision | 0.6840 | 0.6023 | 0.7609 | 50 | Complete paired evaluation |
 | **B6** | Context Precision | 0.3625 | 0.2611 | 0.4680 | 50 | Complete paired evaluation |
-| **B1** | Faithfulness | 0.6643 | 0.5524 | 0.7677 | 50 | Complete paired evaluation |
+| **B1** | Faithfulness | 0.6643 | 0.5524 | 0.7677 | 50 | Heavy ceiling effect (>40% at max) |
 | **B2** | Faithfulness | 0.4582 | 0.3540 | 0.5615 | 50 | Complete paired evaluation |
 | **B4** | Faithfulness | 0.4328 | 0.3271 | 0.5370 | 50 | Complete paired evaluation |
 | **B5** | Faithfulness | 0.4476 | 0.3419 | 0.5530 | 50 | Complete paired evaluation |
 | **B6** | Faithfulness | 0.5269 | 0.4103 | 0.6419 | 50 | Complete paired evaluation |
-| **B1** | Answer Relevance | 0.1800 | 0.0800 | 0.3000 | 50 | Complete paired evaluation |
-| **B2** | Answer Relevance | 0.4580 | 0.3320 | 0.5860 | 50 | Complete paired evaluation |
-| **B4** | Answer Relevance | 0.4100 | 0.2840 | 0.5380 | 50 | Complete paired evaluation |
-| **B5** | Answer Relevance | 0.2520 | 0.1460 | 0.3640 | 50 | Complete paired evaluation |
-| **B6** | Answer Relevance | 0.0600 | 0.0080 | 0.1280 | 50 | Complete paired evaluation |
-| **B1** | Citation Fidelity | 0.2682 | 0.1612 | 0.3809 | 50 | Complete paired evaluation |
+| **B1** | Answer Relevance | 0.1800 | 0.0800 | 0.3000 | 50 | Heavy floor effect (>40% at min) |
+| **B2** | Answer Relevance | 0.4580 | 0.3320 | 0.5860 | 50 | Heavy floor effect (>40% at min) |
+| **B4** | Answer Relevance | 0.4100 | 0.2840 | 0.5380 | 50 | Heavy floor effect (>40% at min) |
+| **B5** | Answer Relevance | 0.2520 | 0.1460 | 0.3640 | 50 | Heavy floor effect (>40% at min) |
+| **B6** | Answer Relevance | 0.0600 | 0.0080 | 0.1280 | 50 | Heavy floor effect (>40% at min) |
+| **B1** | Citation Fidelity | 0.2682 | 0.1612 | 0.3809 | 50 | Heavy floor effect (>40% at min) |
 | **B2** | Citation Fidelity | 0.3530 | 0.2552 | 0.4502 | 50 | Complete paired evaluation |
 | **B4** | Citation Fidelity | 0.4285 | 0.3114 | 0.5443 | 50 | Complete paired evaluation |
 | **B5** | Citation Fidelity | 0.5199 | 0.3786 | 0.6862 | 50 | Complete paired evaluation |
-| **B6** | Citation Fidelity | 0.1837 | 0.0917 | 0.2870 | 50 | Complete paired evaluation |
-| **B1** | Semantic Accuracy | 0.0280 | 0.0000 | 0.0660 | 50 | Complete paired evaluation |
-| **B2** | Semantic Accuracy | 0.1820 | 0.0940 | 0.2790 | 50 | Complete paired evaluation |
-| **B4** | Semantic Accuracy | 0.2130 | 0.1160 | 0.3170 | 50 | Complete paired evaluation |
-| **B5** | Semantic Accuracy | 0.2010 | 0.1040 | 0.3090 | 50 | Complete paired evaluation |
-| **B6** | Semantic Accuracy | 0.0040 | 0.0000 | 0.0120 | 50 | Complete paired evaluation |
-| **B1** | Context Fillness | N/A | N/A | N/A | 0 | ⚠️ Metric unavailable in dataset (n=0) |
-| **B2** | Context Fillness | N/A | N/A | N/A | 0 | ⚠️ Metric unavailable in dataset (n=0) |
-| **B4** | Context Fillness | N/A | N/A | N/A | 0 | ⚠️ Metric unavailable in dataset (n=0) |
-| **B5** | Context Fillness | N/A | N/A | N/A | 0 | ⚠️ Metric unavailable in dataset (n=0) |
-| **B6** | Context Fillness | N/A | N/A | N/A | 0 | ⚠️ Metric unavailable in dataset (n=0) |
-| **B1** | AR-SA F1 | 0.0185 | 0.0000 | 0.0462 | 50 | Complete paired evaluation |
-| **B2** | AR-SA F1 | 0.1711 | 0.0814 | 0.2703 | 50 | Complete paired evaluation |
-| **B4** | AR-SA F1 | 0.1852 | 0.0926 | 0.2848 | 50 | Complete paired evaluation |
-| **B5** | AR-SA F1 | 0.1651 | 0.0718 | 0.2673 | 50 | Complete paired evaluation |
-| **B6** | AR-SA F1 | 0.0060 | 0.0000 | 0.0180 | 50 | Complete paired evaluation |
+| **B6** | Citation Fidelity | 0.1837 | 0.0917 | 0.2870 | 50 | Heavy floor effect (>40% at min) |
+| **B1** | Semantic Accuracy | 0.0280 | 0.0000 | 0.0660 | 50 | Heavy floor effect (>40% at min) |
+| **B2** | Semantic Accuracy | 0.1820 | 0.0940 | 0.2790 | 50 | Heavy floor effect (>40% at min) |
+| **B4** | Semantic Accuracy | 0.2130 | 0.1160 | 0.3170 | 50 | Heavy floor effect (>40% at min) |
+| **B5** | Semantic Accuracy | 0.2010 | 0.1040 | 0.3090 | 50 | Heavy floor effect (>40% at min) |
+| **B6** | Semantic Accuracy | 0.0040 | 0.0000 | 0.0120 | 50 | Heavy floor effect (>40% at min) |
+| **B1** | Context Fillness | 0.0184 | 0.0181 | 0.0188 | 50 | Complete paired evaluation |
+| **B2** | Context Fillness | 0.0184 | 0.0181 | 0.0188 | 50 | Complete paired evaluation |
+| **B4** | Context Fillness | 0.0184 | 0.0181 | 0.0188 | 50 | Complete paired evaluation |
+| **B5** | Context Fillness | 0.0184 | 0.0181 | 0.0188 | 50 | Complete paired evaluation |
+| **B6** | Context Fillness | 0.0184 | 0.0181 | 0.0188 | 50 | Complete paired evaluation |
+| **B1** | AR-SA F1 | 0.0185 | 0.0000 | 0.0462 | 50 | Heavy floor effect (>40% at min) |
+| **B2** | AR-SA F1 | 0.1711 | 0.0814 | 0.2703 | 50 | Heavy floor effect (>40% at min) |
+| **B4** | AR-SA F1 | 0.1852 | 0.0926 | 0.2848 | 50 | Heavy floor effect (>40% at min) |
+| **B5** | AR-SA F1 | 0.1651 | 0.0718 | 0.2673 | 50 | Heavy floor effect (>40% at min) |
+| **B6** | AR-SA F1 | 0.0060 | 0.0000 | 0.0180 | 50 | Heavy floor effect (>40% at min) |
 | **B1** | Latency (sec) | 16.721s | 13.073s | 22.019s | 50 | Complete paired evaluation |
 | **B2** | Latency (sec) | 24.418s | 20.769s | 29.431s | 50 | Complete paired evaluation |
 | **B4** | Latency (sec) | 25.070s | 21.198s | 30.316s | 50 | Complete paired evaluation |
@@ -59,13 +59,13 @@
 
 | Baseline | TP | FP | TN | FN | Accuracy | Precision | Recall | F1 Score | Specificity | FPR | FNR | Hallucination Rate | Ans Rate | Abst Rate | MCC |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| **B1** | 50 | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | 1.0000 | N/A | N/A | 0.0% | 0.0% | 100.0% | 0.0% | N/A (Zero Var) |
-| **B2** | 50 | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | 1.0000 | N/A | N/A | 0.0% | 0.0% | 100.0% | 0.0% | N/A (Zero Var) |
-| **B4** | 50 | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | 1.0000 | N/A | N/A | 0.0% | 0.0% | 100.0% | 0.0% | N/A (Zero Var) |
-| **B5** | 50 | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | 1.0000 | N/A | N/A | 0.0% | 0.0% | 100.0% | 0.0% | N/A (Zero Var) |
-| **B6** | 50 | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | 1.0000 | N/A | N/A | 0.0% | 0.0% | 100.0% | 0.0% | N/A (Zero Var) |
+| **B1** | 42 | 0 | 0 | 8 | 84.0% | 100.0% | 84.0% | 0.9130 | N/A | N/A | 16.0% | N/A | 84.0% | 16.0% | N/A (Zero TN/FP) |
+| **B2** | 49 | 0 | 0 | 1 | 98.0% | 100.0% | 98.0% | 0.9899 | N/A | N/A | 2.0% | N/A | 98.0% | 2.0% | N/A (Zero TN/FP) |
+| **B4** | 49 | 0 | 0 | 1 | 98.0% | 100.0% | 98.0% | 0.9899 | N/A | N/A | 2.0% | N/A | 98.0% | 2.0% | N/A (Zero TN/FP) |
+| **B5** | 47 | 0 | 0 | 3 | 94.0% | 100.0% | 94.0% | 0.9691 | N/A | N/A | 6.0% | N/A | 94.0% | 6.0% | N/A (Zero TN/FP) |
+| **B6** | 44 | 0 | 0 | 6 | 88.0% | 100.0% | 88.0% | 0.9362 | N/A | N/A | 12.0% | N/A | 88.0% | 12.0% | N/A (Zero TN/FP) |
 
-> *Note on Table B:* All 50 queries present in  and  are answerable (). None of the baselines abstained on these 50 queries, resulting in 50 TPs and 0 FPs/TNs/FNs. The 25 unanswerable queries from  were not evaluated in this dataset.
+> *Note on Table B:* All 50 queries present in  and  are answerable (). Model abstentions are tracked as False Negatives (FN). No unanswerable queries were included in this 50-query evaluated set.
 
 ## Table C: Friedman Omnibus Test Results
 
@@ -77,7 +77,7 @@
 | **Answer Relevance** | 35.8919 | 4 | < 0.001 | 50 | 0.1795 |
 | **Citation Fidelity** | 19.8819 | 4 | < 0.001 | 50 | 0.0994 |
 | **Semantic Accuracy** | 29.8384 | 4 | < 0.001 | 50 | 0.1492 |
-| **Context Fillness** | N/A | 4 | N/A | 0 | N/A |
+| **Context Fillness** | 0.0000 | 4 | 1.0000 | 50 | 0.0000 |
 | **AR-SA F1** | 22.0719 | 4 | < 0.001 | 50 | 0.1104 |
 | **Latency (sec)** | 99.0400 | 4 | < 0.001 | 50 | 0.4952 |
 
@@ -92,7 +92,7 @@
 | **B2** | **B4** | Retrieval Recall | +0.0400 | +0.0100 | +0.0800 | 0.0455 | 0.1365 | +1.0000 | No |
 | **B2** | **B5** | Retrieval Recall | +0.0400 | +0.0100 | +0.0800 | 0.0455 | 0.1365 | +1.0000 | No |
 | **B2** | **B6** | Retrieval Recall | +0.2900 | +0.1900 | +0.3900 | < 0.001 | < 0.001 | +1.0000 | **YES** |
-| **B4** | **B5** | Retrieval Recall | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | +0.0000 | No |
+| **B4** | **B5** | Retrieval Recall | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
 | **B4** | **B6** | Retrieval Recall | +0.2500 | +0.1600 | +0.3500 | < 0.001 | < 0.001 | +1.0000 | **YES** |
 | **B5** | **B6** | Retrieval Recall | +0.2500 | +0.1600 | +0.3500 | < 0.001 | < 0.001 | +1.0000 | **YES** |
 | **B1** | **B2** | Context Precision | -0.6602 | -0.7616 | -0.5527 | < 0.001 | < 0.001 | -1.0000 | **YES** |
@@ -102,7 +102,7 @@
 | **B2** | **B4** | Context Precision | +0.1382 | +0.0915 | +0.1818 | < 0.001 | < 0.001 | +0.7268 | **YES** |
 | **B2** | **B5** | Context Precision | +0.1382 | +0.0915 | +0.1818 | < 0.001 | < 0.001 | +0.7268 | **YES** |
 | **B2** | **B6** | Context Precision | +0.4597 | +0.3594 | +0.5614 | < 0.001 | < 0.001 | +0.9892 | **YES** |
-| **B4** | **B5** | Context Precision | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | +0.0000 | No |
+| **B4** | **B5** | Context Precision | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
 | **B4** | **B6** | Context Precision | +0.3215 | +0.2278 | +0.4157 | < 0.001 | < 0.001 | +0.8749 | **YES** |
 | **B5** | **B6** | Context Precision | +0.3215 | +0.2278 | +0.4157 | < 0.001 | < 0.001 | +0.8749 | **YES** |
 | **B1** | **B2** | Faithfulness | +0.2061 | +0.0858 | +0.3299 | 0.0038 | 0.0339 | +0.5192 | **YES** |
@@ -112,7 +112,7 @@
 | **B2** | **B4** | Faithfulness | +0.0254 | -0.0665 | +0.1151 | 0.3873 | 1.0000 | +0.1652 | No |
 | **B2** | **B5** | Faithfulness | +0.0106 | -0.1260 | +0.1435 | 0.7704 | 1.0000 | +0.0505 | No |
 | **B2** | **B6** | Faithfulness | -0.0687 | -0.2183 | +0.0807 | 0.3957 | 1.0000 | -0.1622 | No |
-| **B4** | **B5** | Faithfulness | -0.0148 | -0.1301 | +0.1002 | 0.8657 | 1.0000 | -0.0296 | No |
+| **B4** | **B5** | Faithfulness | -0.0148 | -0.1301 | +0.1002 | 0.8562 | 1.0000 | -0.0317 | No |
 | **B4** | **B6** | Faithfulness | -0.0940 | -0.2560 | +0.0676 | 0.2386 | 1.0000 | -0.2061 | No |
 | **B5** | **B6** | Faithfulness | -0.0792 | -0.2088 | +0.0510 | 0.3253 | 1.0000 | -0.1877 | No |
 | **B1** | **B2** | Answer Relevance | -0.2780 | -0.4380 | -0.1140 | 0.0022 | 0.0174 | -0.6379 | **YES** |
@@ -145,6 +145,16 @@
 | **B4** | **B5** | Semantic Accuracy | +0.0120 | -0.0600 | +0.0890 | 0.8200 | 1.0000 | +0.0667 | No |
 | **B4** | **B6** | Semantic Accuracy | +0.2090 | +0.1140 | +0.3120 | < 0.001 | 0.0040 | +1.0000 | **YES** |
 | **B5** | **B6** | Semantic Accuracy | +0.1970 | +0.1000 | +0.3000 | 0.0021 | 0.0150 | +1.0000 | **YES** |
+| **B1** | **B2** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B1** | **B4** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B1** | **B5** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B1** | **B6** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B2** | **B4** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B2** | **B5** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B2** | **B6** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B4** | **B5** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B4** | **B6** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
+| **B5** | **B6** | Context Fillness | +0.0000 | +0.0000 | +0.0000 | 1.0000 | 1.0000 | N/A | No |
 | **B1** | **B2** | AR-SA F1 | -0.1526 | -0.2560 | -0.0574 | 0.0075 | 0.0523 | -0.8095 | No |
 | **B1** | **B4** | AR-SA F1 | -0.1667 | -0.2690 | -0.0733 | 0.0029 | 0.0236 | -0.9341 | **YES** |
 | **B1** | **B5** | AR-SA F1 | -0.1466 | -0.2541 | -0.0480 | 0.0075 | 0.0523 | -0.9091 | No |
@@ -159,10 +169,10 @@
 | **B1** | **B4** | Latency (sec) | -8.3488 | -15.0667 | -1.4604 | < 0.001 | < 0.001 | -0.6533 | **YES** |
 | **B1** | **B5** | Latency (sec) | -10.9816 | -18.0685 | -3.7330 | < 0.001 | < 0.001 | -0.7098 | **YES** |
 | **B1** | **B6** | Latency (sec) | -31.4603 | -38.5184 | -23.7563 | < 0.001 | < 0.001 | -0.9231 | **YES** |
-| **B2** | **B4** | Latency (sec) | -0.6520 | -6.6858 | +5.1172 | 0.9086 | 0.9086 | +0.0196 | No |
-| **B2** | **B5** | Latency (sec) | -3.2847 | -10.2293 | +3.3324 | 0.1232 | 0.2463 | -0.2518 | No |
+| **B2** | **B4** | Latency (sec) | -0.6520 | -6.6858 | +5.1172 | 0.9040 | 0.9040 | +0.0196 | No |
+| **B2** | **B5** | Latency (sec) | -3.2847 | -10.2293 | +3.3324 | 0.1213 | 0.2426 | -0.2518 | No |
 | **B2** | **B6** | Latency (sec) | -23.7635 | -30.8152 | -16.3366 | < 0.001 | < 0.001 | -0.8965 | **YES** |
-| **B4** | **B5** | Latency (sec) | -2.6328 | -8.7567 | +3.9050 | 0.0678 | 0.2034 | -0.2973 | No |
+| **B4** | **B5** | Latency (sec) | -2.6328 | -8.7567 | +3.9050 | 0.0674 | 0.2021 | -0.2973 | No |
 | **B4** | **B6** | Latency (sec) | -23.1115 | -29.7134 | -16.8860 | < 0.001 | < 0.001 | -0.8761 | **YES** |
 | **B5** | **B6** | Latency (sec) | -20.4787 | -27.8254 | -12.7600 | < 0.001 | < 0.001 | -0.8212 | **YES** |
 
@@ -217,20 +227,21 @@ The following table lists **only** the baseline comparisons that remain statisti
 ## Decision Support
 
 ### Statistically Reliable Differences (After Holm Control)
-1. **Retrieval Capabilities (Recall & Precision):** Dense retrieval baselines (**B2**, **B4**, **B5**) demonstrate massive, statistically reliable superiority over Pure Lexical (**B1**) and Full Pipeline (**B6**) (Holm p < 0.001, r_b > 0.87). Specifically, **B2**, **B4**, and **B5** achieve top retrieval recall (0.7600–0.8000) and context precision (0.6835–0.8220), with zero detectable difference between **B4** and **B5** (p = 1.0000).
-2. **Faithfulness:** Pure Lexical (**B1**) achieves significantly higher faithfulness (0.6642) than **B2** (0.4581), **B4** (0.4327), and **B5** (0.4475) (Holm p < 0.035). This occurs because lexical retrieval returns short, exact matching contexts that reduce LLM hallucination opportunities, though at severe cost to recall.
-3. **Answer Relevance & Citation Fidelity:** **B2**, **B4**, and **B5** significantly outperform **B6** in answer relevance (Holm p <= 0.025). For citation fidelity, **B5** (0.5192) and **B4** (0.4278) significantly beat **B6** (0.1831, Holm p < 0.025).
-4. **Semantic Accuracy:** **B4** (0.2130), **B5** (0.2010), and **B2** (0.1820) significantly outperform both **B1** (0.0280) and **B6** (0.0040) (Holm p <= 0.041). No statistically significant difference exists between **B2**, **B4**, and **B5**.
-5. **Latency:** **B1** is fastest (16.72s), followed by **B2** (24.42s), **B4** (25.07s), and **B5** (27.70s). Full Pipeline **B6** (48.18s) is significantly slower than all other baselines (Holm p < 0.001, delta approx 20–31s).
+1. **Retrieval Capabilities (Recall & Precision):** Dense retrieval baselines (**B2**, **B4**, **B5**) demonstrate massive, statistically reliable superiority over Pure Lexical (**B1**) and Full Pipeline (**B6**) (Holm p < 0.001, r_b > 0.87). Specifically, **B2**, **B4**, and **B5** achieve top retrieval recall (0.7600–0.8000) and context precision (0.6840–0.8222), with zero detectable difference between **B4** and **B5** (p = 1.0000).
+2. **Faithfulness:** Pure Lexical (**B1**) achieves significantly higher faithfulness (0.6643) than **B2** (0.4582), **B4** (0.4328), and **B5** (0.4476) (Holm p < 0.035). This occurs because lexical retrieval returns short, exact matching contexts that reduce LLM hallucination opportunities, though at severe cost to retrieval recall.
+3. **Answer Relevance & Citation Fidelity:** **B2**, **B4**, and **B5** significantly outperform **B6** in answer relevance (Holm p <= 0.0251). For citation fidelity, **B5** (0.5199) and **B4** (0.4285) significantly outperform **B6** (0.1837, Holm p <= 0.0242).
+4. **Semantic Accuracy:** **B4** (0.2130), **B5** (0.2010), and **B2** (0.1820) significantly outperform both **B1** (0.0280) and **B6** (0.0040) (Holm p <= 0.0413). No statistically significant difference exists between **B2**, **B4**, and **B5**.
+5. **Latency:** **B1** is fastest (16.721s), followed by **B2** (24.418s), **B4** (25.070s), and **B5** (27.703s). Full Pipeline **B6** (48.182s) is significantly slower than all other baselines (Holm p < 0.001, delta approx 20.48s to 31.46s).
+6. **Answerability Accuracy:** Dense baselines **B2** (98.0%) and **B4** (98.0%) yield higher answerability accuracy than **B1** (84.0%), but pairwise McNemar test differences do not survive Holm correction due to low sample size of discordant cases.
 
 ### Practical Trade-offs (Quality vs Latency)
-- **B4 (Standard Hybrid + Reranker)** offers the best overall trade-off: top-tier semantic accuracy (0.2130), high retrieval recall (0.7600), and modest latency (25.07s).
-- **B2 (Pure Dense)** offers slightly higher recall (0.8000) and context precision (0.8220) at similar latency (24.42s), but lower citation fidelity (0.3524 vs 0.4278 for B4 and 0.5192 for B5).
-- **B5 (Hybrid + Graph + Reranker)** improves citation fidelity (0.5192) over B4 (0.4278), but adds +2.63s latency without significant semantic accuracy gain.
-- **B6 (Full Pipeline)** suffers severe latency penalties (48.18s) and degraded quality metrics due to pipeline over-refinement.
+- **B4 (Standard Hybrid + Reranker)** offers the best overall balance: highest numerical semantic accuracy (0.2130), strong retrieval recall (0.7600), high citation fidelity (0.4285), and modest latency (25.070s).
+- **B2 (Pure Dense)** provides slightly higher retrieval recall (0.8000) and context precision (0.8222) at similar latency (24.418s), but lower citation fidelity (0.3530).
+- **B5 (Hybrid + Graph + Reranker)** achieves the highest citation fidelity (0.5199) over **B4** (0.4285), but adds +2.633s latency without significant gain in semantic accuracy.
+- **B6 (Full Pipeline)** suffers severe latency penalties (48.182s) and degraded quality metrics due to pipeline over-refinement and multi-stage context truncation.
 
 ### Definitive Statement on Best Baseline
 **We do not have sufficient evidence for a single best baseline across all dimensions.** While **B4** yields the highest numerical semantic accuracy (0.2130) and **B2** yields the highest retrieval recall (0.8000), the pairwise differences between **B2**, **B4**, and **B5** on semantic accuracy, retrieval recall, and context precision are **not statistically significant** after Holm correction (Holm p > 0.05).
 
 > [!WARNING]
-> **Power & Sample Size Diagnostics:** All continuous quality, latency, and answerability metrics were evaluated on n=50 complete paired rows (n >= 30), providing sufficient statistical power for primary quality conclusions. However, **Context Fillness** was not recorded in the evaluation dataset (n=0), so conclusions regarding context utilization cannot be drawn.
+> **Power & Sample Size Diagnostics:** All continuous quality, latency, and answerability metrics were evaluated on n=50 complete paired rows (n >= 30), providing sufficient statistical power for primary quality conclusions.
