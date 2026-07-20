@@ -224,4 +224,4 @@ class TestCoreReportingRobustness:
             assert "RAG" in md_text
             assert "B0" in md_text
             assert "B1" in md_text
-            assert "Матрица попарных побед" in md_text
+            assert "Pairwise Win Rate Matrix" in md_text

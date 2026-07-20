@@ -790,7 +790,7 @@ def test_generate_baseline_case_pre_contexts_success_and_fallbacks():
     }
     # Reset count_tokens mock for B0 to return an integer for prompts and non-int for answers
     def count_tokens_side_effect(arg):
-        if "Вопрос" in arg or "prompt" in arg:
+        if "Question" in arg or "prompt" in arg:
             return 5
         return "non-int-string"
     rag_service.llm_engine.count_tokens.side_effect = count_tokens_side_effect

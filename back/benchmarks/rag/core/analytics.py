@@ -594,7 +594,8 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                         from core.metrics import detect_abstention
                         pred_abst = detect_abstention(gen_ans)
                     except Exception:
-                        pred_abst = "нет информации" in gen_ans.lower() or "отсутствует" in gen_ans.lower()
+                        gen_lower = gen_ans.lower()
+                        pred_abst = any(w in gen_lower for w in ["no information", "information missing", "cannot answer", "insufficient information", "нет информации", "отсутствует"])
                 from core.metrics import classify_answerability
                 outcome = classify_answerability(is_ans, pred_abst)
             
@@ -737,7 +738,8 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                             from core.metrics import detect_abstention
                             pred_abst = detect_abstention(gen_ans)
                         except Exception:
-                            pred_abst = "нет информации" in gen_ans.lower() or "отсутствует" in gen_ans.lower()
+                            gen_lower = gen_ans.lower()
+                            pred_abst = any(w in gen_lower for w in ["no information", "information missing", "cannot answer", "insufficient information", "нет информации", "отсутствует"])
                     from core.metrics import classify_answerability
                     outcome = classify_answerability(is_ans, pred_abst)
                 

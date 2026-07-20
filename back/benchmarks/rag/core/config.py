@@ -17,14 +17,14 @@ from src.config import config
 
 # Map of baselines and their descriptions
 BASELINES_INFO: Dict[str, str] = {
-    "B0": "Zero-Shot (Чистая генерация) — оценка базовых знаний LLM без контекста.",
-    "B1": "Pure Lexical (Только лексика) — поиск строго по ключевым словам через SQLite FTS5.",
-    "B2": "Pure Dense (Только векторы) — классический семантический поиск по эмбеддингам.",
-    "B3": "Dense + HyDE (Векторы + Гипотетический документ) — семантический поиск с гипотетическим ответом.",
-    "B4": "Standard Hybrid + Reranker (Базовый гибрид с реранкером) — связка FTS5 + Векторы через RRF + реранкер без графов.",
-    "B5": "Hybrid + Graph + Reranker (Базовый Граф-RAG с реранкером) — гибридный поиск + статический обход графа + реранкер.",
-    "B6": "Full Pipeline (Максимальный запуск) — включены все 12 компонентов (граф, реранкер, LLM-расширение и др. без HyDE).",
-    "CUSTOM": "Custom Run (Конфигурация с пользовательскими параметрами) — для тестирования влияния настроек на поиск."
+    "B0": "Zero-Shot (Pure generation) — evaluating basic LLM knowledge without context.",
+    "B1": "Pure Lexical (Lexical only) — keyword search strictly via SQLite FTS5.",
+    "B2": "Pure Dense (Vectors only) — classical semantic search over embeddings.",
+    "B3": "Dense + HyDE (Vectors + Hypothetical Document) — semantic search with hypothetical answer.",
+    "B4": "Standard Hybrid + Reranker (Basic hybrid with reranker) — FTS5 + Vectors combination via RRF + reranker without graphs.",
+    "B5": "Hybrid + Graph + Reranker (Basic Graph-RAG with reranker) — hybrid search + static graph traversal + reranker.",
+    "B6": "Full Pipeline (Full run) — all 12 components enabled (graph, reranker, LLM query expansion, etc., without HyDE).",
+    "CUSTOM": "Custom Run (Custom parameters configuration) — for testing impact of settings on search."
 }
 
 DEFAULT_LIMIT = 50

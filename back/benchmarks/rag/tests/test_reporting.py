@@ -126,7 +126,7 @@ def test_generate_markdown_report(dummy_stats, tmp_path):
     generate_markdown_report(dummy_stats, report_path)
     assert report_path.exists()
     content = report_path.read_text(encoding="utf-8")
-    assert "# 📊 Отчет по качеству RAG-системы" in content
+    assert "RAG Benchmarking Report" in content
     assert "B0" in content
     assert "B1" in content
     assert "Token Output" in content

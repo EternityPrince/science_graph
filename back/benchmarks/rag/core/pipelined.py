@@ -303,7 +303,7 @@ def generate_baseline_case(
 
                 # Build prompt
                 if baseline == "B0":
-                    prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
+                    prompt = f"Question: {query}\nAnswer based on your general knowledge."
                 elif enrichment_block and enrichment_block != "No essential knowledge graph enrichment found.":
                     prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str="", query=query)
                 else:
@@ -332,6 +332,8 @@ def generate_baseline_case(
                 
                 try:
                     prompt_tokens = rag_service.llm_engine.count_tokens(prompt)
+                    if not isinstance(prompt_tokens, (int, float)):
+                        prompt_tokens = len(prompt) // 4
                 except Exception:
                     prompt_tokens = len(prompt) // 4
 

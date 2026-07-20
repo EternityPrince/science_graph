@@ -41,6 +41,9 @@ def detect_abstention(generated_answer: str, final_answer: str | None = None) ->
         "do not contain",
         "no information",
         "missing information",
+        "information missing",
+        "information not available",
+        "no data available",
         "нет информации",
         "недостаточно информации",
         "невозможно ответить",
@@ -181,7 +184,7 @@ def count_text_tokens(text: str) -> int:
 def estimate_prompt_tokens(query: str, retrieved_chunks: List[Dict[str, Any]], baseline: str) -> int:
     """Estimates prompt token count using tiktoken or simple character heuristic."""
     if baseline == "B0":
-        prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
+        prompt = f"Question: {query}\nAnswer based on your general knowledge."
     else:
         system_prompt = (
             "<|im_start|>system\n"
@@ -205,7 +208,7 @@ def estimate_prompt_tokens(query: str, retrieved_chunks: List[Dict[str, Any]], b
         prompt = (
             f"{system_prompt}{context_text}\n\n"
             f"### KNOWLEDGE GRAPH CONNECTIONS:\n{context_graph}\n"
-            f"<|im_end|>\n<|im_start|>user\nQuestion: {query}\nAnswer in Russian:\n<|im_end|>\n<|im_start|>assistant\n"
+            f"<|im_end|>\n<|im_start|>user\nQuestion: {query}\nAnswer:\n<|im_end|>\n<|im_start|>assistant\n"
         )
     
     return count_text_tokens(prompt)

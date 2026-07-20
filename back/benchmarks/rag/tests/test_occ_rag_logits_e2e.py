@@ -396,7 +396,7 @@ def test_b1_b2_pipeline_uses_cached_b0_entropy():
             # Verify B0 zero-shot generation (prompt "Ответь на основе своих общих знаний") was called ONLY ONCE
             b0_calls = [
                 call_item for call_item in mock_engine.generate_response_with_logits.call_args_list
-                if "Ответь на основе своих общих знаний" in str(call_item)
+                if "Answer based on your general knowledge" in str(call_item)
             ]
             assert len(b0_calls) == 1
 

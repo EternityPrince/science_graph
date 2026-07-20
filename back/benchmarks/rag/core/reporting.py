@@ -167,7 +167,7 @@ def print_rich_tables(stats: dict) -> None:
     ))
     
     # 1. Main Summary Table (Answerable-only quality metrics)
-    table = Table(title="[bold]Сводная таблица (Answerable-only quality metrics)[/bold]", box=ROUNDED, header_style="bold magenta")
+    table = Table(title="[bold]Summary Table (Answerable-only quality metrics)[/bold]", box=ROUNDED, header_style="bold magenta")
     table.add_column("Baseline", style="cyan", no_wrap=True)
     table.add_column("Success Rate", justify="right")
     for m in ALL_METRICS:
@@ -195,7 +195,7 @@ def print_rich_tables(stats: dict) -> None:
     console.print()
 
     # 1.3. Unanswerable safety metrics
-    table_safety = Table(title="[bold]Показатели безопасности для неответных вопросов (Unanswerable Safety Metrics)[/bold]", box=ROUNDED, header_style="bold red")
+    table_safety = Table(title="[bold]Unanswerable Safety Metrics[/bold]", box=ROUNDED, header_style="bold red")
     table_safety.add_column("Baseline", style="cyan", no_wrap=True)
     table_safety.add_column("Unanswerable Count", justify="right")
     table_safety.add_column("Correct Abstentions / TN", justify="right")
@@ -220,7 +220,7 @@ def print_rich_tables(stats: dict) -> None:
     console.print()
 
     # 1.4. Answerability Confusion Matrix & Classification Metrics
-    table_cm = Table(title="[bold]Матрица классификации ответа (Answerability Confusion Matrix & Metrics)[/bold]", box=ROUNDED, header_style="bold cyan")
+    table_cm = Table(title="[bold]Answerability Confusion Matrix & Metrics[/bold]", box=ROUNDED, header_style="bold cyan")
     table_cm.add_column("Baseline", style="cyan", no_wrap=True)
     table_cm.add_column("TP", justify="right")
     table_cm.add_column("FP", justify="right")
@@ -262,7 +262,7 @@ def print_rich_tables(stats: dict) -> None:
     
     # 1.5. Graph Retrieval Diagnostics Table (if trace exists)
     if stats.get("has_graph_trace"):
-        table_graph = Table(title="[bold]Диагностика Graph Retrieval (Graph Retrieval Diagnostics)[/bold]", box=ROUNDED, header_style="bold green")
+        table_graph = Table(title="[bold]Graph Retrieval Diagnostics[/bold]", box=ROUNDED, header_style="bold green")
         table_graph.add_column("Baseline", style="cyan", no_wrap=True)
         table_graph.add_column("Enabled", justify="right")
         table_graph.add_column("Skipped", justify="right")
@@ -294,7 +294,7 @@ def print_rich_tables(stats: dict) -> None:
 
     # 1.6. Shannon Estimator Diagnostics Table
     if stats.get("has_shannon") or any(stats["summary"][b].get("shannon_summary") for b in stats["baselines"]):
-        table_shannon = Table(title="[bold]Оценка энтропии Shannon (Shannon Estimator Diagnostics - bits)[/bold]", box=ROUNDED, header_style="bold blue")
+        table_shannon = Table(title="[bold]Shannon Estimator Diagnostics (bits)[/bold]", box=ROUNDED, header_style="bold blue")
         table_shannon.add_column("Baseline", style="cyan", no_wrap=True)
         table_shannon.add_column("H_rank (pre/post)", justify="right")
         table_shannon.add_column("H_lexical (pre/post)", justify="right")
@@ -333,7 +333,7 @@ def print_rich_tables(stats: dict) -> None:
     # 2. Detailed statistics per baseline with Min/Max/Stdev
     for b in stats["baselines"]:
         desc = BASELINES_INFO.get(b, "")
-        table_det = Table(title=f"[bold]Детальная статистика: {b}[/bold] ({desc})", box=ROUNDED, header_style="bold yellow")
+        table_det = Table(title=f"[bold]Detailed Statistics: {b}[/bold] ({desc})", box=ROUNDED, header_style="bold yellow")
         table_det.add_column("Metric", style="cyan")
         table_det.add_column("Mean", justify="right")
         table_det.add_column("Min", justify="right")
@@ -399,8 +399,8 @@ def print_rich_tables(stats: dict) -> None:
 
     # 3. Category Breakdown: Answerable (Semantic Accuracy)
     if ans_cats:
-        table_cat_ans = Table(title="[bold]Разбивка по категориям: Answerable (Средняя Semantic Accuracy)[/bold]", box=ROUNDED, header_style="bold blue")
-        table_cat_ans.add_column("Категория (Category)", style="cyan")
+        table_cat_ans = Table(title="[bold]Category Breakdown: Answerable (Mean Semantic Accuracy)[/bold]", box=ROUNDED, header_style="bold blue")
+        table_cat_ans.add_column("Category", style="cyan")
         for b in stats["baselines"]:
             table_cat_ans.add_column(b, justify="right")
             
@@ -416,9 +416,9 @@ def print_rich_tables(stats: dict) -> None:
         
     # 3.5. Category Breakdown: Unanswerable (Abstention Accuracy / Hallucination Rate)
     if unans_cats:
-        table_cat_unans = Table(title="[bold]Разбивка по категориям: Unanswerable (Abstention Accuracy / Hallucination Rate)[/bold]", box=ROUNDED, header_style="bold green")
-        table_cat_unans.add_column("Категория (Category)", style="cyan")
-        table_cat_unans.add_column("Метрика (Metric)", style="magenta")
+        table_cat_unans = Table(title="[bold]Category Breakdown: Unanswerable (Abstention Accuracy / Hallucination Rate)[/bold]", box=ROUNDED, header_style="bold green")
+        table_cat_unans.add_column("Category", style="cyan")
+        table_cat_unans.add_column("Metric", style="magenta")
         for b in stats["baselines"]:
             table_cat_unans.add_column(b, justify="right")
             
@@ -438,7 +438,7 @@ def print_rich_tables(stats: dict) -> None:
         console.print()
         
     # 4. Pairwise Win-rate Matrix (Semantic Accuracy)
-    table_win = Table(title="[bold]Матрица побед (Win-Rate Matrix: Semantic Accuracy)[/bold]\nПоказывает как часто строка обыгрывает столбец (Row beats Column %)", box=ROUNDED, header_style="bold green")
+    table_win = Table(title="[bold]Win-Rate Matrix (Semantic Accuracy)[/bold]\nShows how often row beats column (%)", box=ROUNDED, header_style="bold green")
     table_win.add_column("Baseline", style="cyan")
     for b in stats["baselines"]:
         table_win.add_column(b, justify="right")
@@ -457,10 +457,10 @@ def print_rich_tables(stats: dict) -> None:
     console.print()
     
     # 5. Top 5 hardest queries
-    table_hard = Table(title="[bold]Топ-5 самых сложных вопросов (Top 5 Hardest Queries)[/bold]\n(По средней оценке всех baseline)", box=ROUNDED, header_style="bold red")
+    table_hard = Table(title="[bold]Top 5 Hardest Queries[/bold]\n(By average score across all baselines)", box=ROUNDED, header_style="bold red")
     table_hard.add_column("ID", style="cyan", no_wrap=True)
     table_hard.add_column("Category", style="magenta")
-    table_hard.add_column("Query (Вопрос)")
+    table_hard.add_column("Query")
     table_hard.add_column("Avg Score", justify="right")
     
     for q in stats["query_difficulty"][:5]:
@@ -476,7 +476,7 @@ def print_plain_tables(stats: dict) -> None:
     print(f"Answerable: {stats.get('total_answerable', 0)}")
     print(f"Unanswerable: {stats.get('total_unanswerable', 0)}\n")
     
-    print("--- Сводная таблица (Answerable-only quality metrics) ---")
+    print("--- Summary Table (Answerable-only quality metrics) ---")
     headers = ["Baseline", "Success"] + [METRIC_LABELS[m] for m in ALL_METRICS]
     print("\t".join(headers))
     for b in stats["baselines"]:
@@ -496,7 +496,7 @@ def print_plain_tables(stats: dict) -> None:
         print("\t".join(row))
     print()
 
-    print("--- Показатели безопасности для неответных вопросов (Unanswerable Safety Metrics) ---")
+    print("--- Unanswerable Safety Metrics ---")
     print("\t".join(["Baseline", "Unanswerable Count", "Correct Abstentions / TN", "Hallucinated Answers / FP", "Abstention Accuracy", "Hallucination Rate", "Answer Rate on Unanswerable"]))
     for b in stats["baselines"]:
         saf = stats["summary"][b].get("unanswerable_safety", {})
@@ -512,7 +512,7 @@ def print_plain_tables(stats: dict) -> None:
         print("\t".join(row))
     print()
 
-    print("--- Матрица классификации ответа (Answerability Confusion Matrix & Metrics) ---")
+    print("--- Answerability Confusion Matrix & Metrics ---")
     print("\t".join([
         "Baseline", "TP", "FP", "TN", "FN", "Accuracy", "Precision", "Recall", "F1", 
         "Specificity", "FPR", "FNR", "Hallucination Rate", "Answer Rate", "Abstention Rate"
@@ -555,8 +555,8 @@ def print_plain_tables(stats: dict) -> None:
             unans_cats.append(cat)
 
     if ans_cats:
-        print("--- Разбивка по категориям: Answerable (Средняя Semantic Accuracy) ---")
-        print("\t".join(["Категория"] + stats["baselines"]))
+        print("--- Category Breakdown: Answerable (Mean Semantic Accuracy) ---")
+        print("\t".join(["Category"] + stats["baselines"]))
         for cat in ans_cats:
             row = [cat]
             for b in stats["baselines"]:
@@ -566,8 +566,8 @@ def print_plain_tables(stats: dict) -> None:
         print()
 
     if unans_cats:
-        print("--- Разбивка по категориям: Unanswerable (Abstention Accuracy / Hallucination Rate) ---")
-        print("\t".join(["Категория", "Метрика"] + stats["baselines"]))
+        print("--- Category Breakdown: Unanswerable (Abstention Accuracy / Hallucination Rate) ---")
+        print("\t".join(["Category", "Metric"] + stats["baselines"]))
         for cat in unans_cats:
             row_abst = [cat, "Abstention Accuracy"]
             row_hall = ["", "Hallucination Rate"]
@@ -582,7 +582,7 @@ def print_plain_tables(stats: dict) -> None:
         print()
 
     if stats.get("has_graph_trace"):
-        print("--- Диагностика Graph Retrieval (Graph Retrieval Diagnostics) ---")
+        print("--- Graph Retrieval Diagnostics ---")
         print("\t".join(["Baseline", "Enabled", "Skipped", "Avg Chunks", "Survival", "Queries Survived", "Avg Best Rank"]))
         for b in stats["baselines"]:
             gd = stats["summary"][b].get("graph_diagnostics", {})
@@ -605,22 +605,22 @@ def generate_markdown_report(
 ) -> None:
     """Generates a beautiful self-contained Markdown report with highlights, tables, and emojis."""
     lines = []
-    lines.append("# 📊 Отчет по качеству RAG-системы (RAG Benchmarking Report)")
+    lines.append("# 📊 RAG Benchmarking Report")
     lines.append("")
-    lines.append(f"**Количество тестовых вопросов:** {stats['total_queries']} (Answerable: {stats.get('total_answerable', 0)}, Unanswerable: {stats.get('total_unanswerable', 0)})")
+    lines.append(f"**Total test queries:** {stats['total_queries']} (Answerable: {stats.get('total_answerable', 0)}, Unanswerable: {stats.get('total_unanswerable', 0)})")
     lines.append("")
     
-    lines.append("## 🏷️ Описание протестированных конфигураций (Baselines)")
-    lines.append("| Baseline | Описание конфигурации |")
+    lines.append("## 🏷️ Baseline Configurations")
+    lines.append("| Baseline | Configuration Description |")
     lines.append("| :--- | :--- |")
     for b, desc in BASELINES_INFO.items():
         if b in stats["baselines"]:
             lines.append(f"| **{b}** | {desc} |")
     lines.append("")
     
-    lines.append("## 📈 Сводные результаты: Answerable-only quality metrics (Averages Summary)")
+    lines.append("## 📈 Averages Summary: Answerable-only Quality Metrics")
     lines.append("> [!NOTE]")
-    lines.append("> Качество оценивалось LLM-судьей по шкале от 0.0 до 1.0 (за исключением Latency).")
+    lines.append("> Quality was evaluated by LLM judge on a scale from 0.0 to 1.0 (except Latency).")
     lines.append("")
     
     headers = ["Baseline", "Success Rate"] + [METRIC_LABELS[m] for m in ALL_METRICS]
@@ -662,8 +662,8 @@ def generate_markdown_report(
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
 
-    lines.append("## 🛡️ Метрики безопасности для неответных вопросов (Unanswerable Safety Metrics)")
-    lines.append("Показатели работы системы на неответных вопросах (где `is_answerable: false`):")
+    lines.append("## 🛡️ Unanswerable Safety Metrics")
+    lines.append("System performance metrics on unanswerable questions (where `is_answerable: false`):")
     lines.append("")
     
     safety_headers = ["Baseline", "Unanswerable Count", "Correct Abstentions / TN", "Hallucinated Answers / FP", "Abstention Accuracy", "Hallucination Rate", "Answer Rate on Unanswerable"]
@@ -684,8 +684,8 @@ def generate_markdown_report(
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
 
-    lines.append("## 🧩 Матрица классификации ответа (Answerability Confusion Matrix & Metrics)")
-    lines.append("Общие показатели классификации ответа по всем запросам:")
+    lines.append("## 🧩 Answerability Confusion Matrix & Metrics")
+    lines.append("Overall answerability classification metrics across all queries:")
     lines.append("")
     
     cm_headers = ["Baseline", "TP", "FP", "TN", "FN", "Accuracy", "Precision", "Recall", "F1", "Specificity", "FPR", "FNR", "Hallucination Rate", "Answer Rate", "Abstention Rate"]
@@ -714,13 +714,13 @@ def generate_markdown_report(
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
     
-    lines.append("## 🔍 Детальный анализ стабильности (Min / Max / Median / StdDev)")
-    lines.append("Позволяет оценить стабильность работы системы на различных запросах.")
+    lines.append("## 🔍 Detailed Stability Analysis (Min / Max / Median / StdDev)")
+    lines.append("Allows evaluating system performance stability across various queries.")
     lines.append("")
     
     for b in stats["baselines"]:
         lines.append(f"### ⚙️ {b} — {BASELINES_INFO.get(b, b)}")
-        lines.append("| Метрика | Среднее (Mean) | | Минимум (Min) | Максимум (Max) | Медиана (Median) | Отклонение (Std Dev) |")
+        lines.append("| Metric | Mean | | Min | Max | Median | Std Dev |")
         lines.append("| :--- | ---: | ---: | ---: | ---: | ---: |")
         
         for m in ALL_METRICS:
@@ -779,11 +779,11 @@ def generate_markdown_report(
             unans_cats.append(cat)
 
     if ans_cats:
-        lines.append("## 📁 Разбивка по категориям: Answerable (Category Breakdown)")
-        lines.append("Средняя семантическая точность (Semantic Accuracy) для ответных категорий:")
+        lines.append("## 📁 Category Breakdown: Answerable")
+        lines.append("Mean Semantic Accuracy for answerable categories:")
         lines.append("")
         
-        cat_headers = ["Категория"] + stats["baselines"]
+        cat_headers = ["Category"] + stats["baselines"]
         lines.append("| " + " | ".join(cat_headers) + " |")
         lines.append("| :--- | " + " | ".join(["---:"] * len(stats["baselines"])) + " |")
         
@@ -800,11 +800,11 @@ def generate_markdown_report(
         lines.append("")
 
     if unans_cats:
-        lines.append("## 📁 Разбивка по категориям: Unanswerable (Category Breakdown)")
-        lines.append("Показатели безопасности (Abstention Accuracy / Hallucination Rate) для неответных категорий:")
+        lines.append("## 📁 Category Breakdown: Unanswerable")
+        lines.append("Safety metrics (Abstention Accuracy / Hallucination Rate) for unanswerable categories:")
         lines.append("")
         
-        cat_headers_un = ["Категория", "Метрика"] + stats["baselines"]
+        cat_headers_un = ["Category", "Metric"] + stats["baselines"]
         lines.append("| " + " | ".join(cat_headers_un) + " |")
         lines.append("| :--- | :--- | " + " | ".join(["---:"] * len(stats["baselines"])) + " |")
         
@@ -821,8 +821,8 @@ def generate_markdown_report(
             lines.append("| " + " | ".join(row_hall) + " |")
         lines.append("")
     
-    lines.append("## 🥊 Матрица попарных побед (Pairwise Win Rate Matrix: Semantic Accuracy)")
-    lines.append("Процент запросов, на которых конфигурация в строке показала результат **строго выше** конфигурации в столбце:")
+    lines.append("## 🥊 Pairwise Win Rate Matrix (Semantic Accuracy)")
+    lines.append("Percentage of queries where row configuration performed **strictly higher** than column configuration:")
     lines.append("")
     
     win_headers = ["Baseline"] + stats["baselines"]
@@ -840,10 +840,10 @@ def generate_markdown_report(
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
     
-    lines.append("## 🧗‍♂️ Топ-10 самых сложных запросов (Top 10 Hardest Queries)")
-    lines.append("Запросы, вызвавшие наибольшие затруднения у всех конфигураций (ранжировано по средней оценке):")
+    lines.append("## 🧗‍♂️ Top 10 Hardest Queries")
+    lines.append("Queries causing greatest difficulty across all configurations (ranked by average score):")
     lines.append("")
-    lines.append("| ID | Категория | Вопрос | Средняя оценка (Avg Score) |")
+    lines.append("| ID | Category | Query | Avg Score |")
     lines.append("| :--- | :--- | :--- | ---: |")
     for q in stats["query_difficulty"][:10]:
         lines.append(f"| `{q['id']}` | `{q['category']}` | {q['query']} | **{q['avg_score']:.3f}** |")
@@ -965,7 +965,7 @@ def generate_markdown_report(
     # Shannon Estimator Diagnostics Section
     if stats.get("has_shannon") or any(stats["summary"][b].get("shannon_summary") for b in stats["baselines"]):
         lines.append("## ⚛️ Shannon Estimator Diagnostics (Entropy in Bits)")
-        lines.append("Оценка энтропии на отдельных этапах обработки (ранжирование, лексический контекст, граф, генерация и цитирование):")
+        lines.append("Entropy estimation at processing stages (ranking, lexical context, graph, generation, and citation):")
         lines.append("")
         lines.append("| Baseline | H_rank (pre -> post) | H_lexical (pre -> post) | H_graph (rel / deg) | H_gen | H_citation | Citation Tokens | ΔH_gen |")
         lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
@@ -1002,18 +1002,18 @@ def generate_markdown_report(
             lines.append(stat_md)
             lines.append("")
 
-    lines.append("## 🏆 Главные выводы (Research Summary)")
+    lines.append("## 🏆 Key Research Findings (Research Summary)")
     lines.append("")
     
     best_accuracy_b = best_per_metric["semantic_accuracy"]
     best_recall_b = best_per_metric["retrieval_recall"]
     fastest_b = best_per_metric["latency_sec"]
     
-    lines.append(f"1. **Абсолютный лидер по качеству ответов:** `{best_accuracy_b}` с Semantic Accuracy **{stats['summary'][best_accuracy_b]['semantic_accuracy']['mean']:.3f}**.")
-    lines.append(f"2. **Лучшая глубина поиска (Retrieval Recall):** `{best_recall_b}` с показателем **{stats['summary'][best_recall_b]['retrieval_recall']['mean']:.3f}**.")
-    lines.append(f"3. **Самый быстрый отклик (Latency):** `{fastest_b}` со средним временем **{stats['summary'][fastest_b]['latency_sec']['mean']:.2f} сек**.")
+    lines.append(f"1. **Overall leader in answer quality:** `{best_accuracy_b}` with Semantic Accuracy **{stats['summary'][best_accuracy_b]['semantic_accuracy']['mean']:.3f}**.")
+    lines.append(f"2. **Best retrieval depth (Retrieval Recall):** `{best_recall_b}` with **{stats['summary'][best_recall_b]['retrieval_recall']['mean']:.3f}**.")
+    lines.append(f"3. **Fastest response time (Latency):** `{fastest_b}` with average time **{stats['summary'][fastest_b]['latency_sec']['mean']:.2f} s**.")
     
-    lines.append("4. **Эффективность (Качество/Скорость - Semantic Accuracy per 10s latency):**")
+    lines.append("4. **Efficiency (Quality/Speed - Semantic Accuracy per 10s latency):**")
     efficiency_list = []
     for b in stats["baselines"]:
         lat = stats["summary"][b]["latency_sec"]["mean"]

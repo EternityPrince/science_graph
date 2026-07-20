@@ -720,19 +720,19 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
     baselines_str = "–".join(sorted(BASELINES)) if len(BASELINES) > 1 else (BASELINES[0] if BASELINES else "")
     baselines_title = f"({baselines_str})" if baselines_str else ""
     
-    report_text = f"""# 📊 Научный отчет: Визуализация экспериментов RAG {baselines_title}
-Дата генерации: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-Входной файл: `{input_name}`
+    report_text = f"""# 📊 Scientific Report: RAG Experiments Visualization {baselines_title}
+Generation Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Input File: `{input_name}`
 
-Данный отчет содержит визуализации результатов оценки RAG-конвейера (Science Graph) на двух наборах данных:
-1. **Science Graph (Custom)**: 50 сложных междисциплинарных научных вопросов (исходный датасет, разделен на Single-hop и Multi-hop подмножества по 25 вопросов).
-2. **HF/SciQ**: 50 простых научно-популярных вопросов (контрольный датасет).
+This report contains visualizations of RAG pipeline evaluation results (Science Graph) across two datasets:
+1. **Science Graph (Custom)**: 50 complex interdisciplinary scientific questions (primary dataset, split into Single-hop and Multi-hop subsets of 25 questions each).
+2. **HF/SciQ**: 50 popular science questions (control dataset).
 
-Ниже представлены сгенерированные фигуры и их описания (captions) в академическом стиле для включения в текст научной статьи.
+Below are the generated figures and their academic captions for inclusion in research papers.
 
 ---
 
-## Фигура 1: Тепловая карта метрик качества
+## Figure 1: Quality Metrics Heatmap
 
 ![Heatmap](fig1_heatmap.png)
 
@@ -740,7 +740,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 2: Радарный профиль возможностей базовых линий
+## Figure 2: Baseline Capabilities Radar Profile
 
 ![Radar Chart](fig2_radar_chart.png)
 
@@ -748,7 +748,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 3: Двухкритериальная оптимизация (Парето-эффективность)
+## Figure 3: Bi-Criteria Optimization (Pareto Efficiency)
 
 ![Pareto Plot](fig3_pareto_plot.png)
 
@@ -756,7 +756,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 4: Связь плотности контекста и точности ответа
+## Figure 4: Context Fillness vs. Answer Accuracy
 
 ![Scatter Plot](fig4_fillness_vs_accuracy.png)
 
@@ -764,7 +764,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 5: Анализ задержки (Latency) по базовым линиям
+## Figure 5: Latency Analysis Across Baselines
 
 ![Latency Bar Chart](fig5_latency_bar.png)
 
@@ -772,7 +772,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 6: Анализ структуры выходных токенов (Ответ vs Рассуждения)
+## Figure 6: Output Token Consumption Structure (Answer vs Reasoning)
 
 ![Token Stacked Bar Chart](fig6_token_usage.png)
 
@@ -780,7 +780,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 7: Разрыв доменов: Сравнение Science Graph и HF/SciQ
+## Figure 7: Domain Gap: Science Graph vs HF/SciQ Comparison
 
 ![Dataset Comparison](fig7_dataset_comparison.png)
 
@@ -788,7 +788,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 8: Корреляционная матрица метрик RAG-конвейера
+## Figure 8: RAG Pipeline Metrics Correlation Matrix
 
 ![Correlation Matrix](fig8_correlation_matrix.png)
 
@@ -796,7 +796,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 9: Сравнение метрик Single-hop и Multi-hop по базовым линиям
+## Figure 9: Single-hop vs Multi-hop Metrics Comparison Across Baselines
 
 ![Hop Comparison](fig9_hop_comparison.png)
 
@@ -804,7 +804,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 10: Тепловая карта снижения качества (Degradation) при многошаговом выводе
+## Figure 10: Performance Degradation Heatmap in Multi-hop Inference
 
 ![Hop Degradation](fig10_hop_degradation.png)
 
@@ -812,7 +812,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 11: Двойные тепловые карты для Single-hop и Multi-hop вопросов
+## Figure 11: Dual Heatmaps for Single-hop and Multi-hop Questions
 
 ![Hop Heatmaps](fig11_hop_heatmaps.png)
 
@@ -820,7 +820,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 12: График взаимодействия (Interaction / Robustness)
+## Figure 12: Interaction Plot (Interaction / Robustness)
 
 ![Hop Interactions](fig12_hop_interactions.png)
 
@@ -828,7 +828,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 13: Сдвиг качества: Retrieval Recall vs Semantic Accuracy
+## Figure 13: Quality Shift: Retrieval Recall vs Semantic Accuracy
 
 ![Recall vs Accuracy Scatter](fig13_recall_vs_accuracy_scatter.png)
 
@@ -836,7 +836,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 14: Context Precision vs Citation Fidelity
+## Figure 14: Context Precision vs Citation Fidelity
 
 ![Precision vs Citation Scatter](fig14_precision_vs_citation_scatter.png)
 
@@ -844,7 +844,7 @@ def generate_markdown_report(run_dir: Path, custom_df: pd.DataFrame, sciq_path: 
 
 ---
 
-## Фигура 15: Профиль покрытия улик (Evidence Coverage) при многошаговом поиске
+## Figure 15: Multi-hop Search Evidence Coverage Profile
 
 ![Evidence Coverage](fig15_multihop_coverage.png)
 

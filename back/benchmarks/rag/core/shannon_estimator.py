@@ -236,7 +236,7 @@ def find_citation_spans(text: str) -> List[Tuple[int, int]]:
     - [sciq_paper_X]
     - [Block X]
     - [1], [1, 2], [1-3]
-    - [paper_1], [doc_2], [ref_1], [id_1], [source_1], [Источник: 1]
+    - [paper_1], [doc_2], [ref_1], [id_1], [source_1], [Source_1], [Источник: 1]
     - Paper DOIs: 10.xxxx/... or [10.xxxx/...]
     - Author-year citations: e.g. (Smith et al., 2020) or [Jones, 2019]
     - DOIs and arXiv IDs
@@ -257,8 +257,8 @@ def find_citation_spans(text: str) -> List[Tuple[int, int]]:
         r"\[Block\s+[^\]]+\]",
         # [1], [1, 2], [1-3]
         r"\[\d+(?:[\s,–-]+\d+)*\]",
-        # [paper_1], [doc_2], [ref_1], [id_1], [source_1], [Источник: 1]
-        r"\[(?:paper|doc|ref|id|source|Источник)[_\s:]*[^\]]+\]",
+        # [paper_1], [doc_2], [ref_1], [id_1], [source_1], [Source_1], [Источник: 1]
+        r"\[(?:paper|doc|ref|id|source|Source|Источник)[_\s:]*[^\]]+\]",
         # Paper DOIs in brackets
         r"\[10\.\d{4,9}/[^\]]+\]",
         # Standalone DOIs

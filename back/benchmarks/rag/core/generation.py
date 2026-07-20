@@ -78,7 +78,7 @@ def _ensure_b0_entropy(rag_service: Any, query: str, config: Any) -> float:
     if query in cache:
         return float(cache[query])
 
-    b0_prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
+    b0_prompt = f"Question: {query}\nAnswer based on your general knowledge."
     _, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, b0_prompt)
     h_gen_b0 = float(compute_generation_entropy(tokens_info))
     cache[query] = h_gen_b0
@@ -305,7 +305,7 @@ def run_query_on_baseline(
 
     try:
         if baseline == "B0":
-            prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
+            prompt = f"Question: {query}\nAnswer based on your general knowledge."
             if shannon_enabled:
                 raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                 answer = raw_response
@@ -338,7 +338,7 @@ def run_query_on_baseline(
             collector.reset()
 
             if not final_chunks:
-                answer = "Информация отсутствует в базе данных."
+                answer = "Information missing in database."
                 if shannon_enabled:
                     shannon_diag = _build_shannon_diag_for_b0(0.0, 0.0, 0)
             else:
@@ -757,7 +757,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
 
                         # Build prompt
                         if baseline == "B0":
-                            prompt = f"Вопрос: {query}\nОтветь на основе своих общих знаний."
+                            prompt = f"Question: {query}\nAnswer based on your general knowledge."
                         elif enrichment_block and enrichment_block != "No essential knowledge graph enrichment found.":
                             prompt = prompts.get_prompt("rag", "ask_expander", enrichment_block=enrichment_block, history_str="", query=query)
                         else:

@@ -61,7 +61,7 @@ def test_run_query_on_baseline_b6_expander_fail():
     ans, papers, metrics, chunks = run_query_on_baseline(
         rag_service, "question", "B6", False, config
     )
-    assert ans == "Информация отсутствует в базе данных."
+    assert ans == "Information missing in database."
     assert papers == []
     assert chunks == []
 

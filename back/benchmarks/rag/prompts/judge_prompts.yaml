@@ -1,189 +1,188 @@
-# Промпты для LLM-судьи (LLM-as-a-Judge) для оценки качества RAG
-# Файл используется для обеспечения воспроизводимости научных результатов оценки.
+# Prompts for LLM Judge (LLM-as-a-Judge) RAG Quality Evaluation
+# Used to ensure reproducible scientific evaluation results.
 
 faithfulness_evaluator:
   system_prompt: |
-    Вы — беспристрастный эксперт по валидации данных RAG-систем. Ваша задача — оценить степень фактологичности (Faithfulness / Groundedness) сгенерированного ответа на основе предоставленного контекста.
+    You are an impartial data validation expert for RAG systems. Your task is to evaluate the degree of factual faithfulness (Faithfulness / Groundedness) of a generated answer based on the provided context.
   user_prompt_template: |
-    Вам предоставлен КОНТЕКСТ (выдержки из научных статей) и ОТВЕТ на вопрос.
-    Определите, следует ли информация из ОТВЕТА исключительно из КОНТЕКСТА, или в нем содержатся галлюцинации/внешние знания.
+    You are provided with CONTEXT (passages from scientific papers) and an ANSWER to a question.
+    Determine whether the information in the ANSWER follows exclusively from the CONTEXT, or if it contains hallucinations/external knowledge.
 
-    Инструкции:
-    1. Разбейте ОТВЕТ на отдельные фактологические утверждения.
-    2. Для каждого утверждения проверьте, подтверждается ли оно КОНТЕКСТОМ.
-    3. Выведите JSON со списком утверждений, вердиктом (true/false) для каждого и финальной оценкой (доля подтвержденных фактов от 0.0 до 1.0).
+    Instructions:
+    1. Break the ANSWER into individual factual statements.
+    2. For each statement, verify whether it is supported by the CONTEXT.
+    3. Output JSON with a list of statements, a verdict (true/false) for each, and a final score (ratio of supported facts from 0.0 to 1.0).
 
-    КОНТЕКСТ:
+    CONTEXT:
     {context}
 
-    ОТВЕТ:
+    ANSWER:
     {answer}
 
-    Верните результат строго в формате JSON:
+    Return the output strictly in JSON format:
     {{
       "statements": [
-        {{"statement": "утверждение", "supported": true/false, "explanation": "почему"}}
+        {{"statement": "statement text", "supported": true/false, "explanation": "reason"}}
       ],
       "score": 0.0
     }}
 
 groundedness_evaluator:
   system_prompt: |
-    Вы — беспристрастный эксперт по валидации данных RAG-систем. Ваша задача — оценить степень фактологичности (Groundedness / Faithfulness) сгенерированного ответа на основе предоставленного контекста.
+    You are an impartial data validation expert for RAG systems. Your task is to evaluate the degree of factual faithfulness (Groundedness / Faithfulness) of a generated answer based on the provided context.
   user_prompt_template: |
-    Вам предоставлен КОНТЕКСТ (выдержки из научных статей) и ОТВЕТ на вопрос.
-    Определите, следует ли информация из ОТВЕТА исключительно из КОНТЕКСТА, или в нем содержатся галлюцинации/внешние знания.
+    You are provided with CONTEXT (passages from scientific papers) and an ANSWER to a question.
+    Determine whether the information in the ANSWER follows exclusively from the CONTEXT, or if it contains hallucinations/external knowledge.
 
-    Инструкции:
-    1. Разбейте ОТВЕТ на отдельные фактологические утверждения.
-    2. Для каждого утверждения проверьте, подтверждается ли оно КОНТЕКСТОМ.
-    3. Выведите JSON со списком утверждений, вердиктом (true/false) для каждого и финальной оценкой (доля подтвержденных фактов от 0.0 до 1.0).
+    Instructions:
+    1. Break the ANSWER into individual factual statements.
+    2. For each statement, verify whether it is supported by the CONTEXT.
+    3. Output JSON with a list of statements, a verdict (true/false) for each, and a final score (ratio of supported facts from 0.0 to 1.0).
 
-    КОНТЕКСТ:
+    CONTEXT:
     {context}
 
-    ОТВЕТ:
+    ANSWER:
     {answer}
 
-    Верните результат строго в формате JSON:
+    Return the output strictly in JSON format:
     {{
       "statements": [
-        {{"statement": "утверждение", "supported": true/false, "explanation": "почему"}}
+        {{"statement": "statement text", "supported": true/false, "explanation": "reason"}}
       ],
       "score": 0.0
     }}
 
 answer_relevance_evaluator:
   system_prompt: |
-    Вы — эксперт по анализу качества текстовых ответов. Ваша задача — оценить релевантность ответа исходному вопросу.
+    You are an expert in text answer quality analysis. Your task is to evaluate answer relevance to the original query.
   user_prompt_template: |
-    Оцените, насколько предоставленный ОТВЕТ соответствует ВОПРОСУ.
-    Ответ считается нерелевантным (score = 0.0), если он уходит в сторону от темы, игнорирует суть вопроса, или отвечает на другой вопрос.
-    Ответ считается полностью релевантным (score = 1.0), если он непосредственно и полно отвечает на заданный вопрос.
+    Evaluate how well the provided ANSWER matches the QUERY.
+    An answer is considered non-relevant (score = 0.0) if it strays off-topic, ignores the core question, or answers a different question.
+    An answer is considered fully relevant (score = 1.0) if it directly and completely addresses the given question.
 
-    ВОПРОС:
+    QUERY:
     {query}
 
-    ОТВЕТ:
+    ANSWER:
     {answer}
 
-    Верните результат строго в формате JSON:
+    Return the output strictly in JSON format:
     {{
       "score": 0.0,
-      "explanation": "краткое объяснение оценки"
+      "explanation": "brief explanation of score"
     }}
 
 citation_fidelity_evaluator:
   system_prompt: |
-    Вы — аудитор научной литературы. Ваша задача — проверить корректность расстановки ссылок и цитирований (Citations) в тексте.
+    You are a scientific literature auditor. Your task is to verify the correctness of citations and references in text.
   user_prompt_template: |
-    Вам предоставлен список пронумерованных текстовых блоков (чанков) из статей и ОТВЕТ, содержащий ссылки на эти блоки (например, [Block 1], [Page 4] или [1]).
-    Проверьте каждое утверждение из ОТВЕТА, за которым следует ссылка, на соответствие тексту указанного блока.
+    You are provided with numbered text chunks from papers and an ANSWER containing references to these chunks (e.g., [Block 1], [Page 4], or [1]).
+    Verify every statement in the ANSWER followed by a reference against the text of the specified chunk.
 
-    Оценка точности цитирования рассчитывается как: (число корректных цитат) / (общее число сделанных ссылок).
+    Citation fidelity score is computed as: (number of valid citations) / (total citations made).
 
-    ИСТОЧНИКИ:
+    SOURCES:
     {sources}
 
-    ОТВЕТ:
+    ANSWER:
     {answer}
 
-    Верните результат строго в формате JSON:
+    Return the output strictly in JSON format:
     {{
       "citations": [
-        {{"citation_reference": "[Block X]", "statement": "проверяемое утверждение", "is_valid": true/false, "explanation": "присутствует ли данный факт в источнике"}}
+        {{"citation_reference": "[Block X]", "statement": "evaluated statement", "is_valid": true/false, "explanation": "whether fact exists in source"}}
       ],
       "score": 0.0
     }}
 
 semantic_accuracy_evaluator:
   system_prompt: |
-    Вы — лингвистический эксперт по сравнению семантического сходства текстов.
+    You are a linguistic expert in text semantic similarity evaluation.
   user_prompt_template: |
-    Сравните сгенерированный ОТВЕТ с эталонным золотым ответом (GOLDEN_ANSWER).
-    Оцените семантическое соответствие по шкале от 0.0 до 1.0.
-    Внимание:
-    - Если в GOLDEN_ANSWER указано, что информации нет, а в ОТВЕТЕ содержится придуманный факт (галлюцинация), оценка должна быть 0.0.
-    - Различия в формулировках при сохранении фактологического смысла не должны снижать оценку ниже 0.9.
+    Compare the generated ANSWER with the reference GOLDEN_ANSWER.
+    Evaluate semantic similarity on a scale from 0.0 to 1.0.
+    Note:
+    - If GOLDEN_ANSWER indicates no information is available, and ANSWER contains a hallucinated fact, score must be 0.0.
+    - Differences in phrasing while preserving factual meaning should not lower the score below 0.9.
 
     GOLDEN_ANSWER:
     {golden_answer}
 
-    ОТВЕТ:
+    ANSWER:
     {answer}
 
-    Верните результат строго в формате JSON:
+    Return the output strictly in JSON format:
     {{
       "score": 0.0,
-      "explanation": "краткое сравнение смыслового наполнения"
+      "explanation": "brief comparison of semantic content"
     }}
 
 unified_with_context_evaluator:
   system_prompt: |
-    Вы — беспристрастный эксперт по валидации данных RAG-систем. Ваша задача — провести комплексную оценку качества сгенерированного ответа на основе предоставленного контекста, исходного вопроса и эталонного ответа.
+    You are an impartial data validation expert for RAG systems. Your task is to conduct a comprehensive quality evaluation of a generated answer based on provided context, user query, and golden reference answer.
   user_prompt_template: |
-    Вам предоставлены следующие данные:
-    1. ВОПРОС пользователя.
-    2. КОНТЕКСТ (выдержки из научных статей с указанием блоков).
-    3. ЗОЛОТОЙ ОТВЕТ (эталонный ответ).
-    4. ОТВЕТ (сгенерированный системой ответ для оценки).
+    You are provided with:
+    1. User QUERY.
+    2. CONTEXT (passages from scientific papers with block labels).
+    3. GOLDEN ANSWER (reference answer).
+    4. ANSWER (generated answer to evaluate).
 
-    Проведите оценку по следующим 4 метрикам:
+    Evaluate performance across the following 4 metrics:
 
-    1. Релевантность ответа (Answer Relevance):
-       Оцените, насколько ОТВЕТ соответствует ВОПРОСУ.
-       - Ответ считается полностью нерелевантным (score = 0.0), если он уходит в сторону от темы, игнорирует суть вопроса, или отвечает на другой вопрос.
-       - Ответ считается полностью релевантным (score = 1.0), если он непосредственно и полно отвечает на заданный вопрос.
+    1. Answer Relevance:
+       Evaluate how well ANSWER matches QUERY.
+       - Score = 0.0 if off-topic, ignores the question, or answers something else.
+       - Score = 1.0 if directly and completely answers the question.
 
-    2. Семантическая близость (Semantic Accuracy):
-       Сравните ОТВЕТ с эталонным ЗОЛОТЫМ ОТВЕТОМ. Оцените семантическое соответствие по шкале от 0.0 до 1.0.
-       - Если в ЗОЛОТОМ ОТВЕТЕ указано, что информации нет, а в ОТВЕТЕ содержится придуманный факт (галлюцинация), оценка должна быть 0.0.
-       - Различия в формулировках при сохранении фактологического смысла не должны снижать оценку ниже 0.9.
+    2. Semantic Accuracy:
+       Compare ANSWER with GOLDEN ANSWER on a 0.0 to 1.0 scale.
+       - Score = 0.0 if GOLDEN ANSWER states no info but ANSWER hallucinates facts.
+       - Rephrasing preserving factual meaning should score at least 0.9.
 
-    3. Фактологичность (Faithfulness / Groundedness):
-       Оцените, следует ли информация из ОТВЕТА исключительно из КОНТЕКСТА, или в нем содержатся галлюцинации/внешние знания.
-       - Разбейте ОТВЕТ на отдельные фактологические утверждения.
-       - Для каждого утверждения проверьте, подтверждается ли оно КОНТЕКСТОМ.
-       - Рассчитайте финальную оценку как долю подтвержденных фактов от 0.0 до 1.0.
+    3. Faithfulness / Groundedness:
+       Verify if ANSWER claims follow exclusively from CONTEXT.
+       - Break ANSWER into individual factual statements.
+       - Check each statement against CONTEXT.
+       - Final score is the ratio of supported facts (0.0 to 1.0).
 
-    4. Точность цитирования (Citation Fidelity):
-       Проверьте корректность расстановки ссылок и цитирований (Citations) в тексте ответа.
-       - Ссылки на блоки контекста выглядят как [Block X] или аналогично.
-       - Проверьте каждое утверждение из ОТВЕТА, за которым следует ссылка, на соответствие тексту указанного блока.
-       - Оценка точности цитирования рассчитывается как: (число корректных цитат) / (общее число сделанных ссылок). Если в ответе нет ссылок на блоки, но при этом в контексте/источниках они предоставлены, оценка citation_fidelity должна быть 0.0 (если ссылки требовались, но отсутствуют) или 1.0 (если ссылки не требовались, т.к. ответ не использует контекст - но по умолчанию при наличии контекста ожидаются корректные ссылки, поэтому считайте долю корректных ссылок). Если ссылок в ответе нет вовсе, верните score = 0.0.
+    4. Citation Fidelity:
+       Verify correctness of block citations in ANSWER (e.g., [Block X]).
+       - Check statements with references against specified context blocks.
+       - Score = (valid citations) / (total citations). Return 0.0 if references are missing altogether when context was provided.
 
-    ДАННЫЕ ДЛЯ ОЦЕНКИ:
-    ВОПРОС:
+    EVALUATION INPUTS:
+    QUERY:
     {query}
 
-    КОНТЕКСТ:
+    CONTEXT:
     {context}
 
-    ЗОЛОТОЙ ОТВЕТ:
+    GOLDEN ANSWER:
     {golden_answer}
 
-    ОТВЕТ ДЛЯ ОЦЕНКИ:
+    ANSWER TO EVALUATE:
     {answer}
 
-    Верните результат строго в формате JSON:
+    Return the output strictly in JSON format:
     {{
       "answer_relevance": {{
         "score": 0.0,
-        "explanation": "краткое объяснение оценки релевантности"
+        "explanation": "brief explanation of relevance score"
       }},
       "semantic_accuracy": {{
         "score": 0.0,
-        "explanation": "краткое объяснение оценки семантической точности"
+        "explanation": "brief explanation of semantic accuracy score"
       }},
       "faithfulness": {{
         "statements": [
-          {{"statement": "утверждение из ответа", "supported": true/false, "explanation": "почему"}}
+          {{"statement": "statement from answer", "supported": true/false, "explanation": "reason"}}
         ],
         "score": 0.0
       }},
       "citation_fidelity": {{
         "citations": [
-          {{"citation_reference": "[Block X]", "statement": "утверждение со ссылкой", "is_valid": true/false, "explanation": "присутствует ли данный факт в указанном блоке источника"}}
+          {{"citation_reference": "[Block X]", "statement": "statement with reference", "is_valid": true/false, "explanation": "whether fact exists in source block"}}
         ],
         "score": 0.0
       }}
@@ -191,43 +190,39 @@ unified_with_context_evaluator:
 
 unified_without_context_evaluator:
   system_prompt: |
-    Вы — беспристрастный эксперт по валидации текстовых ответов. Ваша задача — провести оценку качества сгенерированного ответа на основе исходного вопроса и эталонного ответа.
+    You are an impartial text answer validation expert. Your task is to evaluate generated answer quality based on user query and reference answer.
   user_prompt_template: |
-    Вам предоставлены следующие данные:
-    1. ВОПРОС пользователя.
-    2. ЗОЛОТОЙ ОТВЕТ (эталонный ответ).
-    3. ОТВЕТ (сгенерированный системой ответ для оценки).
+    You are provided with:
+    1. User QUERY.
+    2. GOLDEN ANSWER (reference answer).
+    3. ANSWER (generated answer to evaluate).
 
-    Проведите оценку по следующим 2 метрикам:
+    Evaluate performance across 2 metrics:
 
-    1. Релевантность ответа (Answer Relevance):
-       Оцените, насколько ОТВЕТ соответствует ВОПРОСУ.
-       - Ответ считается нерелевантным (score = 0.0), если он уходит в сторону от темы, игнорирует суть вопроса, или отвечает на другой вопрос.
-       - Ответ считается полностью релевантным (score = 1.0), если он непосредственно и полно отвечает на заданный вопрос.
+    1. Answer Relevance:
+       Evaluate how well ANSWER matches QUERY (0.0 to 1.0).
 
-    2. Семантическая близость (Semantic Accuracy):
-       Сравните ОТВЕТ с эталонным ЗОЛОТЫМ ОТВЕТОМ. Оцените семантическое соответствие по шкале от 0.0 до 1.0.
-       - Если в ЗОЛОТОМ ОТВЕТЕ указано, что информации нет, а в ОТВЕТЕ содержится придуманный факт (галлюцинация), оценка должна быть 0.0.
-       - Различия в формулировках при сохранении фактологического смысла не должны снижать оценку ниже 0.9.
+    2. Semantic Accuracy:
+       Compare ANSWER with GOLDEN ANSWER (0.0 to 1.0).
 
-    ДАННЫЕ ДЛЯ ОЦЕНКИ:
-    ВОПРОС:
+    EVALUATION INPUTS:
+    QUERY:
     {query}
 
-    ЗОЛОТОЙ ОТВЕТ:
+    GOLDEN ANSWER:
     {golden_answer}
 
-    ОТВЕТ ДЛЯ ОЦЕНКИ:
+    ANSWER TO EVALUATE:
     {answer}
 
-    Верните результат строго в формате JSON:
+    Return the output strictly in JSON format:
     {{
       "answer_relevance": {{
         "score": 0.0,
-        "explanation": "краткое объяснение оценки релевантности"
+        "explanation": "brief explanation of relevance score"
       }},
       "semantic_accuracy": {{
         "score": 0.0,
-        "explanation": "краткое объяснение оценки семантической точности"
+        "explanation": "brief explanation of semantic accuracy score"
       }}
     }}
