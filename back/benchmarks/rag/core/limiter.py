@@ -19,3 +19,14 @@ class AsyncRateLimiter:
             if elapsed < self.interval:
                 await asyncio.sleep(self.interval - elapsed)
             self.last_call_time = time.monotonic()
+
+    def can_acquire(self) -> bool:
+        """Checks if a call can be made immediately without waiting."""
+        if self.interval <= 0:
+            return True
+        return (time.monotonic() - self.last_call_time) >= self.interval
+
+    def has_capacity(self) -> bool:
+        """Alias for can_acquire(). Checks if rate limit slot is available."""
+        return self.can_acquire()
+

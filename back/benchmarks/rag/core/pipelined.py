@@ -726,19 +726,14 @@ async def run_pipelined_stage_async(
                     ))
                 con.success(f"[{case_id}] Completed generation.")
             
-            for _ in range(args.concurrency):
-                await queue.put(None)
+            await queue.put(None)
                 
-        async def evaluator_worker():
-            max_tokens_val = getattr(config, "llm_model_max_context", 4096)
-            while True:
-                item = await queue.get()
-                if item is None:
-                    queue.task_done()
-                    break
-                    
-                case_id, baseline, query, golden_answer, expected_papers, baseline_data, case_info = item
-                
+        async def dispatcher_task() -> None:
+            max_tokens_val: int = getattr(config, "llm_model_max_context", 4096)
+            active_eval_tasks: set = set()
+
+            async def run_single_eval(item_data: tuple) -> None:
+                case_id, baseline, query, golden_answer, expected_papers, baseline_data, case_info = item_data
                 try:
                     eval_metrics = await evaluate_baseline_case(
                         evaluator,
@@ -769,13 +764,29 @@ async def run_pipelined_stage_async(
                     con.error(f"Error evaluating {case_id} [{baseline}]: {e}")
                 finally:
                     progress.advance(eval_task, 1)
-                    queue.task_done()
 
-        eval_workers = [asyncio.create_task(evaluator_worker()) for _ in range(args.concurrency)]
+            while True:
+                item = await queue.get()
+                if item is None:
+                    queue.task_done()
+                    break
+
+                if not evaluator.has_capacity():
+                    await evaluator.rate_limiter.wait()
+
+                task_obj = asyncio.create_task(run_single_eval(item))
+                active_eval_tasks.add(task_obj)
+                task_obj.add_done_callback(active_eval_tasks.discard)
+                queue.task_done()
+
+            if active_eval_tasks:
+                await asyncio.gather(*active_eval_tasks)
+
+        dispatcher_worker = asyncio.create_task(dispatcher_task())
         try:
             await generator_task()
             await queue.join()
-            await asyncio.gather(*eval_workers)
+            await dispatcher_worker
         finally:
             flush_yaml_buffer()
             save_checkpoint(checkpoint_path, checkpoint_data, force=True)

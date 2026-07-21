@@ -471,6 +471,95 @@ async def test_pipelined_stage_execution(mock_get_rag_service, mock_call_llm, tm
 
 
 @pytest.mark.asyncio
+@patch("core.evaluator.CloudEvaluator.call_llm")
+@patch("src.services.container.container.get_rag_service")
+async def test_pipelined_stage_rate_limit_capacity_dispatcher(mock_get_rag_service, mock_call_llm, tmp_path):
+    import yaml
+    import json
+    from core.pipelined import run_pipelined_stage_async
+    from core.evaluator import CloudEvaluator
+
+    async def mock_call_llm_fn(system_prompt, user_prompt):
+        return json.dumps({
+            "answer_relevance": {"score": 0.95},
+            "semantic_accuracy": {"score": 0.90}
+        })
+    mock_call_llm.side_effect = mock_call_llm_fn
+
+    rag_service = MagicMock()
+    rag_service.llm_engine.generate_response.return_value = "generated response"
+    rag_service.llm_engine.count_tokens.return_value = 10
+    rag_service.llm_engine.unload_model = MagicMock()
+    rag_service.retrieve_relevant_chunks.return_value = []
+    rag_service.ask.return_value = "ask response"
+    rag_service.last_raw_response = "raw response"
+    mock_get_rag_service.return_value = rag_service
+
+    mock_config = MagicMock()
+    mock_config.data = {
+        "llm": {
+            "provider": "local",
+            "local": {"model_path": "test_model"},
+            "temp": 0.1,
+            "max_tokens": 100
+        },
+        "embedding": {"model_name": "test_emb"},
+        "rag_components": {"reranker": False, "citation_repair": False}
+    }
+    mock_config.rag_components = mock_config.data["rag_components"]
+    mock_config.llm_model_max_context = 4096
+    mock_config.reranker_model_name = "disabled"
+    mock_config.llm_evaluation_concurrency = 2
+    mock_config.llm_evaluation_rpm = 60
+    mock_config.llm_evaluation_retries = 2
+    mock_config.llm_cloud_api_key = "dummy_key"
+    mock_config.llm_cloud_base_url = "https://api.openai.com/v1"
+    mock_config.llm_cloud_model_name = "google/gemini-2.5-flash"
+
+    dataset_path = tmp_path / "dataset.yaml"
+    dataset_data = [{"id": "Q1", "query": "Test query?", "expected_papers": []}]
+    with open(dataset_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(dataset_data, f)
+
+    eval_results = tmp_path / "evaluation_results.yaml"
+    metrics_results = tmp_path / "result_metrics.yaml"
+
+    args = MagicMock()
+    args.limit = 1
+    args.consume_contexts = None
+    args.cloud = False
+    args.concurrency = 2
+    args.rpm = 60
+    args.retries = 2
+    args.clear_checkpoint = True
+
+    # Spy on CloudEvaluator.has_capacity
+    original_has_capacity = CloudEvaluator.has_capacity
+    has_capacity_calls = 0
+
+    def spy_has_capacity(self_eval):
+        nonlocal has_capacity_calls
+        has_capacity_calls += 1
+        return original_has_capacity(self_eval)
+
+    with patch.object(CloudEvaluator, "has_capacity", side_effect=spy_has_capacity, autospec=True):
+        await run_pipelined_stage_async(
+            args=args,
+            config=mock_config,
+            run_dir=tmp_path,
+            dataset_path=dataset_path,
+            baselines_to_run=["B0"],
+            eval_results=eval_results,
+            metrics_results=metrics_results,
+            retrieved_contexts_file=None,
+            total_steps=1
+        )
+
+    assert has_capacity_calls >= 1
+    assert metrics_results.exists()
+
+
+@pytest.mark.asyncio
 async def test_run_evaluation_checkpoint_resumption_and_judge_reports(tmp_path):
     import json
     import yaml
@@ -1076,6 +1165,97 @@ def test_generate_baseline_case_more_fallbacks():
     res = generate_baseline_case(rag_service, config, MagicMock(), "Q1", {"query": "Q"}, "B3", MagicMock(), pre_contexts)
     assert res["status"] == "error"
     assert "Error occurred during generation" in res["generated_answer"]
+
+
+@pytest.mark.asyncio
+@patch("core.evaluator.CloudEvaluator.call_llm")
+@patch("src.services.container.container.get_rag_service")
+async def test_pipelined_stage_e2e_small_limit(mock_get_rag_service, mock_call_llm, tmp_path):
+    import yaml
+    import json
+    from core.pipelined import run_pipelined_stage_async
+
+    async def mock_call_llm_fn(system_prompt, user_prompt):
+        return json.dumps({
+            "answer_relevance": {"score": 0.9},
+            "semantic_accuracy": {"score": 0.85}
+        })
+    mock_call_llm.side_effect = mock_call_llm_fn
+
+    rag_service = MagicMock()
+    rag_service.llm_engine.generate_response.return_value = "pipelined answer"
+    rag_service.llm_engine.count_tokens.return_value = 12
+    rag_service.llm_engine.unload_model = MagicMock()
+    rag_service.retrieve_relevant_chunks.return_value = []
+    rag_service.ask.return_value = "ask answer"
+    rag_service.last_raw_response = "raw answer"
+    mock_get_rag_service.return_value = rag_service
+
+    mock_config = MagicMock()
+    mock_config.data = {
+        "llm": {
+            "provider": "local",
+            "local": {"model_path": "test_model"},
+            "temp": 0.1,
+            "max_tokens": 100
+        },
+        "embedding": {"model_name": "test_emb"},
+        "rag_components": {"reranker": False, "citation_repair": False}
+    }
+    mock_config.rag_components = mock_config.data["rag_components"]
+    mock_config.llm_model_max_context = 4096
+    mock_config.reranker_model_name = "disabled"
+    mock_config.llm_evaluation_concurrency = 2
+    mock_config.llm_evaluation_rpm = 60
+    mock_config.llm_evaluation_retries = 2
+    mock_config.llm_cloud_api_key = "dummy_key"
+    mock_config.llm_cloud_base_url = "https://api.openai.com/v1"
+    mock_config.llm_cloud_model_name = "google/gemini-2.5-flash"
+
+    dataset_path = tmp_path / "dataset.yaml"
+    dataset_data = [
+        {"id": "Q1", "query": "First query?", "expected_papers": []},
+        {"id": "Q2", "query": "Second query?", "expected_papers": []}
+    ]
+    with open(dataset_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(dataset_data, f)
+
+    eval_results = tmp_path / "evaluation_results.yaml"
+    metrics_results = tmp_path / "result_metrics.yaml"
+
+    args = MagicMock()
+    args.limit = 2
+    args.consume_contexts = None
+    args.cloud = False
+    args.concurrency = 2
+    args.rpm = 60
+    args.retries = 2
+    args.clear_checkpoint = True
+
+    await run_pipelined_stage_async(
+        args=args,
+        config=mock_config,
+        run_dir=tmp_path,
+        dataset_path=dataset_path,
+        baselines_to_run=["B0"],
+        eval_results=eval_results,
+        metrics_results=metrics_results,
+        retrieved_contexts_file=None,
+        total_steps=2
+    )
+
+    assert eval_results.exists()
+    assert metrics_results.exists()
+
+    with open(eval_results, "r", encoding="utf-8") as f:
+        eval_data = yaml.safe_load(f)
+    assert len(eval_data["results"]) == 2
+
+    with open(metrics_results, "r", encoding="utf-8") as f:
+        metrics_data = yaml.safe_load(f)
+    assert len(metrics_data["results"]) == 2
+    assert metrics_data["results"][0]["baselines"]["B0"]["eval_metrics"]["answer_relevance"] == 0.9
+
 
 
 

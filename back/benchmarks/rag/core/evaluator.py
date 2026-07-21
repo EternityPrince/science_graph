@@ -41,6 +41,14 @@ class CloudEvaluator:
         self.rate_limiter = AsyncRateLimiter(rpm)
         self.max_retries = max_retries
 
+    def can_acquire(self) -> bool:
+        """Returns True if the underlying rate limiter has immediate capacity."""
+        return self.rate_limiter.can_acquire()
+
+    def has_capacity(self) -> bool:
+        """Alias for can_acquire(). Checks if rate limit capacity is available."""
+        return self.rate_limiter.has_capacity()
+
     async def call_llm(self, system_prompt: str, user_prompt: str, max_retries: Optional[int] = None) -> str:
         """Invokes the cloud model using exponential backoff with jitter on error."""
         if max_retries is None:
