@@ -1257,5 +1257,43 @@ async def test_pipelined_stage_e2e_small_limit(mock_get_rag_service, mock_call_l
     assert metrics_data["results"][0]["baselines"]["B0"]["eval_metrics"]["answer_relevance"] == 0.9
 
 
+def test_run_pipeline_unanswerable_limit_arg_forwarding(tmp_path):
+    import sys
+    from unittest.mock import patch, MagicMock
+
+    dataset_file = tmp_path / "test_ds.yaml"
+    with open(dataset_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump([
+            {"id": "Q1", "query": "q1", "is_answerable": True},
+            {"id": "Q2", "query": "q2", "is_answerable": False}
+        ], f)
+
+    test_args = [
+        "run_pipeline.py",
+        "--dataset", str(dataset_file),
+        "--limit", "1",
+        "--unanswerable-limit", "1",
+        "--skip-eval",
+        "--no-unique-dir",
+        "--output-dir", str(tmp_path)
+    ]
+
+    with patch.object(sys, "argv", test_args), \
+         patch("core.subprocess_runner.run_command_with_progress", return_value=0.1) as mock_run_cmd:
+        from run_pipeline import main
+        try:
+            main()
+        except SystemExit:
+            pass
+
+        assert mock_run_cmd.called
+        for call_args in mock_run_cmd.call_args_list:
+            cmd = call_args[0][0]
+            assert "--unanswerable-limit" in cmd
+            idx = cmd.index("--unanswerable-limit")
+            assert cmd[idx + 1] == "1"
+
+
+
 
 

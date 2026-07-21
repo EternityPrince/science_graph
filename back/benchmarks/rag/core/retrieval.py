@@ -39,8 +39,9 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     # Load dataset
     from core.config import load_benchmark_dataset
     limit = getattr(args, "limit", None)
+    unanswerable_limit = getattr(args, "unanswerable_limit", None)
     try:
-        test_cases = load_benchmark_dataset(dataset_path, limit=limit)
+        test_cases = load_benchmark_dataset(dataset_path, limit=limit, unanswerable_limit=unanswerable_limit)
     except Exception as e:
         con.error(f"Failed to load dataset: {e}")
         sys.exit(1)

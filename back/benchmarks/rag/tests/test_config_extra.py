@@ -131,3 +131,39 @@ def test_load_benchmark_dataset(tmp_path):
         yaml.safe_dump(sorting_fail_data, f)
     res = load_benchmark_dataset(sorting_fail_file, limit=2)
     assert len(res) == 2
+
+
+def test_load_benchmark_dataset_unanswerable_sampling(tmp_path):
+    mixed_data = [
+        {"id": f"A{i}", "query": f"Ans Query {i}", "is_answerable": True} for i in range(10)
+    ] + [
+        {"id": f"U{i}", "query": f"Unans Query {i}", "is_answerable": False} for i in range(10)
+    ]
+    ds_file = tmp_path / "mixed_dataset.yaml"
+    with open(ds_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump(mixed_data, f)
+
+    # Only unanswerable_limit set
+    unans_only = load_benchmark_dataset(ds_file, unanswerable_limit=3)
+    ans_count = sum(1 for x in unans_only if x.get("is_answerable", True))
+    unans_count = sum(1 for x in unans_only if not x.get("is_answerable", True))
+    assert ans_count == 10
+    assert unans_count == 3
+    assert len(unans_only) == 13
+
+    # Both limit and unanswerable_limit set
+    both_limited = load_benchmark_dataset(ds_file, limit=4, unanswerable_limit=2)
+    ans_count2 = sum(1 for x in both_limited if x.get("is_answerable", True))
+    unans_count2 = sum(1 for x in both_limited if not x.get("is_answerable", True))
+    assert ans_count2 == 4
+    assert unans_count2 == 2
+    assert len(both_limited) == 6
+
+    # Edge cases: unanswerable_limit exceeds available, or 0
+    over_limit = load_benchmark_dataset(ds_file, limit=2, unanswerable_limit=50)
+    assert len(over_limit) == 12
+
+    zero_unans = load_benchmark_dataset(ds_file, limit=3, unanswerable_limit=0)
+    assert len(zero_unans) == 3
+    assert all(x.get("is_answerable", True) for x in zero_unans)
+

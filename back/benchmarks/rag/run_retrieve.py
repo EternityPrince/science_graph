@@ -44,6 +44,10 @@ def main():
         "--limit", "-l", type=int, default=None,
         help="Limit the number of questions to evaluate (for testing/SciQ default)."
     )
+    parser.add_argument(
+        "--unanswerable-limit", "-u", type=int, default=None,
+        help="Limit the number of unanswerable questions (is_answerable: false) to include from the dataset."
+    )
     args = parser.parse_args()
 
     run_staged_retrieval(args, config, prompts, container, con)

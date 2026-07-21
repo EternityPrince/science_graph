@@ -154,6 +154,10 @@ def main():
         help="Limit the number of questions to evaluate (for testing)."
     )
     parser.add_argument(
+        "--unanswerable-limit", "-u", type=int, default=None,
+        help="Limit the number of unanswerable questions (is_answerable: false) to include from the dataset."
+    )
+    parser.add_argument(
         "--concurrency", "-c", type=int, default=config.llm_evaluation_concurrency,
         help=f"Max concurrent API calls to the cloud provider. Defaults to config ({config.llm_evaluation_concurrency})."
     )

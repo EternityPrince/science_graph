@@ -58,6 +58,10 @@ def main():
         help="Limit the number of questions to evaluate (for testing)."
     )
     parser.add_argument(
+        "--unanswerable-limit", "-u", type=int, default=None,
+        help="Limit the number of unanswerable questions (is_answerable: false) to include from the dataset."
+    )
+    parser.add_argument(
         "--clear-checkpoint", action="store_true",
         help="Ignore existing evaluation checkpoints and restart from scratch."
     )
@@ -190,7 +194,11 @@ def main():
     test_cases = []
     try:
         from core.config import load_benchmark_dataset
-        test_cases = load_benchmark_dataset(dataset_path, limit=args.limit)
+        test_cases = load_benchmark_dataset(
+            dataset_path,
+            limit=args.limit,
+            unanswerable_limit=args.unanswerable_limit
+        )
         num_cases = len(test_cases)
     except Exception as e:
         num_cases = max(getattr(args, "limit", None) or 1, 1)
@@ -331,6 +339,8 @@ def main():
             "--no-unique-dir"
         ]
         retrieve_cmd.extend(["--limit", str(num_cases)])
+        if args.unanswerable_limit is not None:
+            retrieve_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
         if args.cloud:
             retrieve_cmd.append("--cloud")
         if temp_config_file:
@@ -434,6 +444,8 @@ def main():
             "--no-unique-dir"
         ]
         gen_cmd.extend(["--limit", str(num_cases)])
+        if args.unanswerable_limit is not None:
+            gen_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
         if args.cloud:
             gen_cmd.append("--cloud")
         if temp_config_file:
@@ -475,6 +487,8 @@ def main():
                 "--retries", str(args.retries)
             ]
             eval_cmd.extend(["--limit", str(num_cases)])
+            if args.unanswerable_limit is not None:
+                eval_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
             if args.clear_checkpoint:
                 eval_cmd.append("--clear-checkpoint")
 

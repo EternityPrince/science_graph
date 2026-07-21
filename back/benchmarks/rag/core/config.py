@@ -405,9 +405,14 @@ def get_safe_model_name(model_name: str) -> str:
     return name
 
 
-def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42) -> list:
+def load_benchmark_dataset(
+    dataset_path: Path,
+    limit: int = None,
+    seed: int = 42,
+    unanswerable_limit: int = None,
+) -> list:
     """Loads a dataset YAML file, formats it if it's SciQ format,
-    and applies random sampling to limit count if specified or if default matches.
+    and applies random sampling based on limit and unanswerable_limit count.
     """
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
@@ -456,11 +461,28 @@ def load_benchmark_dataset(dataset_path: Path, limit: int = None, seed: int = 42
         elif limit == -1:
             limit = None
 
-    if limit is not None and limit != -1 and len(data) > limit:
-        rng = random.Random(seed)
+    rng = random.Random(seed)
+
+    if unanswerable_limit is not None and isinstance(unanswerable_limit, int):
+        from core.metrics import get_is_answerable
+        ans_cases = [item for item in data if get_is_answerable(item)]
+        unans_cases = [item for item in data if not get_is_answerable(item)]
+
+        if limit is not None and isinstance(limit, int) and limit != -1 and len(ans_cases) > limit:
+            ans_cases = rng.sample(ans_cases, limit)
+
+        if unanswerable_limit != -1 and len(unans_cases) > unanswerable_limit:
+            unans_cases = rng.sample(unans_cases, unanswerable_limit)
+
+        data = ans_cases + unans_cases
+        try:
+            data.sort(key=lambda x: str(x.get("id", "")))
+        except Exception:
+            pass
+    elif limit is not None and isinstance(limit, int) and limit != -1 and len(data) > limit:
         data = rng.sample(data, limit)
         try:
-            data.sort(key=lambda x: x.get("id", ""))
+            data.sort(key=lambda x: str(x.get("id", "")))
         except Exception:
             pass
 

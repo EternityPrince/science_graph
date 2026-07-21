@@ -559,7 +559,8 @@ async def run_pipelined_stage_async(
         prompts_dict = yaml.safe_load(f)
         
     # Load dataset
-    test_cases = load_benchmark_dataset(dataset_path, limit=args.limit)
+    unanswerable_limit = getattr(args, "unanswerable_limit", None)
+    test_cases = load_benchmark_dataset(dataset_path, limit=args.limit, unanswerable_limit=unanswerable_limit)
     
     pre_contexts = {}
     if retrieved_contexts_file and retrieved_contexts_file.exists():
