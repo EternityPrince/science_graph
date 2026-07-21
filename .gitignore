@@ -171,6 +171,7 @@ graph_retrieval_trace.jsonl
 test_reports/
 
 back/science_graph.db*
+*.usearch
 graphs/
 test_reports/
 .ctx-codegraph/
