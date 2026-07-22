@@ -1,10 +1,25 @@
+import gc
 import sys
 import time
 import json
+import os
 import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
+
+def _clear_gpu_cache() -> None:
+    """Flushes PyTorch MPS/GPU memory cache and executes garbage collection."""
+    gc.collect()
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
 
 from core.config import BASELINES_INFO, get_baseline_config, get_safe_model_name
 from core.stats import BenchmarkStatsCollector
@@ -980,6 +995,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         results.append(case_result)
         con.success(f"[{case_id}] Completed.")
         con.blank()
+        _clear_gpu_cache()
 
         # Incremental Autosave (buffered: every 5 cases or final case)
         if idx % 5 == 0 or idx == len(test_cases):
@@ -1011,7 +1027,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 if existing_data:
                     autosave_data = merge_evaluation_data(existing_data, autosave_data)
                     
-                temp_output = output_path.with_suffix(".yaml.tmp")
+                temp_output = output_path.with_suffix(f".tmp.{os.getpid()}_{time.time_ns()}")
                 with open(temp_output, "w", encoding="utf-8") as f:
                     yaml.dump(autosave_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
                 temp_output.replace(output_path)

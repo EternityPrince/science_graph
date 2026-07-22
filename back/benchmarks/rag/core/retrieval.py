@@ -18,6 +18,19 @@ from src.config import config
 from src import console as con
 
 
+def _clear_gpu_cache() -> None:
+    """Flushes PyTorch MPS/GPU memory cache and executes garbage collection."""
+    gc.collect()
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, con: Any) -> None:
     """Executes query expansion, dense/lexical retrieval, batch reranking,
     and graph context construction in non-overlapping stages.
@@ -172,6 +185,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     if llm_required_in_stage1:
         # Explicitly unload LLM model
         rag_service.llm_engine.unload_model()
+        _clear_gpu_cache()
     else:
         con.info("No baselines require LLM in Stage 1. Skipping model warmup.")
         print(format_progress_marker("retrieval", int(0.20 * retrieval_total), retrieval_total), flush=True)
@@ -205,6 +219,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
         rag_service.emb_engine.get_embeddings(texts_list, is_query=True)
         # Explicitly unload Embedder model
         rag_service.emb_engine.unload_model()
+        _clear_gpu_cache()
     else:
         con.info("No queries/passages require embedding in Stage 2. Skipping.")
     print(format_progress_marker("retrieval", int(0.25 * retrieval_total), retrieval_total), flush=True)
@@ -315,6 +330,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
     # Explicitly unload Embedder model at the end of Stage 3 in case it got loaded
     rag_service.emb_engine.unload_model()
+    _clear_gpu_cache()
 
     # =========================================================================
     # STAGE 4: Reranker Stage
@@ -346,14 +362,20 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                             chunk_mapping.append((query, baseline, chunk))
 
         if pairs_to_score:
-            con.info(f"Reranking {len(pairs_to_score)} candidate pairs in one batch...")
+            con.info(f"Reranking {len(pairs_to_score)} candidate pairs in chunked batches...")
             t0 = time.perf_counter()
-            try:
-                import torch
-                with torch.inference_mode():
-                    scores = reranker.predict(pairs_to_score, batch_size=32, show_progress_bar=False)
-            except Exception:
-                scores = reranker.predict(pairs_to_score)
+            scores = []
+            chunk_size = 256
+            for i in range(0, len(pairs_to_score), chunk_size):
+                sub_pairs = pairs_to_score[i:i + chunk_size]
+                try:
+                    import torch
+                    with torch.inference_mode():
+                        sub_scores = reranker.predict(sub_pairs, batch_size=32, show_progress_bar=False)
+                except Exception:
+                    sub_scores = reranker.predict(sub_pairs)
+                scores.extend(sub_scores)
+                _clear_gpu_cache()
             rerank_latency = time.perf_counter() - t0
             con.success(f"Batch reranked {len(pairs_to_score)} pairs in {rerank_latency:.2f} seconds.")
 

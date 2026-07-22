@@ -82,17 +82,28 @@ class BufferedYAMLWriter:
             self.unflushed_counts.clear()
 
     def _flush_locked(self, path_str: str):
+        import copy
+        import os
         import yaml
 
         doc = self.documents.get(path_str)
         if doc is None:
             return
+        doc_copy = copy.deepcopy(doc)
         p = Path(path_str)
         p.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = p.with_suffix(p.suffix + ".tmp")
-        with open(temp_path, "w", encoding="utf-8") as f:
-            yaml.dump(doc, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        temp_path.replace(p)
+        temp_path = p.with_suffix(p.suffix + f".tmp.{os.getpid()}_{time.time_ns()}")
+        try:
+            with open(temp_path, "w", encoding="utf-8") as f:
+                yaml.dump(doc_copy, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            temp_path.replace(p)
+        except Exception as e:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
+            con.warning(f"Failed to flush YAML buffer: {e}")
         self.last_flush_time[path_str] = time.time()
         self.unflushed_counts[path_str] = 0
 

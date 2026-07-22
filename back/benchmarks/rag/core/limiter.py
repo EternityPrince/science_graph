@@ -15,10 +15,12 @@ class AsyncRateLimiter:
             return
         async with self.lock:
             now = time.monotonic()
-            elapsed = now - self.last_call_time
-            if elapsed < self.interval:
-                await asyncio.sleep(self.interval - elapsed)
-            self.last_call_time = time.monotonic()
+            target_time = max(now, self.last_call_time + self.interval)
+            self.last_call_time = target_time
+            sleep_duration = target_time - now
+
+        if sleep_duration > 0:
+            await asyncio.sleep(sleep_duration)
 
     def can_acquire(self) -> bool:
         """Checks if a call can be made immediately without waiting."""

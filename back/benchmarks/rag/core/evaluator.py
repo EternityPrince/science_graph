@@ -641,7 +641,7 @@ def load_checkpoint(path: Path) -> Dict[str, Any]:
 
 
 def save_checkpoint(path: Path, data: Dict[str, Any], force: bool = False) -> None:
-    """Safely writes checkpoint JSON dict to path using a temp file."""
+    """Safely writes checkpoint JSON dict to path using a unique temp file."""
     global _checkpoint_last_save, _checkpoint_counter
     from src import console as con
 
@@ -653,12 +653,17 @@ def save_checkpoint(path: Path, data: Dict[str, Any], force: bool = False) -> No
 
     _checkpoint_last_save = now
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_suffix(".tmp")
+    temp_path = path.with_suffix(f".tmp.{os.getpid()}_{time.time_ns()}")
     try:
         with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         temp_path.replace(path)
     except Exception as e:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
         con.warning(f"Failed to save checkpoint: {e}")
 
 
