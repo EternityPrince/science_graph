@@ -113,10 +113,14 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
             llm_required_in_stage1 = True
             break
 
+    non_b0_baselines = [b for b in baselines_to_run if b != "B0"]
+    retrieval_total = max(len(test_cases) * len(non_b0_baselines), 1)
+
     if llm_required_in_stage1:
         con.info("Warming up LLM Engine for Stage 1...")
         rag_service.llm_engine._ensure_model_loaded()
 
+    stage1_done = 0
     for case in test_cases:
         query = case.get("query")
         for baseline in baselines_to_run:
@@ -161,12 +165,16 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 for k, v in orig_components.items():
                     config.data["rag_components"][k] = v
                 config.data["llm"]["hyde_enabled"] = orig_hyde
+                stage1_done += 1
+                prog_units = int(0.20 * (stage1_done / retrieval_total) * retrieval_total)
+                print(format_progress_marker("retrieval", prog_units, retrieval_total), flush=True)
 
     if llm_required_in_stage1:
         # Explicitly unload LLM model
         rag_service.llm_engine.unload_model()
     else:
         con.info("No baselines require LLM in Stage 1. Skipping model warmup.")
+        print(format_progress_marker("retrieval", int(0.20 * retrieval_total), retrieval_total), flush=True)
 
     # =========================================================================
     # STAGE 2: Embedder Stage
@@ -199,6 +207,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
         rag_service.emb_engine.unload_model()
     else:
         con.info("No queries/passages require embedding in Stage 2. Skipping.")
+    print(format_progress_marker("retrieval", int(0.25 * retrieval_total), retrieval_total), flush=True)
 
     # =========================================================================
     # STAGE 3: DB Retrieval Stage
@@ -211,6 +220,7 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
     orig_generate_response = rag_service.llm_engine.generate_response
     orig_classify_intent = rag_service._classify_intent_and_extract_filters
 
+    stage3_done = 0
     for case in test_cases:
         query = case.get("query")
         for baseline in baselines_to_run:
@@ -294,6 +304,9 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 for k, v in orig_components.items():
                     config.data["rag_components"][k] = v
                 config.data["llm"]["hyde_enabled"] = orig_hyde
+                stage3_done += 1
+                prog_units = int((0.25 + 0.35 * (stage3_done / retrieval_total)) * retrieval_total)
+                print(format_progress_marker("retrieval", prog_units, retrieval_total), flush=True)
 
     # Restore original functions
     rag_service._expand_query = orig_expand_query
@@ -400,14 +413,14 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
             if trace:
                 trace["candidate_count_after_reranker"] = len(final_chunks_map.get((query, baseline), []))
 
+    print(format_progress_marker("retrieval", int(0.70 * retrieval_total), retrieval_total), flush=True)
+
     # =========================================================================
     # STAGE 5: Graph & Trimming Stage
     # =========================================================================
     con.info("=== STAGE 5: Graph & Trimming Stage ===")
     contexts_to_save = {}
-    non_b0_baselines = [b for b in baselines_to_run if b != "B0"]
-    retrieval_total = max(len(test_cases) * len(non_b0_baselines), 1)
-    retrieval_done = 0
+    stage5_done = 0
 
     for case in test_cases:
         query = case.get("query")
@@ -442,8 +455,9 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
             res = stage3_results.get((query, baseline))
             if not res:
-                retrieval_done += 1
-                print(format_progress_marker("retrieval", retrieval_done, retrieval_total), flush=True)
+                stage5_done += 1
+                prog_units = retrieval_total if stage5_done == retrieval_total else int((0.70 + 0.30 * (stage5_done / retrieval_total)) * retrieval_total)
+                print(format_progress_marker("retrieval", prog_units, retrieval_total), flush=True)
                 continue
 
             components_settings = get_baseline_config(baseline, config.rag_components)
@@ -594,8 +608,9 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                 for k, v in orig_components.items():
                     config.data["rag_components"][k] = v
                 config.data["llm"]["hyde_enabled"] = orig_hyde
-                retrieval_done += 1
-                print(format_progress_marker("retrieval", retrieval_done, retrieval_total), flush=True)
+                stage5_done += 1
+                prog_units = retrieval_total if stage5_done == retrieval_total else int((0.70 + 0.30 * (stage5_done / retrieval_total)) * retrieval_total)
+                print(format_progress_marker("retrieval", prog_units, retrieval_total), flush=True)
 
     # Unload Reranker at the end of Stage 5
     if has_reranker_baselines:

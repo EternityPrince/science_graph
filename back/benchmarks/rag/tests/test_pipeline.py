@@ -1294,6 +1294,78 @@ def test_run_pipeline_unanswerable_limit_arg_forwarding(tmp_path):
             assert cmd[idx + 1] == "1"
 
 
+def test_custom_baseline_gating_default_all(tmp_path):
+    import sys
+    from unittest.mock import patch
+    from core.config import STANDARD_BASELINES
+
+    dataset_file = tmp_path / "test_ds.yaml"
+    with open(dataset_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump([{"id": "Q1", "query": "q1", "is_answerable": True}], f)
+
+    test_args = [
+        "run_pipeline.py",
+        "--dataset", str(dataset_file),
+        "--baselines", "all",
+        "--skip-eval",
+        "--no-unique-dir",
+        "--output-dir", str(tmp_path)
+    ]
+
+    with patch.object(sys, "argv", test_args), \
+         patch("run_pipeline.run_command_with_progress", return_value=0.1) as mock_run_cmd:
+        from run_pipeline import main
+        try:
+            main()
+        except SystemExit:
+            pass
+
+        assert mock_run_cmd.called
+        # Check generation command baselines arg
+        gen_call = [c for c in mock_run_cmd.call_args_list if c[0][3] == "generation"][0]
+        cmd = gen_call[0][0]
+        idx = cmd.index("--baselines")
+        baselines_passed = cmd[idx + 1].split(",")
+        assert baselines_passed == STANDARD_BASELINES
+        assert "CUSTOM" not in baselines_passed
+
+
+def test_pipeline_flag_alias_and_custom_inclusion(tmp_path):
+    import sys
+    from unittest.mock import patch
+
+    dataset_file = tmp_path / "test_ds.yaml"
+    with open(dataset_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump([{"id": "Q1", "query": "q1", "is_answerable": True}], f)
+
+    test_args = [
+        "run_pipeline.py",
+        "--dataset", str(dataset_file),
+        "--pipeline", "CUSTOM,B4,B6",
+        "--skip-eval",
+        "--no-unique-dir",
+        "--output-dir", str(tmp_path)
+    ]
+
+    with patch.object(sys, "argv", test_args), \
+         patch("run_pipeline.run_command_with_progress", return_value=0.1) as mock_run_cmd:
+        from run_pipeline import main
+        try:
+            main()
+        except SystemExit:
+            pass
+
+        assert mock_run_cmd.called
+        gen_call = [c for c in mock_run_cmd.call_args_list if c[0][3] == "generation"][0]
+        cmd = gen_call[0][0]
+        idx = cmd.index("--baselines")
+        baselines_passed = cmd[idx + 1].split(",")
+        assert "CUSTOM" in baselines_passed
+        assert "B4" in baselines_passed
+        assert "B6" in baselines_passed
+
+
+
 
 
 

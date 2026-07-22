@@ -34,8 +34,8 @@ def main():
         help="Path to golden dataset YAML file."
     )
     parser.add_argument(
-        "--baselines", "-b", type=str, default="all",
-        help="Comma-separated baselines to run (e.g. B0,B2,B6) or 'all'."
+        "--pipeline", "--baselines", "-b", dest="baselines", type=str, default="all",
+        help="Comma-separated baselines to run (e.g. B0,B2,B6 or CUSTOM,B4,B6) or 'all'."
     )
     parser.add_argument(
         "--cloud", action="store_true",
@@ -208,9 +208,12 @@ def main():
         )
 
     # Replicate baselines list
-    if args.baselines.lower() == "all":
-        from core.config import BASELINES_INFO
-        baselines_to_run = list(BASELINES_INFO.keys())
+    raw_baselines = getattr(args, "pipeline", None) or getattr(args, "baselines", "all")
+    if raw_baselines.lower() == "all":
+        from core.config import STANDARD_BASELINES
+        baselines_to_run = list(STANDARD_BASELINES)
+        if has_overrides:
+            baselines_to_run.append("CUSTOM")
         if is_already_retrieved:
             present_baselines = {"B0"}
             try:
@@ -221,8 +224,8 @@ def main():
             except Exception:
                 pass
     else:
-        baselines_to_run = [b.strip().upper() for b in args.baselines.split(",") if b.strip()]
-        if args.custom and "CUSTOM" not in baselines_to_run:
+        baselines_to_run = [b.strip().upper() for b in raw_baselines.split(",") if b.strip()]
+        if has_overrides and "CUSTOM" not in baselines_to_run:
             baselines_to_run.append("CUSTOM")
 
     num_baselines = len(baselines_to_run)

@@ -27,6 +27,9 @@ BASELINES_INFO: Dict[str, str] = {
     "CUSTOM": "Custom Run (Custom parameters configuration) — for testing impact of settings on search."
 }
 
+# Standard baselines excluding CUSTOM (used for default 'all' runs)
+STANDARD_BASELINES: List[str] = ["B0", "B1", "B2", "B3", "B4", "B5", "B6"]
+
 DEFAULT_LIMIT = 50
 
 # Store default config settings for reference and rollback

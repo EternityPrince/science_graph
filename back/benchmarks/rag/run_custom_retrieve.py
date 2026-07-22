@@ -51,7 +51,7 @@ def main():
         help="Use cloud LLM engine for retrieval/generation instead of local one."
     )
     parser.add_argument(
-        "--baselines", type=str, default="B4,B6",
+        "--pipeline", "--baselines", dest="baselines", type=str, default="B4,B6",
         help="Comma-separated baselines to compare against (e.g. B4,B6) or 'all'."
     )
     parser.add_argument(
@@ -90,10 +90,23 @@ def main():
     # Apply dynamic patch
     patch_retrieval_for_custom(custom_comp, custom_hype)
 
-    # Determine baselines to run (force inclusion of CUSTOM)
-    req_baselines = [b.strip().upper() for b in args.baselines.split(",") if b.strip()] if args.baselines != "all" else ["B4", "B6"]
-    if "CUSTOM" not in req_baselines:
+    # Determine baselines to run
+    raw_baselines = getattr(args, "pipeline", None) or getattr(args, "baselines", "B4,B6")
+    if raw_baselines.lower() == "all":
+        from core.config import STANDARD_BASELINES
+        req_baselines = list(STANDARD_BASELINES)
+    else:
+        req_baselines = [b.strip().upper() for b in raw_baselines.split(",") if b.strip()]
+
+    has_custom_overrides = args.custom or file_config or any(getattr(args, field, None) is not None for field in [
+        "intent_classifier", "graph_ontology_lookup", "llm_query_expansion", 
+        "hyde", "lexical_search", "dense_search", "dynamic_alpha_blending", 
+        "rrf", "graph_expansion", "reranker", "score_blending", 
+        "context_trimming", "citation_repair"
+    ])
+    if has_custom_overrides and "CUSTOM" not in req_baselines:
         req_baselines.append("CUSTOM")
+
     args.baselines = ",".join(req_baselines)
 
     con.info("Custom retrieval config constructed.")
