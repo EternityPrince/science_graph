@@ -910,3 +910,25 @@ def test_merge_evaluation_data_sort_exception():
     assert len(res["results"]) == 2
 
 
+def test_mlx_engine_sampler_caching_and_cleanup(tmp_path):
+    from unittest.mock import patch
+    try:
+        from src.llm_engine.mlx_impl import MlxLLMEngine
+    except ImportError:
+        pytest.skip("MLX not installed")
+
+    dummy_dir = tmp_path / "dummy_mlx_model"
+    dummy_dir.mkdir()
+
+    with patch("mlx_lm.load", return_value=(MagicMock(), MagicMock())):
+        engine = MlxLLMEngine(model_path=str(dummy_dir))
+        with patch("mlx_lm.sample_utils.make_sampler", side_effect=lambda temp: f"sampler_{temp}") as mock_make:
+            s1 = engine._get_sampler(0.1)
+            s2 = engine._get_sampler(0.1)
+            assert s1 == s2
+            assert mock_make.call_count == 1
+
+        engine.unload_model()
+        assert len(engine._sampler_cache) == 0
+
+

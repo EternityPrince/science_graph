@@ -99,6 +99,7 @@ class MlxLLMEngine(BaseLLMEngine):
         self._tokenizer_data = None
         self.model = None
         self.tokenizer = None
+        self._sampler_cache = {}
 
         con.debug(f"MLX_INIT pid={os.getpid()} self_id={id(self)} model_path={self.model_path}")
 
@@ -133,10 +134,17 @@ class MlxLLMEngine(BaseLLMEngine):
         # current thread" (MLX 0.31+ enforces thread-local streams).
         import mlx_lm.generate  # noqa: F401
 
+    def _get_sampler(self, temp: float):
+        temp_key = round(float(temp), 4)
+        if temp_key not in self._sampler_cache:
+            from mlx_lm.sample_utils import make_sampler
+            self._sampler_cache[temp_key] = make_sampler(temp=temp_key)
+        return self._sampler_cache[temp_key]
+
     def unload_model(self):
         con.debug(f"MLX_UNLOAD pid={os.getpid()} self_id={id(self)} model_path={self.model_path} model_was_none={self.model is None}")
 
-        
+        self._sampler_cache.clear()
         if self.model is not None:
             import gc
             self.model = None
@@ -147,7 +155,7 @@ class MlxLLMEngine(BaseLLMEngine):
                 import mlx.core as mx
                 if hasattr(mx, "clear_cache"):
                     mx.clear_cache()
-                elif hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+                if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
                     mx.metal.clear_cache()
             except ImportError:
                 pass
@@ -277,8 +285,7 @@ class MlxLLMEngine(BaseLLMEngine):
                 pass
 
         from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
-        sampler = make_sampler(temp=temp)
+        sampler = self._get_sampler(temp)
 
         with _local_request_lock:
             response = generate(
@@ -335,8 +342,7 @@ class MlxLLMEngine(BaseLLMEngine):
                 pass
 
         from mlx_lm import stream_generate
-        from mlx_lm.sample_utils import make_sampler
-        sampler = make_sampler(temp=temp)
+        sampler = self._get_sampler(temp)
 
         raw_logprobs_list = []
         tokens_meta = []
@@ -468,8 +474,7 @@ class MlxLLMEngine(BaseLLMEngine):
                 pass
 
         from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
-        sampler = make_sampler(temp=temp)
+        sampler = self._get_sampler(temp)
 
         with _local_request_lock:
             response = generate(
