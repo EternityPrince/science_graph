@@ -1,4 +1,5 @@
 import os
+import copy
 import yaml
 from pathlib import Path
 from typing import Optional, List
@@ -178,10 +179,42 @@ DEFAULT_CONFIG = {
             # BM25 term frequency saturation parameter k1
             "k1": 1.5,
             # BM25 document length normalization parameter b
-            "b": 0.75,
         }
     }
 }
+
+
+def resolve_existing_model_path(path_str: str) -> str:
+    """Fallback resolver checking external volume paths (/Volumes/happy-disk/models) or MODELS_DIR if missing."""
+    if not path_str:
+        return path_str
+    p = Path(path_str)
+    if p.exists():
+        return str(p)
+
+    # 1. Check environment variable override
+    models_dir = os.environ.get("MODELS_DIR")
+    if models_dir:
+        name = p.name
+        candidate = Path(models_dir) / name
+        if candidate.exists():
+            return str(candidate)
+        parent_name = p.parent.name
+        if parent_name:
+            candidate = Path(models_dir) / parent_name / name
+            if candidate.exists():
+                return str(candidate)
+
+    # 2. Check /Volumes/happy-disk/models
+    happy_disk = Path("/Volumes/happy-disk/models")
+    if happy_disk.exists():
+        name = p.name
+        for sub in ["", "llm", "embeddings"]:
+            candidate = (happy_disk / sub / name) if sub else (happy_disk / name)
+            if candidate.exists():
+                return str(candidate)
+
+    return path_str
 
 
 class Config:
@@ -499,11 +532,12 @@ hyperparameters:
     @property
     def llm_local_model_path(self) -> str:
         local_cfg = self.data["llm"].get("local", {})
+        path_val = ""
         if isinstance(local_cfg, dict):
-            nested_path = local_cfg.get("model_path")
-            if nested_path:
-                return nested_path
-        return self.data["llm"].get("model_path", "")
+            path_val = local_cfg.get("model_path") or ""
+        if not path_val:
+            path_val = self.data["llm"].get("model_path", "")
+        return resolve_existing_model_path(path_val)
 
     @property
     def llm_local_rag_model_path(self) -> str:
@@ -514,7 +548,7 @@ hyperparameters:
             default_path = str(Path.home() / "models" / "llm" / "gemma-3-text-12b-it-4bit")
             if not rag_path or rag_path == model_path or rag_path == default_path:
                 return self.llm_local_model_path
-            return rag_path
+            return resolve_existing_model_path(rag_path)
         return self.llm_local_model_path
 
     @property
@@ -764,11 +798,11 @@ hyperparameters:
 
     @property
     def embedding_model_name(self) -> str:
-        return self.data["embedding"]["model_name"]
+        return resolve_existing_model_path(self.data["embedding"]["model_name"])
 
     @property
     def reranker_model_name(self) -> str:
-        return self.data.get("reranker", {}).get("model_name", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
+        return resolve_existing_model_path(self.data.get("reranker", {}).get("model_name", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"))
 
     @property
     def chunk_size(self) -> int:

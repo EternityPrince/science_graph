@@ -336,10 +336,10 @@ class MlxLLMEngine(BaseLLMEngine):
 
         from mlx_lm import stream_generate
         from mlx_lm.sample_utils import make_sampler
-        import math
         sampler = make_sampler(temp=temp)
 
-        tokens_info: List[Dict[str, Any]] = []
+        raw_logprobs_list = []
+        tokens_meta = []
         full_text = ""
 
         with _local_request_lock:
@@ -354,32 +354,59 @@ class MlxLLMEngine(BaseLLMEngine):
                 token_text = getattr(response, "text", "")
                 logprobs = getattr(response, "logprobs", None)
 
-                entropy_val = 0.0
-                if logprobs is not None and mx is not None:
-                    try:
-                        top_indices = mx.argpartition(logprobs, -50)[-50:]
-                        top_logprobs = logprobs[top_indices].astype(mx.float32)
-                        p = mx.softmax(top_logprobs)
-                        entropy_val = -float(mx.sum(p * mx.log2(p + 1e-12)))
-                    except Exception:
-                        try:
-                            logprobs_f32 = logprobs.astype(mx.float32)
-                            p = mx.softmax(logprobs_f32)
-                            entropy_val = -float(mx.sum(p * mx.log2(p + 1e-12)))
-                        except Exception:
-                            entropy_val = 0.0
-
                 char_start = len(full_text)
                 full_text += token_text
                 char_end = len(full_text)
 
-                tokens_info.append({
+                tokens_meta.append({
                     "token_id": token_id,
                     "token_text": token_text,
                     "char_start": char_start,
                     "char_end": char_end,
-                    "entropy": max(0.0, float(entropy_val)),
                 })
+                raw_logprobs_list.append(logprobs)
+
+        # Batched vectorized entropy computation across all tokens after generation finishes
+        entropies: List[float] = []
+        if raw_logprobs_list and mx is not None:
+            valid_tensors = [lp for lp in raw_logprobs_list if lp is not None]
+            if valid_tensors:
+                try:
+                    stacked = mx.stack(valid_tensors)
+                    top_indices = mx.argpartition(stacked, -50, axis=-1)[:, -50:]
+                    top_logprobs = mx.take_along_axis(stacked, top_indices, axis=-1).astype(mx.float32)
+                    p = mx.softmax(top_logprobs, axis=-1)
+                    entropy_tensors = -mx.sum(p * mx.log2(p + 1e-12), axis=-1)
+                    mx.eval(entropy_tensors)
+                    entropy_vals = entropy_tensors.tolist()
+
+                    e_idx = 0
+                    for lp in raw_logprobs_list:
+                        if lp is not None and e_idx < len(entropy_vals):
+                            entropies.append(max(0.0, float(entropy_vals[e_idx])))
+                            e_idx += 1
+                        else:
+                            entropies.append(0.0)
+                except Exception:
+                    for lp in raw_logprobs_list:
+                        if lp is not None:
+                            try:
+                                p = mx.softmax(lp.astype(mx.float32))
+                                entropies.append(max(0.0, -float(mx.sum(p * mx.log2(p + 1e-12)))))
+                            except Exception:
+                                entropies.append(0.0)
+                        else:
+                            entropies.append(0.0)
+            else:
+                entropies = [0.0] * len(raw_logprobs_list)
+        else:
+            entropies = [0.0] * len(raw_logprobs_list)
+
+        tokens_info = []
+        for idx, meta in enumerate(tokens_meta):
+            ent = entropies[idx] if idx < len(entropies) else 0.0
+            meta["entropy"] = ent
+            tokens_info.append(meta)
 
         clean_text = strip_thinking_tokens(full_text)
         try:
@@ -465,8 +492,7 @@ class MlxLLMEngine(BaseLLMEngine):
         model: Optional[str] = None,
     ) -> str:
         import asyncio
-        await asyncio.sleep(0)
-        return self.generate_response(prompt, max_tokens, temp, task, model=model)
+        return await asyncio.to_thread(self.generate_response, prompt, max_tokens, temp, task, model=model)
 
     async def generate_json_async(
         self,
@@ -476,5 +502,4 @@ class MlxLLMEngine(BaseLLMEngine):
         max_tokens: Optional[int] = None,
     ) -> str:
         import asyncio
-        await asyncio.sleep(0)
-        return self.generate_json(prompt, schema_class, temp, max_tokens)
+        return await asyncio.to_thread(self.generate_json, prompt, schema_class, temp, max_tokens)

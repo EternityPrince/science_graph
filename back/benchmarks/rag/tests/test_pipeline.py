@@ -1365,6 +1365,36 @@ def test_pipeline_flag_alias_and_custom_inclusion(tmp_path):
         assert "B6" in baselines_passed
 
 
+def test_pipeline_in_process_execution(tmp_path):
+    import sys
+    from unittest.mock import patch
+
+    dataset_file = tmp_path / "test_ds.yaml"
+    with open(dataset_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump([{"id": "Q1", "query": "q1", "is_answerable": True}], f)
+
+    test_args = [
+        "run_pipeline.py",
+        "--dataset", str(dataset_file),
+        "--baselines", "B0",
+        "--in-process",
+        "--skip-eval",
+        "--no-unique-dir",
+        "--output-dir", str(tmp_path)
+    ]
+
+    with patch.object(sys, "argv", test_args), \
+         patch("core.retrieval.run_staged_retrieval") as mock_ret, \
+         patch("core.generation.run_benchmarking") as mock_gen:
+        from run_pipeline import main
+        try:
+            main()
+        except SystemExit:
+            pass
+
+        assert mock_ret.called or mock_gen.called
+
+
 
 
 

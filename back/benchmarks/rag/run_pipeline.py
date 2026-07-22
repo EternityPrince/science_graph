@@ -85,6 +85,10 @@ def main():
         "--pipelined", action="store_true",
         help="Run generation and evaluation concurrently in a pipelined fashion, writing results immediately."
     )
+    parser.add_argument(
+        "--in-process", "-i", action="store_true",
+        help="Run retrieval, generation, and evaluation in-process within a single Python runtime to avoid subprocess startup overhead and model reload cycles."
+    )
     add_custom_config_arguments(parser)
     args = parser.parse_args()
 
@@ -334,44 +338,71 @@ def main():
             f"Planned units: {total_retrieval_steps} "
             f"({num_cases} cases × {num_baselines_with_retrieval} baselines excl. B0)"
         )
-        retrieve_cmd = [
-            python_bin, str(script_dir / "run_custom_retrieve.py"),
-            "--dataset", str(dataset_path),
-            "--output", str(retrieved_contexts_file),
-            "--baselines", args.baselines,
-            "--no-unique-dir"
-        ]
-        retrieve_cmd.extend(["--limit", str(num_cases)])
-        if args.unanswerable_limit is not None:
-            retrieve_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
-        if args.cloud:
-            retrieve_cmd.append("--cloud")
-        if temp_config_file:
-            retrieve_cmd.extend(["--config-file", str(temp_config_file)])
-
-        con.dim(f"Running command: {' '.join(retrieve_cmd)}")
-        try:
-            elapsed_ret = run_command_with_progress(
-                retrieve_cmd,
-                f"Pre-Retrieval · {total_retrieval_steps} units (case×baseline excl. B0)",
-                total_retrieval_steps,
-                "retrieval",
-            )
-            con.success(f"Pre-Retrieval completed in {elapsed_ret:.2f} seconds.")
+        if args.in_process:
+            import copy
+            t0_ret = time.perf_counter()
+            from core.retrieval import run_staged_retrieval, evaluate_and_compare
+            from src.services.container import container
+            from src.prompts import prompts
+            ret_args = copy.deepcopy(args)
+            ret_args.output = str(retrieved_contexts_file)
+            ret_args.baselines = ",".join(baselines_to_run)
             try:
-                con.blank()
-                from run_custom_retrieve import evaluate_and_compare
-                evaluate_and_compare(retrieved_contexts_file)
-            except Exception as e:
-                con.warning(f"Could not generate retrieval metrics table: {e}")
-        except subprocess.CalledProcessError as e:
-            con.error(f"Pre-Retrieval failed with exit code {e.returncode}.")
-            if temp_config_file and temp_config_file.exists():
+                run_staged_retrieval(ret_args, config, prompts, container, con)
+                elapsed_ret = time.perf_counter() - t0_ret
+                con.success(f"Pre-Retrieval completed in-process in {elapsed_ret:.2f} seconds.")
                 try:
-                    temp_config_file.unlink()
-                except Exception:
-                    pass
-            sys.exit(e.returncode)
+                    con.blank()
+                    evaluate_and_compare(retrieved_contexts_file)
+                except Exception as e:
+                    con.warning(f"Could not generate retrieval metrics table: {e}")
+            except Exception as e:
+                con.error(f"Pre-Retrieval in-process failed: {e}")
+                if temp_config_file and temp_config_file.exists():
+                    try:
+                        temp_config_file.unlink()
+                    except Exception:
+                        pass
+                sys.exit(1)
+        else:
+            retrieve_cmd = [
+                python_bin, str(script_dir / "run_custom_retrieve.py"),
+                "--dataset", str(dataset_path),
+                "--output", str(retrieved_contexts_file),
+                "--baselines", args.baselines,
+                "--no-unique-dir"
+            ]
+            retrieve_cmd.extend(["--limit", str(num_cases)])
+            if args.unanswerable_limit is not None:
+                retrieve_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
+            if args.cloud:
+                retrieve_cmd.append("--cloud")
+            if temp_config_file:
+                retrieve_cmd.extend(["--config-file", str(temp_config_file)])
+
+            con.dim(f"Running command: {' '.join(retrieve_cmd)}")
+            try:
+                elapsed_ret = run_command_with_progress(
+                    retrieve_cmd,
+                    f"Pre-Retrieval · {total_retrieval_steps} units (case×baseline excl. B0)",
+                    total_retrieval_steps,
+                    "retrieval",
+                )
+                con.success(f"Pre-Retrieval completed in {elapsed_ret:.2f} seconds.")
+                try:
+                    con.blank()
+                    from run_custom_retrieve import evaluate_and_compare
+                    evaluate_and_compare(retrieved_contexts_file)
+                except Exception as e:
+                    con.warning(f"Could not generate retrieval metrics table: {e}")
+            except subprocess.CalledProcessError as e:
+                con.error(f"Pre-Retrieval failed with exit code {e.returncode}.")
+                if temp_config_file and temp_config_file.exists():
+                    try:
+                        temp_config_file.unlink()
+                    except Exception:
+                        pass
+                sys.exit(e.returncode)
 
     if args.pipelined:
         import asyncio
@@ -438,39 +469,63 @@ def main():
             f"Planned units: {total_generation_steps} "
             f"({num_cases} cases × {num_baselines} baselines)"
         )
-        gen_cmd = [
-            python_bin, str(script_dir / "run_benchmarks.py"),
-            "--dataset", str(dataset_path),
-            "--output", str(eval_results),
-            "--baselines", ",".join(baselines_to_run),
-            "--consume-contexts", str(retrieved_contexts_file),
-            "--no-unique-dir"
-        ]
-        gen_cmd.extend(["--limit", str(num_cases)])
-        if args.unanswerable_limit is not None:
-            gen_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
-        if args.cloud:
-            gen_cmd.append("--cloud")
-        if temp_config_file:
-            gen_cmd.extend(["--config-file", str(temp_config_file)])
+        if args.in_process:
+            import copy
+            t0_gen = time.perf_counter()
+            from core.generation import run_benchmarking
+            from src.services.container import container
+            from src.prompts import prompts
+            gen_args = copy.deepcopy(args)
+            gen_args.output = str(eval_results)
+            gen_args.baselines = ",".join(baselines_to_run)
+            gen_args.consume_contexts = str(retrieved_contexts_file)
+            gen_args.no_unique_dir = True
+            try:
+                run_benchmarking(gen_args, config, prompts, container, con)
+                elapsed_gen = time.perf_counter() - t0_gen
+                con.success(f"RAG Generation completed in-process in {elapsed_gen:.2f} seconds.")
+            except Exception as e:
+                con.error(f"RAG Generation in-process failed: {e}")
+                if temp_config_file and temp_config_file.exists():
+                    try:
+                        temp_config_file.unlink()
+                    except Exception:
+                        pass
+                sys.exit(1)
+        else:
+            gen_cmd = [
+                python_bin, str(script_dir / "run_benchmarks.py"),
+                "--dataset", str(dataset_path),
+                "--output", str(eval_results),
+                "--baselines", ",".join(baselines_to_run),
+                "--consume-contexts", str(retrieved_contexts_file),
+                "--no-unique-dir"
+            ]
+            gen_cmd.extend(["--limit", str(num_cases)])
+            if args.unanswerable_limit is not None:
+                gen_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
+            if args.cloud:
+                gen_cmd.append("--cloud")
+            if temp_config_file:
+                gen_cmd.extend(["--config-file", str(temp_config_file)])
 
-        con.dim(f"Running command: {' '.join(gen_cmd)}")
-        try:
-            elapsed_gen = run_command_with_progress(
-                gen_cmd,
-                f"Generation · {total_generation_steps} units (case×baseline)",
-                total_generation_steps,
-                "generation",
-            )
-            con.success(f"RAG Generation completed in {elapsed_gen:.2f} seconds.")
-        except subprocess.CalledProcessError as e:
-            con.error(f"RAG Generation failed with exit code {e.returncode}.")
-            if temp_config_file and temp_config_file.exists():
-                try:
-                    temp_config_file.unlink()
-                except Exception:
-                    pass
-            sys.exit(e.returncode)
+            con.dim(f"Running command: {' '.join(gen_cmd)}")
+            try:
+                elapsed_gen = run_command_with_progress(
+                    gen_cmd,
+                    f"Generation · {total_generation_steps} units (case×baseline)",
+                    total_generation_steps,
+                    "generation",
+                )
+                con.success(f"RAG Generation completed in {elapsed_gen:.2f} seconds.")
+            except subprocess.CalledProcessError as e:
+                con.error(f"RAG Generation failed with exit code {e.returncode}.")
+                if temp_config_file and temp_config_file.exists():
+                    try:
+                        temp_config_file.unlink()
+                    except Exception:
+                        pass
+                sys.exit(e.returncode)
 
         if not args.skip_eval:
             # STEP 2: LLM-as-a-Judge Evaluation

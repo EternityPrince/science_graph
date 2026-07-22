@@ -403,7 +403,8 @@ def test_align_tokens_info():
 def test_occ_rag_1_7b_integration_logits_shannon_entropy():
     """Integration test: load OCC-RAG-1.7B, generate response with logits, and verify non-zero H_gen."""
     import os
-    model_path = "/Users/vladimirkasterin/models/llm/OCC-RAG-1.7B"
+    from src.config import resolve_existing_model_path
+    model_path = resolve_existing_model_path("/Users/vladimirkasterin/models/llm/OCC-RAG-1.7B")
     if not os.path.exists(model_path):
         pytest.skip("OCC-RAG-1.7B model path not found locally.")
 

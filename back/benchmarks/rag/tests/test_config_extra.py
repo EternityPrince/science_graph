@@ -167,3 +167,21 @@ def test_load_benchmark_dataset_unanswerable_sampling(tmp_path):
     assert len(zero_unans) == 3
     assert all(x.get("is_answerable", True) for x in zero_unans)
 
+
+def test_resolve_existing_model_path(tmp_path, monkeypatch):
+    from src.config import resolve_existing_model_path
+
+    # Existing path returns as-is
+    real_dir = tmp_path / "my_model"
+    real_dir.mkdir()
+    assert resolve_existing_model_path(str(real_dir)) == str(real_dir)
+
+    # Missing path falls back to MODELS_DIR
+    mock_models_dir = tmp_path / "models_root"
+    fallback_model = mock_models_dir / "target_model"
+    fallback_model.mkdir(parents=True)
+    monkeypatch.setenv("MODELS_DIR", str(mock_models_dir))
+
+    missing_path = "/nonexistent/path/target_model"
+    assert resolve_existing_model_path(missing_path) == str(fallback_model)
+
