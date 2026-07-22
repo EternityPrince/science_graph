@@ -348,7 +348,12 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
         if pairs_to_score:
             con.info(f"Reranking {len(pairs_to_score)} candidate pairs in one batch...")
             t0 = time.perf_counter()
-            scores = reranker.predict(pairs_to_score)
+            try:
+                import torch
+                with torch.inference_mode():
+                    scores = reranker.predict(pairs_to_score, batch_size=32, show_progress_bar=False)
+            except Exception:
+                scores = reranker.predict(pairs_to_score)
             rerank_latency = time.perf_counter() - t0
             con.success(f"Batch reranked {len(pairs_to_score)} pairs in {rerank_latency:.2f} seconds.")
 

@@ -60,6 +60,9 @@ class SQLiteGraphRepository(GraphRepository):
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA mmap_size = 268435456;")
+        conn.execute("PRAGMA cache_size = -64000;")
         conn.row_factory = sqlite3.Row
         return ConnectionProxy(conn, is_transaction=False)
 
@@ -72,6 +75,9 @@ class SQLiteGraphRepository(GraphRepository):
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA mmap_size = 268435456;")
+        conn.execute("PRAGMA cache_size = -64000;")
         conn.row_factory = sqlite3.Row
         self._local.conn = conn
         try:
@@ -1649,6 +1655,9 @@ class SQLiteVectorRepository(VectorRepository):
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA mmap_size = 268435456;")
+        conn.execute("PRAGMA cache_size = -64000;")
         conn.row_factory = sqlite3.Row
         return conn
 
