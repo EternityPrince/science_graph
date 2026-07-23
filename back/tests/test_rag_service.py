@@ -706,7 +706,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         chunk3.text_content = "text 3"
 
         # Mock embedding engine
-        self.emb_engine.get_embedding.side_effect = lambda q: [0.1] if q == "clustering" else [0.2]
+        self.emb_engine.get_embedding.side_effect = lambda q, *args, **kwargs: [0.1] if q == "clustering" else [0.2]
         
         # Mock vector search
         def mock_search_similar(emb, limit):
@@ -872,7 +872,7 @@ class TestRAGService(unittest.IsolatedAsyncioTestCase):
         
         self.llm_engine.generate_response.assert_called_once()
         self.assertEqual(self.emb_engine.get_embedding.call_count, 2)
-        self.emb_engine.get_embedding.assert_any_call("query")
+        self.emb_engine.get_embedding.assert_any_call("query", is_query=True)
         self.emb_engine.get_embedding.assert_any_call("Hypothetical text")
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0][0].id, "c1")

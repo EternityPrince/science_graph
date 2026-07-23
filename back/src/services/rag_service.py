@@ -1351,6 +1351,8 @@ class RAGService:
         all_dense_results = {}
         if config.rag_components.get("dense_search", True):
             variant_embs = self.emb_engine.get_embeddings(expanded_queries, is_query=True)
+            if not isinstance(variant_embs, (list, tuple)):
+                variant_embs = [self.emb_engine.get_embedding(q, is_query=True) for q in expanded_queries]
             for variant, variant_emb in zip(expanded_queries, variant_embs):
                 if variant == query:
                     query_embedding = variant_emb

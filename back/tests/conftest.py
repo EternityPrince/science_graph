@@ -144,7 +144,7 @@ def mock_embedding_engine():
     engine = MagicMock()
     # Sensible default mocks that return 384-dimensional embeddings (the default ndim in SQLiteVectorRepository)
     engine.get_embedding.return_value = [0.1] * 384
-    engine.get_embeddings.side_effect = lambda texts: [[0.1] * 384 for _ in texts]
+    engine.get_embeddings.side_effect = lambda texts, *args, **kwargs: [[0.1] * 384 for _ in texts]
     return engine
 
 @pytest.fixture

@@ -54,7 +54,7 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         
         # Verify launch command
         cmd = config.llm_expected_launch_command
-        self.assertEqual(cmd, "optiq serve --model /Users/vladimirkasterin/models/llm/Qwen3.5-9B-OptiQ-4bit --mtp")
+        self.assertEqual(cmd, f"optiq serve --model {config.llm_model_path} --mtp")
 
         # Initialize engine and check logs
         with patch("logging.getLogger") as mock_get_logger:
@@ -89,7 +89,7 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         
         # Verify launch command doesn't have --mtp
         cmd = config.llm_expected_launch_command
-        self.assertEqual(cmd, "optiq serve --model /Users/vladimirkasterin/models/llm/Qwen3.5-9B-OptiQ-4bit")
+        self.assertEqual(cmd, f"optiq serve --model {config.llm_model_path}")
 
         with patch("logging.getLogger") as mock_get_logger:
             mock_logger = MagicMock()
@@ -120,7 +120,7 @@ class TestOpenAIMTPIntegration(unittest.IsolatedAsyncioTestCase):
         
         # Verify launch command doesn't have --mtp
         cmd = config.llm_expected_launch_command
-        self.assertEqual(cmd, "optiq serve --model /Users/vladimirkasterin/models/llm/Qwen3.5-9B-OptiQ-4bit")
+        self.assertEqual(cmd, f"optiq serve --model {config.llm_model_path}")
 
         with patch("logging.getLogger") as mock_get_logger:
             mock_logger = MagicMock()
