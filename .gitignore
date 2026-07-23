@@ -176,3 +176,6 @@ graphs/
 test_reports/
 .ctx-codegraph/
 .ctx_*/
+
+back/reports/
+reports/
