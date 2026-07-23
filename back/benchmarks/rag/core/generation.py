@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
 def _clear_gpu_cache() -> None:
-    """Flushes PyTorch MPS/GPU memory cache and executes garbage collection."""
+    """Flushes PyTorch MPS/GPU, MLX Metal memory cache, and executes garbage collection."""
     gc.collect()
     try:
         import torch
@@ -17,6 +17,14 @@ def _clear_gpu_cache() -> None:
             torch.mps.empty_cache()
         elif torch.cuda.is_available():
             torch.cuda.empty_cache()
+    except Exception:
+        pass
+    try:
+        import mlx.core as mx
+        if hasattr(mx, "clear_cache"):
+            mx.clear_cache()
+        if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+            mx.metal.clear_cache()
     except Exception:
         pass
 
@@ -998,6 +1006,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 case_result["baselines"][baseline]["tokens_info"] = metrics.get("tokens_info", [])
             done += 1
             print(format_progress_marker("generation", done, planned), flush=True)
+            _clear_gpu_cache()
             
         results.append(case_result)
         con.success(f"[{case_id}] Completed.")

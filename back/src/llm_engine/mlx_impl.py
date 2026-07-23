@@ -414,6 +414,19 @@ class MlxLLMEngine(BaseLLMEngine):
             meta["entropy"] = ent
             tokens_info.append(meta)
 
+        # Explicitly delete heavy logit tensor references and purge GPU/Metal cache
+        del raw_logprobs_list
+        import gc
+        gc.collect()
+        if mx is not None:
+            try:
+                if hasattr(mx, "clear_cache"):
+                    mx.clear_cache()
+                if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+                    mx.metal.clear_cache()
+            except Exception:
+                pass
+
         clean_text = strip_thinking_tokens(full_text)
         try:
             from core.shannon_estimator import align_tokens_info

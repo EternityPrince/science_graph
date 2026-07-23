@@ -118,8 +118,8 @@ def parse_args():
     parser.add_argument(
         "--db-path",
         type=str,
-        default=str(DEFAULT_DB_PATH),
-        help="Path to target SQLite database"
+        default=None,
+        help="Path to target SQLite database (defaults to active production database)"
     )
     return parser.parse_args()
 
@@ -127,7 +127,8 @@ def main():
     args = parse_args()
     
     notes_dir = Path(args.notes_dir).resolve()
-    db_path = Path(args.db_path).resolve()
+    from core.config import resolve_project_db_path
+    db_path = resolve_project_db_path(args.db_path)
     manifest_path = MANIFEST_PATH.resolve()
 
     ensure_sample_and_notes(notes_dir, manifest_path)
