@@ -1336,3 +1336,44 @@ def save_individual_judge_reports(human_data: dict, output_dir: Path, output_ste
         
         with open(baseline_output_path, "w", encoding="utf-8") as f:
             yaml.dump(judge_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+
+def save_raw_logits_yaml(output_path: Path, results: list, metadata: dict) -> Path:
+    """Saves raw logits (tokens_info) for all cases and baselines into raw_logits.yaml in run directory."""
+    import os
+    import time
+    output_path = Path(output_path)
+    run_dir = output_path.parent if output_path.suffix == ".yaml" else output_path
+    logits_file = run_dir / "raw_logits.yaml"
+    
+    logits_results = []
+    for case_res in results:
+        case_id = case_res.get("id")
+        query = case_res.get("query")
+        baselines_logits = {}
+        for b_name, b_data in case_res.get("baselines", {}).items():
+            if isinstance(b_data, dict):
+                tokens_info = b_data.get("tokens_info")
+                if tokens_info is None:
+                    tokens_info = b_data.get("metrics", {}).get("tokens_info", [])
+                baselines_logits[b_name] = {
+                    "generated_answer": b_data.get("generated_answer"),
+                    "tokens_info": tokens_info
+                }
+        logits_results.append({
+            "id": case_id,
+            "query": query,
+            "baselines": baselines_logits
+        })
+
+    logits_data = {
+        "metadata": metadata,
+        "results": logits_results
+    }
+    
+    temp_file = logits_file.with_suffix(f".tmp.{os.getpid()}_{time.time_ns()}")
+    with open(temp_file, "w", encoding="utf-8") as f:
+        yaml.dump(logits_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    temp_file.replace(logits_file)
+    return logits_file
+

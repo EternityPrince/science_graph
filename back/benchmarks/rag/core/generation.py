@@ -316,12 +316,14 @@ def run_query_on_baseline(
     
     final_chunks = []
     shannon_enabled = components_settings.get("shannon_estimator_enabled", True)
+    logit_save = getattr(rag_service, "logit_save", False) or getattr(config, "logit_save", False)
     shannon_diag = None
+    tokens_info = []
 
     try:
         if baseline == "B0":
             prompt = f"Question: {query}\nAnswer based on your general knowledge."
-            if shannon_enabled:
+            if shannon_enabled or logit_save:
                 raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                 answer = raw_response
                 h_gen = compute_generation_entropy(tokens_info)
@@ -371,7 +373,7 @@ def run_query_on_baseline(
                     rag_service, config, components_settings, query, final_chunks, prompts
                 )
 
-                if shannon_enabled:
+                if shannon_enabled or logit_save:
                     raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                     h_gen = compute_generation_entropy(tokens_info)
                     h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
@@ -439,6 +441,8 @@ def run_query_on_baseline(
         metrics = collector.get_metrics()
         if shannon_enabled and shannon_diag is not None:
             metrics["shannon_diagnostics"] = shannon_diag
+        if tokens_info:
+            metrics["tokens_info"] = tokens_info
     finally:
         collector.stop()
         _restore_baseline_config(rag_service, config, orig_components, orig_hyde)
@@ -558,6 +562,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     con.info("Initializing repositories and models...")
     try:
         rag_service = container.get_rag_service(use_cloud=args.cloud, warmup=False)
+        rag_service.logit_save = getattr(args, "logit_save", False)
     except Exception as e:
         con.error(f"Failed to initialize RAG Service: {e}")
         sys.exit(1)
@@ -989,6 +994,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 "retrieved_chunks": chunks,
                 "trace": trace
             }
+            if getattr(args, "logit_save", False) or "tokens_info" in metrics:
+                case_result["baselines"][baseline]["tokens_info"] = metrics.get("tokens_info", [])
             done += 1
             print(format_progress_marker("generation", done, planned), flush=True)
             
@@ -1031,6 +1038,12 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 with open(temp_output, "w", encoding="utf-8") as f:
                     yaml.dump(autosave_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
                 temp_output.replace(output_path)
+                if getattr(args, "logit_save", False):
+                    try:
+                        from core.reporting import save_raw_logits_yaml
+                        save_raw_logits_yaml(output_path, autosave_data["results"], autosave_data["metadata"])
+                    except Exception as ex_log:
+                        con.warning(f"Raw logits autosave failed: {ex_log}")
             except Exception as e:
                 con.warning(f"Autosave failed: {e}")
 
@@ -1061,6 +1074,14 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         
     with open(output_path, "w", encoding="utf-8") as f:
         yaml.dump(output_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+    if getattr(args, "logit_save", False):
+        try:
+            from core.reporting import save_raw_logits_yaml
+            logits_file = save_raw_logits_yaml(output_path, output_data["results"], output_data["metadata"])
+            con.info(f"Saved raw logits to: {logits_file}")
+        except Exception as e:
+            con.error(f"Failed to save raw logits YAML: {e}")
 
     # Save simplified LLM-judge reports
     judge_output_path = output_path.with_name(output_path.stem + "_judge" + output_path.suffix)

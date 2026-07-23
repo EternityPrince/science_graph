@@ -90,6 +90,10 @@ def main():
         "--in-process", "-i", action="store_true",
         help="Run retrieval, generation, and evaluation in-process within a single Python runtime to avoid subprocess startup overhead and model reload cycles."
     )
+    parser.add_argument(
+        "--logit-save", action="store_true",
+        help="Save raw logits / tokens_info to raw_logits.yaml in the run directory."
+    )
     add_custom_config_arguments(parser)
     args = parser.parse_args()
 
@@ -515,6 +519,8 @@ def main():
                 gen_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
             if args.cloud:
                 gen_cmd.append("--cloud")
+            if args.logit_save:
+                gen_cmd.append("--logit-save")
             if temp_config_file:
                 gen_cmd.extend(["--config-file", str(temp_config_file)])
 

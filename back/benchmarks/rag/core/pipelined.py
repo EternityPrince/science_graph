@@ -321,8 +321,10 @@ def generate_baseline_case(
                     prompt = prompts.get_prompt("rag", "ask_no_expander", context_text=trimmed_text, context_graph=trimmed_graph, history_str="", query=query)
                 
                 shannon_enabled = baseline_config.get("shannon_estimator_enabled", True)
+                logit_save = getattr(args, "logit_save", False)
                 t_gen_start = time.perf_counter()
-                if shannon_enabled:
+                tokens_info = []
+                if shannon_enabled or logit_save:
                     from core.generation import _generate_with_logits_safe
                     from core.shannon_estimator import (
                         compute_generation_entropy,
@@ -514,7 +516,7 @@ def generate_baseline_case(
         context_token = 0
         context_fillness = 0.0
         
-    return {
+    res_dict = {
         "status": status,
         "latency_sec": round(elapsed, 3),
         "retrieved_papers": retrieved,
@@ -529,6 +531,9 @@ def generate_baseline_case(
         "retrieved_chunks": chunks,
         "trace": trace
     }
+    if getattr(args, "logit_save", False) or "tokens_info" in metrics:
+        res_dict["tokens_info"] = metrics.get("tokens_info", [])
+    return res_dict
 
 
 async def run_pipelined_stage_async(
@@ -814,6 +819,16 @@ async def run_pipelined_stage_async(
     except Exception as e:
         con.warning(f"Could not save judge reports: {e}")
         
+    if getattr(args, "logit_save", False):
+        try:
+            from core.reporting import save_raw_logits_yaml
+            with open(eval_results, "r", encoding="utf-8") as f:
+                eval_data = yaml.safe_load(f) or {}
+            logits_file = save_raw_logits_yaml(eval_results, eval_data.get("results", []), eval_data.get("metadata", {}))
+            con.info(f"Saved raw logits to: {logits_file}")
+        except Exception as e:
+            con.warning(f"Could not save raw logits YAML in pipelined run: {e}")
+
     try:
         rag_service.llm_engine.unload_model()
     except Exception:

@@ -82,6 +82,10 @@ def main():
         "--unanswerable-limit", "-u", type=int, default=None,
         help="Limit the number of unanswerable questions (is_answerable: false) to include from the dataset."
     )
+    parser.add_argument(
+        "--logit-save", action="store_true",
+        help="Save raw logits / tokens_info to raw_logits.yaml in the run directory."
+    )
     add_custom_config_arguments(parser)
     args = parser.parse_args()
 

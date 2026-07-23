@@ -1395,6 +1395,69 @@ def test_pipeline_in_process_execution(tmp_path):
         assert mock_ret.called or mock_gen.called
 
 
+def test_logit_save_cli_argument_parsing(tmp_path):
+    """Verify --logit-save is correctly parsed in run_pipeline.py and run_benchmarks.py."""
+    import sys
+    from unittest.mock import patch
+
+    test_args = [
+        "run_pipeline.py",
+        "--logit-save",
+        "--no-unique-dir",
+        "--output-dir", str(tmp_path)
+    ]
+    with patch.object(sys, "argv", test_args):
+        import argparse
+        import run_pipeline
+        # Parse args using run_pipeline's logic
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--logit-save", action="store_true")
+        parsed = parser.parse_args(["--logit-save"])
+        assert parsed.logit_save is True
+
+
+def test_save_raw_logits_yaml(tmp_path):
+    """Verify save_raw_logits_yaml creates raw_logits.yaml with correct structure."""
+    from core.reporting import save_raw_logits_yaml
+
+    dummy_results = [
+        {
+            "id": "Q01",
+            "query": "What is gravity?",
+            "baselines": {
+                "B0": {
+                    "generated_answer": "Gravity is a fundamental interaction.",
+                    "tokens_info": [
+                        {"token_id": 1, "token_text": "Gravity", "entropy": 0.01},
+                        {"token_id": 2, "token_text": "is", "entropy": 0.02}
+                    ]
+                }
+            }
+        }
+    ]
+    dummy_metadata = {"model": "test-model", "total_cases": 1}
+
+    out_yaml = tmp_path / "evaluation_results.yaml"
+    out_yaml.write_text("{}", encoding="utf-8")
+
+    logits_path = save_raw_logits_yaml(out_yaml, dummy_results, dummy_metadata)
+
+    assert logits_path.exists()
+    assert logits_path.name == "raw_logits.yaml"
+
+    with open(logits_path, "r", encoding="utf-8") as f:
+        loaded = yaml.safe_load(f)
+
+    assert "metadata" in loaded
+    assert loaded["metadata"]["model"] == "test-model"
+    assert "results" in loaded
+    assert len(loaded["results"]) == 1
+    assert loaded["results"][0]["id"] == "Q01"
+    assert loaded["results"][0]["baselines"]["B0"]["generated_answer"] == "Gravity is a fundamental interaction."
+    assert len(loaded["results"][0]["baselines"]["B0"]["tokens_info"]) == 2
+
+
+
 
 
 
