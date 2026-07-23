@@ -20,6 +20,7 @@ from src import console as con
 from core.config import (
     build_custom_config,
     add_custom_config_arguments,
+    resolve_project_db_path,
 )
 
 
@@ -91,6 +92,10 @@ def main():
     )
     add_custom_config_arguments(parser)
     args = parser.parse_args()
+
+    active_db = resolve_project_db_path(args.db_path)
+    con.info(f"Using database path: {active_db}")
+
 
     # Determine paths relative to this script
     script_dir = Path(__file__).resolve().parent
@@ -373,6 +378,10 @@ def main():
                 "--no-unique-dir"
             ]
             retrieve_cmd.extend(["--limit", str(num_cases)])
+            if args.db_path:
+                retrieve_cmd.extend(["--db-path", str(args.db_path)])
+            elif active_db:
+                retrieve_cmd.extend(["--db-path", str(active_db)])
             if args.unanswerable_limit is not None:
                 retrieve_cmd.extend(["--unanswerable-limit", str(args.unanswerable_limit)])
             if args.cloud:

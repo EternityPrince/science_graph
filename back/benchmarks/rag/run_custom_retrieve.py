@@ -25,6 +25,7 @@ from core.config import (
     add_custom_config_arguments,
     build_custom_config,
     patch_config_for_custom as patch_retrieval_for_custom,
+    resolve_project_db_path,
 )
 from core.retrieval import (
     run_staged_retrieval,
@@ -73,6 +74,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    active_db = resolve_project_db_path(args.db_path)
+    con.info(f"Using database path: {active_db}")
 
     # Load file config if specified
     file_config = None

@@ -150,6 +150,10 @@ def add_custom_config_arguments(parser: argparse.ArgumentParser) -> None:
         help="Path to a custom YAML configuration file containing overrides."
     )
     parser.add_argument(
+        "--db-path", type=str, default=None,
+        help="Path to SQLite database file (defaults to project science_graph.db)."
+    )
+    parser.add_argument(
         "--custom", action="store_true",
         help="Apply the hardcoded custom preset components and hyperparameters."
     )
@@ -518,3 +522,34 @@ def create_graph_run_dir(
     (run_dir / "parsed").mkdir(parents=True, exist_ok=True)
 
     return run_dir
+
+
+def resolve_project_db_path(db_path_arg: Optional[str] = None) -> Path:
+    """Resolves and configures the SQLite database path in global config.
+    Checks explicit CLI argument, local project science_graph.db, or defaults.
+    """
+    from src.config import config
+    from src.services.container import container
+
+    project_root = Path(__file__).resolve().parents[2]
+    target_db = None
+
+    if db_path_arg:
+        target_db = Path(db_path_arg).resolve()
+    else:
+        candidates = [
+            project_root / "back" / "science_graph.db",
+            project_root / "science_graph.db",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                target_db = candidate
+                break
+
+    if target_db and target_db.exists():
+        config.data["db_path"] = str(target_db)
+        container._graph_repo = None
+        container._vector_repo = None
+
+    return Path(config.db_path)
+
