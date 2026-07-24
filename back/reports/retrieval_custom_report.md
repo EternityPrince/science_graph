@@ -39,11 +39,8 @@ This report displays the retrieval stage performance of your custom configuratio
 
 | Baseline | Success Rate | Mean Recall | Context Precision | Mean Latency |
 | :--- | :---: | :---: | :---: | :---: |
-| B0 | 100.0% | 0.0000 | 0.0000 | 0.000s |
-| B1 | 100.0% | 1.0000 | 1.0000 | 0.037s |
-| B4 | 100.0% | 1.0000 | 1.0000 | 0.305s |
-| B5 | 100.0% | 1.0000 | 1.0000 | 0.385s |
-| 🏆 **CUSTOM (Ours)** | 100.0% | 1.0000 | 1.0000 | 16.469s |
+| B1 | 100.0% | 0.0000 | 0.0000 | 0.072s |
+| B2 | 100.0% | 0.0000 | 0.0000 | 0.054s |
 
 
 > [!NOTE]
