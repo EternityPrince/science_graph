@@ -21,6 +21,9 @@ from core.shannon_estimator import (
 
 
 
+_embedding_engine = None
+
+
 def normalize_id(doc_or_chunk_id: object) -> str:
     """Normalizes document or chunk IDs by stripping path prefixes, standardizing separators,
     enforcing lowercase, stripping file extensions, and truncating chunk-level markers to document level.
@@ -40,8 +43,11 @@ def normalize_id(doc_or_chunk_id: object) -> str:
     if ('/' in s_clean or '\\' in s_clean) and not s_clean.startswith("10."):
         s_clean = s_clean.replace("\\", "/").split("/")[-1]
 
+    # Strip optional paper_ prefix if present to standardize document ID
+    s_clean = re.sub(r'^paper_', '', s_clean)
+
     # Strip standard file extensions (.pdf, .txt, .md, .json, .html)
-    s_clean = re.sub(r'\.(pdf|txt|md|json|html)$', '', s_clean)
+    s_clean = re.sub(r'\.(pdf|txt|md|json|html)(?=[#_/\\]|$)', '', s_clean)
 
     # 2. Standardize separators: replace '-', '#', ':', whitespace, '/' with '_'
     s_clean = s_clean.replace("-", "_").replace("#", "_").replace(":", "_").replace("/", "_").replace(" ", "_")
@@ -53,6 +59,7 @@ def normalize_id(doc_or_chunk_id: object) -> str:
     s_clean = re.sub(r'_+', '_', s_clean).strip("_")
 
     return s_clean
+
 
 
 def normalize_optional_text(value: object) -> str:
