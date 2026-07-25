@@ -273,8 +273,8 @@ def test_docs_pipeline_and_shannon_estimator_exist():
     from pathlib import Path
 
     docs = Path(__file__).resolve().parents[1] / "docs"
-    for name in ("pipeline_orchestration.md", "shannon_estimator.md"):
-        path = docs / name
+    for rel_path in (Path("architecture/pipeline_orchestration.md"), Path("telemetry/shannon_estimator.md")):
+        path = docs / rel_path
         assert path.is_file(), f"missing {path}"
         assert path.stat().st_size > 100, f"{path} is trivially empty"
 
