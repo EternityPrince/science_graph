@@ -373,7 +373,17 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
             "h_gen": [],
             "h_citation": [],
             "n_citation_tokens": [],
-            "delta_h_gen": []
+            "delta_h_gen": [],
+            "msp": [],
+            "avg_msp": [],
+            "logit_margin": [],
+            "avg_logit_margin": [],
+            "first_token_margin": [],
+            "first_token_msp": [],
+            "citation_entropy": [],
+            "ll_rag": [],
+            "ll_base": [],
+            "clr": []
         }
         for b in baselines
     }
@@ -488,6 +498,34 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                     }
                     b_data["shannon_diagnostics"] = shannon_diag
 
+            tokens_info = b_data.get("tokens_info") or (b_data.get("metrics", {}).get("tokens_info") if isinstance(b_data.get("metrics"), dict) else None)
+            if tokens_info and isinstance(tokens_info, list):
+                try:
+                    from core.shannon_estimator import compute_sequence_telemetry
+                    seq_tel = compute_sequence_telemetry(tokens_info)
+                    for k, v in seq_tel.items():
+                        if k not in shannon_diag or shannon_diag[k] is None:
+                            shannon_diag[k] = v
+                except Exception:
+                    pass
+
+            def _get_val(k_diag: str, k_alt: str | None = None) -> float | None:
+                v = shannon_diag.get(k_diag)
+                if v is None and k_alt:
+                    v = shannon_diag.get(k_alt)
+                if v is None:
+                    v = b_data.get(k_diag)
+                if v is None and k_alt:
+                    v = b_data.get(k_alt)
+                if v is None and isinstance(eval_metrics, dict):
+                    v = eval_metrics.get(k_diag) or (eval_metrics.get(k_alt) if k_alt else None)
+                if v is not None:
+                    try:
+                        return float(v)
+                    except (ValueError, TypeError):
+                        return None
+                return None
+
             s_map = {
                 "h_rank_pre_rerank": shannon_diag.get("rank_entropy_pre") if shannon_diag.get("rank_entropy_pre") is not None else shannon_diag.get("h_rank_pre_rerank"),
                 "h_rank_post_rerank": shannon_diag.get("rank_entropy_post") if shannon_diag.get("rank_entropy_post") is not None else shannon_diag.get("h_rank_post_rerank"),
@@ -498,8 +536,31 @@ def analyze_metrics(data: Any, trace_map: dict = None) -> dict:
                 "h_gen": shannon_diag.get("generation_entropy") if shannon_diag.get("generation_entropy") is not None else shannon_diag.get("h_gen"),
                 "h_citation": shannon_diag.get("citation_entropy") if shannon_diag.get("citation_entropy") is not None else shannon_diag.get("h_citation"),
                 "n_citation_tokens": shannon_diag.get("citation_token_count") if shannon_diag.get("citation_token_count") is not None else shannon_diag.get("n_citation_tokens"),
-                "delta_h_gen": shannon_diag.get("entropy_reduction") if shannon_diag.get("entropy_reduction") is not None else shannon_diag.get("delta_h_gen")
+                "delta_h_gen": shannon_diag.get("entropy_reduction") if shannon_diag.get("entropy_reduction") is not None else shannon_diag.get("delta_h_gen"),
+                "msp": _get_val("msp", "avg_msp"),
+                "avg_msp": _get_val("avg_msp", "msp"),
+                "logit_margin": _get_val("logit_margin", "avg_logit_margin"),
+                "avg_logit_margin": _get_val("avg_logit_margin", "logit_margin"),
+                "first_token_margin": _get_val("first_token_margin"),
+                "first_token_msp": _get_val("first_token_msp"),
+                "citation_entropy": _get_val("citation_entropy", "h_citation"),
+                "ll_rag": _get_val("ll_rag"),
+                "ll_base": _get_val("ll_base"),
+                "clr": _get_val("clr"),
             }
+
+            # Copy telemetry values into b_data top-level and shannon_diagnostics for full consistency
+            for field in [
+                "msp", "avg_msp", "logit_margin", "avg_logit_margin",
+                "first_token_margin", "first_token_msp", "citation_entropy",
+                "ll_rag", "ll_base", "clr"
+            ]:
+                val = s_map.get(field)
+                if val is not None:
+                    if b_data.get(field) is None:
+                        b_data[field] = val
+                    if isinstance(shannon_diag, dict) and shannon_diag.get(field) is None:
+                        shannon_diag[field] = val
             for skey, sval in s_map.items():
                 if sval is not None:
                     shannon_raw[b][skey].append(float(sval))

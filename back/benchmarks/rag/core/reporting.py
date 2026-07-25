@@ -56,7 +56,18 @@ NEW_CSV_FIELDS = [
     "graph_neighbor_resolution_sample",
     "graph_concept_candidate_papers",
     "graph_bridge_candidate_papers",
-    "graph_chunks_before_rerank"
+    "graph_chunks_before_rerank",
+    # Logit-level telemetry metrics
+    "msp",
+    "avg_msp",
+    "logit_margin",
+    "avg_logit_margin",
+    "first_token_margin",
+    "first_token_msp",
+    "citation_entropy",
+    "ll_rag",
+    "ll_base",
+    "clr",
 ]
 
 NEW_SUMMARY_HEADERS = [
@@ -82,72 +93,16 @@ NEW_SUMMARY_HEADERS = [
     "Avg Best Graph Candidate Rank",
     "Avg Graph Neighbor Candidates",
     "Avg Graph Concept Candidates",
-    "Avg Graph Bridge Candidates"
-]
-
-
-NEW_CSV_FIELDS = [
-    "graph_retrieval_enabled",
-    "graph_retrieval_skip_reason",
-    "query_concepts_all_count",
-    "query_concepts_strong_count",
-    "query_concepts_dropped_count",
-    "query_concepts_all",
-    "query_concepts_strong",
-    "query_concepts_dropped",
-    "graph_neighbor_nodes_total",
-    "graph_neighbor_paper_nodes_count",
-    "graph_neighbor_local_papers_count",
-    "graph_neighbor_papers_with_chunks_count",
-    "graph_neighbor_placeholder_or_external_count",
-    "graph_neighbor_non_paper_nodes_count",
-    "graph_neighbor_chunks_retrieved_count",
-    "graph_concept_candidate_papers_count",
-    "graph_bridge_candidate_papers_count",
-    "graph_chunks_before_rerank_count",
-    "graph_chunk_candidates_count",
-    "graph_candidate_source_breakdown",
-    "base_candidates_count",
-    "merged_candidates_count_before_reranker",
-    "reranker_input_count_before_limit",
-    "reranker_input_count_after_limit",
-    "candidate_count_after_reranker",
-    "graph_candidate_rerank_positions",
-    "best_graph_candidate_rank_after_rerank",
-    "graph_chunks_survived_final_context_count",
-    "graph_survival_rate",
-    "graph_chunks_survived_final_context",
-    "distinct_papers_in_final_context",
-    "graph_neighbor_resolution_sample",
-    "graph_concept_candidate_papers",
-    "graph_bridge_candidate_papers",
-    "graph_chunks_before_rerank"
-]
-
-NEW_SUMMARY_HEADERS = [
-    "Graph Retrieval Enabled Rate",
-    "Graph Retrieval Skipped Rate",
-    "Avg Query Concepts",
-    "Avg Strong Query Concepts",
-    "Avg Dropped Query Concepts",
-    "Avg Graph Neighbor Nodes",
-    "Avg Graph Neighbor Paper Nodes",
-    "Avg Graph Neighbor Local Papers",
-    "Avg Graph Neighbor Papers With Chunks",
-    "Avg Graph Neighbor Chunks Retrieved",
-    "Avg Base Candidates",
-    "Avg Graph Chunk Candidates",
-    "Avg Merged Candidates Before Reranker",
-    "Avg Reranker Input Before Limit",
-    "Avg Reranker Input After Limit",
-    "Avg Candidates After Reranker",
-    "Graph Survival Rate",
-    "Queries With Graph Chunks",
-    "Queries With Graph Chunks Survived",
-    "Avg Best Graph Candidate Rank",
-    "Avg Graph Neighbor Candidates",
-    "Avg Graph Concept Candidates",
-    "Avg Graph Bridge Candidates"
+    "Avg Graph Bridge Candidates",
+    # Logit-level telemetry summary headers
+    "Avg MSP",
+    "Avg Logit Margin",
+    "Avg First Token Margin",
+    "Avg First Token MSP",
+    "Avg Citation Entropy",
+    "Avg LL RAG",
+    "Avg LL Base",
+    "Avg CLR",
 ]
 
 
@@ -307,9 +262,9 @@ def print_rich_tables(stats: dict) -> None:
         console.print(table_graph)
         console.print()
 
-    # 1.6. Shannon Estimator Diagnostics Table
+    # 1.6. Shannon Estimator & Logit Telemetry Diagnostics Table
     if stats.get("has_shannon") or any(stats["summary"][b].get("shannon_summary") for b in stats["baselines"]):
-        table_shannon = Table(title="[bold]Shannon Estimator Diagnostics (bits)[/bold]", box=ROUNDED, header_style="bold blue")
+        table_shannon = Table(title="[bold]Shannon Estimator & Logit Telemetry Diagnostics[/bold]", box=ROUNDED, header_style="bold blue")
         table_shannon.add_column("Baseline", style="cyan", no_wrap=True)
         table_shannon.add_column("H_rank (pre/post)", justify="right")
         table_shannon.add_column("H_lexical (pre/post)", justify="right")
@@ -318,6 +273,13 @@ def print_rich_tables(stats: dict) -> None:
         table_shannon.add_column("H_citation", justify="right")
         table_shannon.add_column("Cit Tokens", justify="right")
         table_shannon.add_column("ΔH_gen", justify="right")
+        table_shannon.add_column("MSP", justify="right")
+        table_shannon.add_column("Logit Margin", justify="right")
+        table_shannon.add_column("1st Tok Margin", justify="right")
+        table_shannon.add_column("1st Tok MSP", justify="right")
+        table_shannon.add_column("LL_rag", justify="right")
+        table_shannon.add_column("LL_base", justify="right")
+        table_shannon.add_column("CLR", justify="right")
 
         for b in stats["baselines"]:
             ss = stats["summary"][b].get("shannon_summary", {})
@@ -328,9 +290,16 @@ def print_rich_tables(stats: dict) -> None:
             h_g_rel = ss.get("h_graph_relation_type", 0.0)
             h_g_deg = ss.get("h_graph_degree", 0.0)
             h_gen = ss.get("h_gen", 0.0)
-            h_cit = ss.get("h_citation", 0.0)
+            h_cit = ss.get("citation_entropy", ss.get("h_citation", 0.0))
             n_cit = ss.get("n_citation_tokens", 0)
             d_h = ss.get("delta_h_gen", 0.0)
+            msp_v = ss.get("avg_msp", ss.get("msp", 0.0))
+            margin_v = ss.get("avg_logit_margin", ss.get("logit_margin", 0.0))
+            ft_margin = ss.get("first_token_margin", 0.0)
+            ft_msp = ss.get("first_token_msp", 0.0)
+            ll_rag = ss.get("ll_rag", 0.0)
+            ll_base = ss.get("ll_base", 0.0)
+            clr_v = ss.get("clr", 0.0)
 
             table_shannon.add_row(
                 b,
@@ -340,7 +309,14 @@ def print_rich_tables(stats: dict) -> None:
                 f"{h_gen:.4f}",
                 f"{h_cit:.4f}",
                 f"{n_cit:.1f}",
-                f"{d_h:+.4f}"
+                f"{d_h:+.4f}",
+                f"{msp_v:.4f}",
+                f"{margin_v:.4f}",
+                f"{ft_margin:.4f}",
+                f"{ft_msp:.4f}",
+                f"{ll_rag:.4f}",
+                f"{ll_base:.4f}",
+                f"{clr_v:.4f}"
             )
         console.print(table_shannon)
         console.print()
@@ -967,13 +943,13 @@ def generate_markdown_report(
         lines.append("Graph retrieval trace was not found for this run.")
         lines.append("")
     
-    # Shannon Estimator Diagnostics Section
+    # Shannon Estimator & Logit Telemetry Diagnostics Section
     if stats.get("has_shannon") or any(stats["summary"][b].get("shannon_summary") for b in stats["baselines"]):
-        lines.append("## ⚛️ Shannon Estimator Diagnostics (Entropy in Bits)")
-        lines.append("Entropy estimation at processing stages (ranking, lexical context, graph, generation, and citation):")
+        lines.append("## ⚛️ Shannon Estimator & Logit Telemetry Diagnostics")
+        lines.append("Entropy and logit-level telemetry metrics (bits, probabilities, margins, log-likelihoods):")
         lines.append("")
-        lines.append("| Baseline | H_rank (pre -> post) | H_lexical (pre -> post) | H_graph (rel / deg) | H_gen | H_citation | Citation Tokens | ΔH_gen |")
-        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        lines.append("| Baseline | H_rank (pre -> post) | H_lexical (pre -> post) | H_graph (rel / deg) | H_gen | H_citation | Citation Tokens | ΔH_gen | MSP | Logit Margin | 1st Tok Margin | 1st Tok MSP | LL_rag | LL_base | CLR |")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for b in stats["baselines"]:
             ss = stats["summary"][b].get("shannon_summary", {})
             h_r_pre = ss.get("h_rank_pre_rerank", 0.0)
@@ -983,9 +959,16 @@ def generate_markdown_report(
             h_g_rel = ss.get("h_graph_relation_type", 0.0)
             h_g_deg = ss.get("h_graph_degree", 0.0)
             h_gen = ss.get("h_gen", 0.0)
-            h_cit = ss.get("h_citation", 0.0)
+            h_cit = ss.get("citation_entropy", ss.get("h_citation", 0.0))
             n_cit = ss.get("n_citation_tokens", 0)
             d_h = ss.get("delta_h_gen", 0.0)
+            msp_v = ss.get("avg_msp", ss.get("msp", 0.0))
+            margin_v = ss.get("avg_logit_margin", ss.get("logit_margin", 0.0))
+            ft_margin = ss.get("first_token_margin", 0.0)
+            ft_msp = ss.get("first_token_msp", 0.0)
+            ll_rag = ss.get("ll_rag", 0.0)
+            ll_base = ss.get("ll_base", 0.0)
+            clr_v = ss.get("clr", 0.0)
             row = [
                 f"**{b}**",
                 f"{h_r_pre:.2f} -> {h_r_post:.2f}",
@@ -994,7 +977,14 @@ def generate_markdown_report(
                 f"{h_gen:.4f}",
                 f"{h_cit:.4f}",
                 f"{n_cit:.1f}",
-                f"{d_h:+.4f}"
+                f"{d_h:+.4f}",
+                f"{msp_v:.4f}",
+                f"{margin_v:.4f}",
+                f"{ft_margin:.4f}",
+                f"{ft_msp:.4f}",
+                f"{ll_rag:.4f}",
+                f"{ll_base:.4f}",
+                f"{clr_v:.4f}"
             ]
             lines.append("| " + " | ".join(row) + " |")
         lines.append("")
@@ -1111,7 +1101,26 @@ def export_wide_csv(stats: dict, csv_path: Path) -> None:
                 get_gd_val("avg_concept_cand"),
                 get_gd_val("avg_bridge_cand")
             ]
-            
+
+            ss = stats["summary"][b].get("shannon_summary", {})
+
+            def get_ss_val(key, default=0.0):
+                val = ss.get(key)
+                if val is None:
+                    return default
+                return val
+
+            row_vals += [
+                get_ss_val("avg_msp", get_ss_val("msp", 0.0)),
+                get_ss_val("avg_logit_margin", get_ss_val("logit_margin", 0.0)),
+                get_ss_val("first_token_margin", 0.0),
+                get_ss_val("first_token_msp", 0.0),
+                get_ss_val("citation_entropy", get_ss_val("h_citation", 0.0)),
+                get_ss_val("ll_rag", 0.0),
+                get_ss_val("ll_base", 0.0),
+                get_ss_val("clr", 0.0),
+            ]
+
             writer.writerow(row_vals)
 
 
@@ -1253,9 +1262,11 @@ def export_detailed_csv(data: Any, stats: dict, csv_path: Path) -> None:
                     ans_tokens
                 ]
 
-                # Append new graph retrieval diagnostic fields
+                # Append new graph retrieval diagnostic & logit telemetry fields
                 for field in NEW_CSV_FIELDS:
                     val = b_data.get(field)
+                    if val is None and isinstance(b_data.get("shannon_diagnostics"), dict):
+                        val = b_data["shannon_diagnostics"].get(field)
                     row_vals.append(format_csv_cell(val))
 
                 writer.writerow(row_vals)

@@ -36,6 +36,32 @@ class StageMetrics(BaseModel):
     total_latency: Optional[float] = None
 
 
+class ShannonDiagnostics(BaseModel):
+    """Represents Shannon diagnostics and logit-level telemetry metrics."""
+    model_config = ConfigDict(extra="allow")
+
+    h_rank_pre_rerank: Optional[float] = 0.0
+    h_rank_post_rerank: Optional[float] = 0.0
+    h_lexical_pre_trim: Optional[float] = 0.0
+    h_lexical_post_trim: Optional[float] = 0.0
+    h_graph_relation_type: Optional[float] = 0.0
+    h_graph_degree: Optional[float] = 0.0
+    h_gen: Optional[float] = 0.0
+    h_citation: Optional[float] = 0.0
+    n_citation_tokens: Optional[int] = 0
+    delta_h_gen: Optional[float] = 0.0
+    msp: Optional[float] = None
+    avg_msp: Optional[float] = None
+    logit_margin: Optional[float] = None
+    avg_logit_margin: Optional[float] = None
+    first_token_margin: Optional[float] = None
+    first_token_msp: Optional[float] = None
+    citation_entropy: Optional[float] = None
+    ll_rag: Optional[float] = None
+    ll_base: Optional[float] = None
+    clr: Optional[float] = None
+
+
 class BaselineOutput(BaseModel):
     """Represents the results of running a single baseline on a test case."""
     model_config = ConfigDict(extra="allow")
@@ -58,6 +84,16 @@ class BaselineOutput(BaseModel):
     eval_metrics: Optional[Dict[str, Any]] = None
     shannon_diagnostics: Optional[Dict[str, Any]] = None
     trace: Optional[Dict[str, Any]] = None
+    msp: Optional[float] = None
+    avg_msp: Optional[float] = None
+    logit_margin: Optional[float] = None
+    avg_logit_margin: Optional[float] = None
+    first_token_margin: Optional[float] = None
+    first_token_msp: Optional[float] = None
+    citation_entropy: Optional[float] = None
+    ll_rag: Optional[float] = None
+    ll_base: Optional[float] = None
+    clr: Optional[float] = None
 
 
 class TestCaseOutput(BaseModel):

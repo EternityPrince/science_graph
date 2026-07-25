@@ -199,5 +199,48 @@ def test_analyze_metrics_pairwise_win_rates():
     # Win rates check
     # B1 retrieval_recall win rate against B2 is 100%
     assert res["pairwise_win_rates"]["retrieval_recall"]["B1"]["B2"] == 100.0
-    # B2 latency_sec win rate against B1 is 100%
+    # B2 latency_sec win rate against B1 is 100% (since lower latency is a win)
     assert res["pairwise_win_rates"]["latency_sec"]["B2"]["B1"] == 100.0
+
+
+def test_analyze_metrics_logit_telemetry():
+    data = {
+        "results": [
+            {
+                "id": "q1",
+                "query": "Q1",
+                "category": "cat1",
+                "baselines": {
+                    "B1": {
+                        "status": "success",
+                        "latency_sec": 1.0,
+                        "shannon_diagnostics": {
+                            "msp": 0.95,
+                            "avg_msp": 0.90,
+                            "logit_margin": 2.8,
+                            "avg_logit_margin": 2.4,
+                            "first_token_margin": 3.1,
+                            "first_token_msp": 0.98,
+                            "citation_entropy": 0.12,
+                            "ll_rag": -1.5,
+                            "ll_base": -5.0,
+                            "clr": 3.5,
+                        },
+                        "eval_metrics": {"semantic_accuracy": 0.9}
+                    }
+                }
+            }
+        ]
+    }
+    res = analyze_metrics(data)
+    sh_sum = res["summary"]["B1"]["shannon_summary"]
+    assert sh_sum["msp"] == 0.95
+    assert sh_sum["avg_msp"] == 0.90
+    assert sh_sum["logit_margin"] == 2.8
+    assert sh_sum["avg_logit_margin"] == 2.4
+    assert sh_sum["first_token_margin"] == 3.1
+    assert sh_sum["first_token_msp"] == 0.98
+    assert sh_sum["citation_entropy"] == 0.12
+    assert sh_sum["ll_rag"] == -1.5
+    assert sh_sum["ll_base"] == -5.0
+    assert sh_sum["clr"] == 3.5

@@ -372,6 +372,19 @@ class MetricsParser:
                         is_ans = True
                     else:
                         is_ans = str(is_ans).lower() == "true"
+                    sh_diag = b_data.get("shannon_diagnostics", {}) if isinstance(b_data.get("shannon_diagnostics"), dict) else {}
+                    def get_telemetry(key: str, alt_key: str | None = None):
+                        v = b_data.get(key)
+                        if v is None and alt_key:
+                            v = b_data.get(alt_key)
+                        if v is None:
+                            v = sh_diag.get(key)
+                        if v is None and alt_key:
+                            v = sh_diag.get(alt_key)
+                        if v is None and isinstance(eval_metrics, dict):
+                            v = eval_metrics.get(key) or (eval_metrics.get(alt_key) if alt_key else None)
+                        return v
+
                     metrics_rows.append({
                         "query_id": q_id,
                         "category": category,
@@ -389,6 +402,16 @@ class MetricsParser:
                         "context_fillness": eval_metrics.get("context_fillness"),
                         "ar_sa_f1": eval_metrics.get("ar_sa_f1"),
                         "latency_sec": b_data.get("latency_sec"),
+                        "msp": get_telemetry("msp", "avg_msp"),
+                        "avg_msp": get_telemetry("avg_msp", "msp"),
+                        "logit_margin": get_telemetry("logit_margin", "avg_logit_margin"),
+                        "avg_logit_margin": get_telemetry("avg_logit_margin", "logit_margin"),
+                        "first_token_margin": get_telemetry("first_token_margin"),
+                        "first_token_msp": get_telemetry("first_token_msp"),
+                        "citation_entropy": get_telemetry("citation_entropy", "h_citation"),
+                        "ll_rag": get_telemetry("ll_rag"),
+                        "ll_base": get_telemetry("ll_base"),
+                        "clr": get_telemetry("clr"),
                     })
         elif self.csv_details_path.exists():
             try:
@@ -436,6 +459,16 @@ class MetricsParser:
                 "context_fillness": r.get("context_fillness"),
                 "ar_sa_f1": r.get("ar_sa_f1"),
                 "latency_sec": r.get("latency_sec"),
+                "msp": r.get("msp"),
+                "avg_msp": r.get("avg_msp"),
+                "logit_margin": r.get("logit_margin"),
+                "avg_logit_margin": r.get("avg_logit_margin"),
+                "first_token_margin": r.get("first_token_margin"),
+                "first_token_msp": r.get("first_token_msp"),
+                "citation_entropy": r.get("citation_entropy"),
+                "ll_rag": r.get("ll_rag"),
+                "ll_base": r.get("ll_base"),
+                "clr": r.get("clr"),
             }
 
         if graph_rows:
@@ -477,6 +510,8 @@ class MetricsParser:
                     "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
                     "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1",
                     "is_answerable", "predicted_abstained", "answerability_outcome", "latency_sec",
+                    "msp", "avg_msp", "logit_margin", "avg_logit_margin", "first_token_margin",
+                    "first_token_msp", "citation_entropy", "ll_rag", "ll_base", "clr",
                 ]:
                     if r.get(m) is not None and (joined_data[key].get(m) is None or joined_data[key].get(m) == ""):
                         joined_data[key][m] = r[m]
@@ -487,6 +522,8 @@ class MetricsParser:
         "query_id", "baseline", "category", "is_answerable", "predicted_abstained", "answerability_outcome",
         "retrieval_recall", "context_precision", "faithfulness", "answer_relevance",
         "citation_fidelity", "semantic_accuracy", "context_fillness", "ar_sa_f1", "latency_sec",
+        "msp", "avg_msp", "logit_margin", "avg_logit_margin", "first_token_margin", "first_token_msp",
+        "citation_entropy", "ll_rag", "ll_base", "clr",
         "graph_retrieval_enabled", "graph_retrieval_skip_reason",
         "base_candidates_count", "graph_neighbor_paper_ids_count",
         "graph_chunk_candidates_count", "merged_candidates_count_before_reranker",
@@ -521,6 +558,8 @@ class MetricsParser:
             for m in [
                 "semantic_accuracy", "faithfulness", "latency_sec", "retrieval_recall",
                 "context_precision", "answer_relevance", "ar_sa_f1",
+                "msp", "avg_msp", "logit_margin", "avg_logit_margin", "first_token_margin",
+                "first_token_msp", "citation_entropy", "ll_rag", "ll_base", "clr",
             ]:
                 vals = []
                 for row in b_rows:

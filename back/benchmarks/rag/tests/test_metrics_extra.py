@@ -2,6 +2,7 @@ import pytest
 import sys
 from unittest.mock import MagicMock, patch
 from core.metrics import (
+    normalize_id,
     calculate_retrieval_recall,
     calculate_context_precision,
     compute_cosine_similarity,
@@ -10,6 +11,39 @@ from core.metrics import (
     estimate_prompt_tokens,
     get_embedding_engine
 )
+from core.retrieval import normalize_component_scores
+
+
+def test_normalize_id():
+    assert normalize_id(None) == ""
+    assert normalize_id("") == ""
+    assert normalize_id("  ") == ""
+    assert normalize_id("DOC-42") == "doc_42"
+    assert normalize_id("docs/doc_42") == "doc_42"
+    assert normalize_id("data/sub/DOC-42.pdf") == "doc_42"
+    assert normalize_id("doc_42_chunk_3") == "doc_42"
+    assert normalize_id("DATA/DOC-42#chunk-5") == "doc_42"
+    assert normalize_id("10.21869/2223-1560-2025-29-2-130-145") == "10.21869_2223_1560_2025_29_2_130_145"
+    assert normalize_id("docs/10.21869/2223-1560-2025-29-2-130-145_chunk_1") == "10.21869_2223_1560_2025_29_2_130_145"
+
+
+def test_normalize_component_scores():
+    assert normalize_component_scores([]) == []
+    assert normalize_component_scores([5.0]) == [1.0]
+    assert normalize_component_scores([5.0, 5.0, 5.0]) == [1.0, 1.0, 1.0]
+    assert normalize_component_scores([10.0, 20.0, 30.0]) == [0.0, 0.5, 1.0]
+    assert normalize_component_scores([-1.0, 0.0, 1.0]) == [0.0, 0.5, 1.0]
+
+
+def test_calculate_retrieval_recall_chunk_normalization():
+    assert calculate_retrieval_recall(["doc_42"], ["docs/doc_42_chunk_3"]) == 1.0
+    assert calculate_retrieval_recall(["DOC-42"], ["data/doc-42#chunk-1"]) == 1.0
+
+
+def test_calculate_context_precision_chunk_normalization():
+    chunks = [{"paper_id": "docs/DOC-42#chunk_1"}]
+    assert calculate_context_precision(["doc_42"], chunks) == 1.0
+
 
 def test_calculate_retrieval_recall_edge_cases():
     assert calculate_retrieval_recall([], []) == 1.0

@@ -18,6 +18,23 @@ from src.config import config
 from src import console as con
 
 
+def normalize_component_scores(scores: list[float]) -> list[float]:
+    """Scales raw scores from BM25 (unbounded float), Dense Vectors (Cosine/Dot),
+    and Graph algorithms into [0, 1] range using Min-Max scaling across the retrieved batch.
+
+    Edge Case Handling: If all scores are identical or if a single document is returned (max == min),
+    returns [1.0] for all scores to prevent division by zero / NaN.
+    """
+    if not scores:
+        return []
+    min_score = min(scores)
+    max_score = max(scores)
+    if max_score == min_score:
+        return [1.0] * len(scores)
+    score_range = max_score - min_score
+    return [(s - min_score) / score_range for s in scores]
+
+
 def _clear_gpu_cache() -> None:
     """Flushes PyTorch MPS/GPU memory cache and executes garbage collection."""
     gc.collect()
@@ -407,16 +424,10 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
 
             if components_settings.get("reranker", False) and candidates:
                 c_scores = [reranker_scores_map.get((query, baseline, c.id), 0.0) for c in candidates]
-                min_r = min(c_scores)
-                max_r = max(c_scores)
-                range_r = max_r - min_r if max_r > min_r else 1.0
-                norm_r = [(s - min_r) / range_r for s in c_scores]
+                norm_r = normalize_component_scores(c_scores)
 
                 rrf_vals = [rrf_scores[c.id] for c in candidates]
-                min_rrf = min(rrf_vals)
-                max_rrf = max(rrf_vals)
-                range_rrf = max_rrf - min_rrf if max_rrf > min_rrf else 1.0
-                norm_rrf = [(rrf_scores[c.id] - min_rrf) / range_rrf for c in candidates]
+                norm_rrf = normalize_component_scores(rrf_vals)
 
                 scored_candidates = []
                 for idx, c in enumerate(candidates):
