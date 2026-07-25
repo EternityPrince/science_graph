@@ -129,10 +129,14 @@ def save_generation_baseline_result(
     force_flush: bool = True
 ):
     def modify_fn(existing_data):
+        orig_meta = existing_data.get("metadata", {}) if isinstance(existing_data, dict) else {}
+        if not isinstance(orig_meta, dict):
+            orig_meta = {}
+        safe_meta = metadata if isinstance(metadata, dict) else {}
         if not existing_data or not isinstance(existing_data, dict):
-            existing_data = {"metadata": metadata, "results": []}
+            existing_data = {"metadata": safe_meta, "results": []}
         else:
-            existing_data["metadata"] = {**existing_data.get("metadata", {}), **metadata}
+            existing_data["metadata"] = {**orig_meta, **safe_meta}
 
         results = existing_data.get("results", [])
         case_item = next((r for r in results if r.get("id") == case_id), None)
@@ -169,10 +173,14 @@ def save_evaluation_baseline_result(
     eval_details = eval_metrics_raw.get("eval_details", {})
 
     def modify_fn(existing_data):
+        orig_meta = existing_data.get("metadata", {}) if isinstance(existing_data, dict) else {}
+        if not isinstance(orig_meta, dict):
+            orig_meta = {}
+        safe_meta = metadata if isinstance(metadata, dict) else {}
         if not existing_data or not isinstance(existing_data, dict):
-            existing_data = {"metadata": metadata, "results": []}
+            existing_data = {"metadata": safe_meta, "results": []}
         else:
-            existing_data["metadata"] = {**existing_data.get("metadata", {}), **metadata}
+            existing_data["metadata"] = {**orig_meta, **safe_meta}
 
         results = existing_data.get("results", [])
         case_item = next((r for r in results if r.get("id") == case_id), None)
@@ -188,6 +196,10 @@ def save_evaluation_baseline_result(
             }
             results.append(case_item)
 
+        tokens_info = baseline_data.get("tokens_info")
+        if tokens_info is None:
+            tokens_info = baseline_data.get("metrics", {}).get("tokens_info", [])
+
         case_item["baselines"][baseline_name] = {
             "status": baseline_data.get("status", "success"),
             "latency_sec": baseline_data.get("latency_sec"),
@@ -199,6 +211,7 @@ def save_evaluation_baseline_result(
             "context_token": baseline_data.get("context_token"),
             "max_input_token": baseline_data.get("max_input_token"),
             "context_fillness": baseline_data.get("context_fillness"),
+            "tokens_info": tokens_info,
             "trace": baseline_data.get("trace")
         }
         existing_data["results"] = results
@@ -272,6 +285,7 @@ def generate_baseline_case(
     
     query = case.get("query")
     trace = None
+    tokens_info = []
     if pre_contexts:
         pre_case = pre_contexts.get(case_id, {})
         pre_baseline = pre_case.get("baselines", {}).get(baseline, {}) if pre_case else {}
@@ -294,7 +308,7 @@ def generate_baseline_case(
             elapsed = 0.0
             raw_response = ""
         else:
-            retrieved = pre_baseline.get("retrieved_papers", []),
+            retrieved = pre_baseline.get("retrieved_papers", [])
             retrieved = retrieved[0] if isinstance(retrieved, tuple) else retrieved
             chunks = pre_baseline.get("retrieved_chunks", [])
             trimmed_text = pre_baseline.get("trimmed_text", "")
@@ -437,6 +451,8 @@ def generate_baseline_case(
                             "delta_h_gen": round(delta_h, 4),
                         }
                     metrics["shannon_diagnostics"] = shannon_diag
+                if tokens_info:
+                    metrics["tokens_info"] = tokens_info
 
 
                 if trace:
@@ -532,7 +548,7 @@ def generate_baseline_case(
         "trace": trace
     }
     if getattr(args, "logit_save", False) or "tokens_info" in metrics:
-        res_dict["tokens_info"] = metrics.get("tokens_info", [])
+        res_dict["tokens_info"] = metrics.get("tokens_info", tokens_info if tokens_info else [])
     return res_dict
 
 
@@ -808,6 +824,7 @@ async def run_pipelined_stage_async(
             flush_yaml_buffer()
             save_checkpoint(checkpoint_path, checkpoint_data, force=True)
         
+    flush_yaml_buffer()
     try:
         from core.reporting import save_judge_report, save_individual_judge_reports
         with open(metrics_results, "r", encoding="utf-8") as f:
@@ -821,6 +838,7 @@ async def run_pipelined_stage_async(
         
     if getattr(args, "logit_save", False):
         try:
+            flush_yaml_buffer()
             from core.reporting import save_raw_logits_yaml
             with open(eval_results, "r", encoding="utf-8") as f:
                 eval_data = yaml.safe_load(f) or {}

@@ -1457,6 +1457,121 @@ def test_save_raw_logits_yaml(tmp_path):
     assert len(loaded["results"][0]["baselines"]["B0"]["tokens_info"]) == 2
 
 
+def test_save_evaluation_baseline_result_preserves_tokens_info(tmp_path):
+    """Verify save_evaluation_baseline_result preserves tokens_info in baseline output."""
+    from core.pipelined import save_evaluation_baseline_result
+    file_path = tmp_path / "evaluation_results.yaml"
+
+    case_info = {"category": "test", "query": "What is energy?", "golden_answer": "Capacity to do work."}
+    tokens_info_data = [{"token_id": 10, "token_text": "Energy", "entropy": 0.05}]
+    baseline_data = {
+        "status": "success",
+        "latency_sec": 0.5,
+        "tokens_info": tokens_info_data,
+        "generated_answer": "Energy is work."
+    }
+
+    save_evaluation_baseline_result(file_path, "Q100", case_info, "B1", baseline_data, {}, {})
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    case_res = data["results"][0]
+    assert case_res["baselines"]["B1"]["tokens_info"] == tokens_info_data
+
+
+@pytest.mark.asyncio
+@patch("core.evaluator.CloudEvaluator.call_llm")
+@patch("src.services.container.container.get_rag_service")
+async def test_pipelined_stage_execution_logit_save(mock_get_rag_service, mock_call_llm, tmp_path):
+    """Verify run_pipelined_stage_async generates raw_logits.yaml with non-empty tokens_info when logit_save is active."""
+    import yaml
+    import json
+    from core.pipelined import run_pipelined_stage_async
+
+    async def mock_call_llm_fn(system_prompt, user_prompt):
+        return json.dumps({"answer_relevance": {"score": 0.9}, "semantic_accuracy": {"score": 0.8}})
+    mock_call_llm.side_effect = mock_call_llm_fn
+
+    rag_service = MagicMock()
+    mock_tokens_info = [{"token_id": 1, "token_text": "Sample", "entropy": 0.12}]
+    rag_service.llm_engine.generate_response_with_logits.return_value = ("generated pipelined response", mock_tokens_info)
+    rag_service.llm_engine.generate_response.return_value = "generated pipelined response"
+    rag_service.llm_engine.count_tokens.return_value = 10
+    rag_service.llm_engine.unload_model = MagicMock()
+    rag_service.ask.return_value = "ask response"
+    rag_service.last_raw_response = "raw response"
+
+    class MockChunk:
+        def __init__(self, cid, pid, text, page):
+            self.id = cid
+            self.paper_id = pid
+            self.text_content = text
+            self.page_number = page
+
+    mock_chunk = MockChunk("c1", "p1", "scientific context", 1)
+    rag_service.retrieve_relevant_chunks.return_value = [(mock_chunk, 0.95)]
+
+    mock_get_rag_service.return_value = rag_service
+
+    dataset_path = tmp_path / "dataset.yaml"
+    dataset_content = [
+        {"id": "Q1", "query": "First query?", "golden_answer": "Golden 1"}
+    ]
+    with open(dataset_path, "w", encoding="utf-8") as f:
+        yaml.dump(dataset_content, f)
+
+    mock_config = MagicMock()
+    mock_config.data = {
+        "llm": {"provider": "local", "local": {"model_path": "test_model"}, "temp": 0.0, "max_tokens": 100},
+        "embedding": {"model_name": "test_emb"},
+        "rag_components": {"reranker": False, "citation_repair": False}
+    }
+    mock_config.rag_components = mock_config.data["rag_components"]
+    mock_config.llm_model_max_context = 4096
+    mock_config.reranker_model_name = "disabled"
+    mock_config.llm_cloud_base_url = "https://api.openai.com/v1"
+    mock_config.llm_cloud_api_key = "dummy_key"
+    mock_config.llm_cloud_model_name = "gpt-4o-mini"
+
+    eval_results = tmp_path / "evaluation_results.yaml"
+    metrics_results = tmp_path / "result_metrics.yaml"
+
+    args = MagicMock()
+    args.limit = 1
+    args.consume_contexts = None
+    args.cloud = False
+    args.concurrency = 1
+    args.rpm = 100
+    args.retries = 1
+    args.clear_checkpoint = True
+    args.logit_save = True
+
+    await run_pipelined_stage_async(
+        args=args,
+        config=mock_config,
+        run_dir=tmp_path,
+        dataset_path=dataset_path,
+        baselines_to_run=["B0"],
+        eval_results=eval_results,
+        metrics_results=metrics_results,
+        retrieved_contexts_file=None,
+        total_steps=1
+    )
+
+    logits_path = tmp_path / "raw_logits.yaml"
+    assert logits_path.exists()
+    with open(logits_path, "r", encoding="utf-8") as f:
+        logits_data = yaml.safe_load(f)
+
+    assert len(logits_data["results"]) == 1
+    tokens = logits_data["results"][0]["baselines"]["B0"]["tokens_info"]
+    assert len(tokens) == 1
+    assert tokens[0]["token_text"] == "Sample"
+
+
+
+
 
 
 
