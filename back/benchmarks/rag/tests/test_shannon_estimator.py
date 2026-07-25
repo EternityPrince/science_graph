@@ -433,3 +433,59 @@ def test_occ_rag_1_7b_integration_logits_shannon_entropy():
     if n_cit > 0:
         assert h_cit > 0.0, f"Expected non-zero H_citation when citation tokens present, got {h_cit}"
 
+
+def test_build_token_char_spans_and_map_offset():
+    from core.shannon_estimator import build_token_char_spans, map_char_offset_to_token_idx
+
+    tokens_info = [
+        {"token": "Hello", "logprob": -0.1},
+        {"token": " World", "logprob": -0.2},
+        {"token": "!", "logprob": -0.05},
+    ]
+
+    spans = build_token_char_spans(tokens_info)
+    assert spans == [(0, 5), (5, 11), (11, 12)]
+    assert tokens_info[0]["char_start"] == 0
+    assert tokens_info[0]["char_end"] == 5
+
+    # Boundary and in-token mappings
+    assert map_char_offset_to_token_idx(0, spans) == 0
+    assert map_char_offset_to_token_idx(3, spans) == 0
+    assert map_char_offset_to_token_idx(5, spans) == 1
+    assert map_char_offset_to_token_idx(10, spans) == 1
+    assert map_char_offset_to_token_idx(11, spans) == 2
+    assert map_char_offset_to_token_idx(100, spans) == 2
+    assert map_char_offset_to_token_idx(-5, spans) == 0
+
+    # Empty spans edge case
+    assert map_char_offset_to_token_idx(5, []) == 0
+
+
+def test_compute_log_likelihood_and_clr():
+    from core.shannon_estimator import compute_log_likelihood, compute_clr
+
+    rag_tokens = [
+        {"token": "The", "logprob": -0.5},
+        {"token": " answer", "logprob": -1.0},
+        {"token": " is", "logprob": -0.2},
+    ]
+    base_tokens = [
+        {"token": "The", "logprob": -1.5},
+        {"token": " answer", "logprob": -2.0},
+        {"token": " is", "logprob": -1.0},
+    ]
+
+    ll_rag = compute_log_likelihood(rag_tokens)
+    ll_base = compute_log_likelihood(base_tokens)
+
+    assert math.isclose(ll_rag, -1.7)
+    assert math.isclose(ll_base, -4.5)
+
+    clr = compute_clr(ll_rag, ll_base)
+    assert math.isclose(clr, 2.8)
+
+    # Empty tokens edge cases
+    assert compute_log_likelihood([]) == 0.0
+    assert compute_clr(0.0, 0.0) == 0.0
+
+

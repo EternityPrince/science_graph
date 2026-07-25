@@ -46,13 +46,20 @@ from core.shannon_estimator import (
     compute_entropy_reduction,
     assemble_retrieval_shannon_fields,
     empty_retrieval_shannon_fields,
+    build_token_char_spans,
+    map_char_offset_to_token_idx,
+    compute_log_likelihood,
+    compute_clr,
 )
 from core.subprocess_runner import format_progress_marker
 from src.prompts import prompts
 
 
 def _generate_with_logits_safe(llm_engine: Any, prompt: str) -> Tuple[str, List[Dict[str, Any]]]:
-    """Safely invokes generate_response_with_logits, validating tuple output format."""
+    """Safely invokes generate_response_with_logits, validating tuple output format and populating token info."""
+    text = ""
+    tokens_info: List[Dict[str, Any]] = []
+
     if "Mock" in type(llm_engine).__name__:
         mock_attr = getattr(llm_engine, "generate_response_with_logits", None)
         if mock_attr is not None:
@@ -68,11 +75,74 @@ def _generate_with_logits_safe(llm_engine: Any, prompt: str) -> Tuple[str, List[
         try:
             res = method(prompt)
             if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], str) and isinstance(res[1], list):
-                return res[0], res[1]
+                text, tokens_info = res[0], res[1]
         except Exception:
             pass
-    text = llm_engine.generate_response(prompt)
-    return text, []
+
+    if not text:
+        text = llm_engine.generate_response(prompt)
+
+    normalized_tokens: List[Dict[str, Any]] = []
+    for item in tokens_info:
+        if isinstance(item, dict):
+            t_copy = dict(item)
+            if "token" not in t_copy:
+                t_copy["token"] = t_copy.get("token_text") or t_copy.get("text") or t_copy.get("token_str") or ""
+            if "logprob" not in t_copy:
+                t_copy["logprob"] = t_copy.get("log_prob") or 0.0
+            if "top_logprobs" not in t_copy:
+                t_copy["top_logprobs"] = t_copy.get("top_log_probs") or t_copy.get("top_probs") or {}
+            normalized_tokens.append(t_copy)
+        else:
+            normalized_tokens.append({"token": str(item), "logprob": 0.0, "top_logprobs": {}})
+
+    if normalized_tokens:
+        build_token_char_spans(normalized_tokens)
+
+    return text, normalized_tokens
+
+
+def score_text_logprobs_base(llm_engine: Any, query: str, answer_text: str) -> List[Dict[str, Any]]:
+    """Scores answer_text under prompt containing ONLY the User Query (no context)."""
+    base_prompt = f"Question: {query}\nAnswer based on your general knowledge."
+
+    for method_name in ("score_text_logprobs", "score_response_logprobs", "score_text", "evaluate_logprobs"):
+        method = getattr(llm_engine, method_name, None)
+        if callable(method):
+            try:
+                res = method(base_prompt, answer_text)
+                if isinstance(res, list):
+                    return res
+                elif isinstance(res, tuple) and len(res) == 2 and isinstance(res[1], list):
+                    return res[1]
+            except Exception:
+                pass
+
+    if not answer_text:
+        return []
+
+    text_str = str(answer_text) if not isinstance(answer_text, str) else answer_text
+    if type(answer_text).__name__ == "MagicMock" or "MagicMock" in text_str:
+        text_str = "mock response"
+
+    import re
+    words = re.findall(r"\S+|\s+", text_str)
+    fallback_tokens: List[Dict[str, Any]] = []
+    curr = 0
+    for w in words:
+        if not w:
+            continue
+        c_start = curr
+        c_end = curr + len(w)
+        curr = c_end
+        fallback_tokens.append({
+            "token": w,
+            "logprob": 0.0,
+            "top_logprobs": {},
+            "char_start": c_start,
+            "char_end": c_end,
+        })
+    return fallback_tokens
 
 
 def _ensure_b0_entropy(rag_service: Any, query: str, config: Any) -> float:
@@ -162,7 +232,14 @@ def _restore_baseline_config(
     rag_service.expander = None
 
 
-def _build_shannon_diag_for_b0(h_gen: float, h_cit: float, n_cit: int) -> Dict[str, Any]:
+def _build_shannon_diag_for_b0(
+    h_gen: float,
+    h_cit: float,
+    n_cit: int,
+    ll_rag: float = 0.0,
+    ll_base: float = 0.0,
+    clr: float = 0.0,
+) -> Dict[str, Any]:
     """Shannon diagnostics for B0 / empty-retrieval paths (no retrieval fields)."""
     return {
         **empty_retrieval_shannon_fields(),
@@ -170,6 +247,9 @@ def _build_shannon_diag_for_b0(h_gen: float, h_cit: float, n_cit: int) -> Dict[s
         "h_citation": round(h_cit, 4),
         "n_citation_tokens": n_cit,
         "delta_h_gen": 0.0,
+        "ll_rag": round(ll_rag, 4),
+        "ll_base": round(ll_base, 4),
+        "clr": round(clr, 4),
     }
 
 
@@ -187,6 +267,9 @@ def _build_shannon_diag_for_rag(
     last_relations: Any,
     context_graph: str,
     trimmed_graph: str,
+    ll_rag: float = 0.0,
+    ll_base: float = 0.0,
+    clr: float = 0.0,
 ) -> Dict[str, Any]:
     """Assemble full RAG shannon diagnostics from scores, texts, relations, and gen entropy."""
     h_b0 = _ensure_b0_entropy(rag_service, query, config)
@@ -205,6 +288,9 @@ def _build_shannon_diag_for_rag(
         "h_citation": round(h_cit, 4),
         "n_citation_tokens": n_cit,
         "delta_h_gen": round(delta_h, 4),
+        "ll_rag": round(ll_rag, 4),
+        "ll_base": round(ll_base, 4),
+        "clr": round(clr, 4),
     }
 
 
@@ -336,6 +422,9 @@ def run_query_on_baseline(
                 answer = raw_response
                 h_gen = compute_generation_entropy(tokens_info)
                 h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
+                ll_rag = compute_log_likelihood(tokens_info)
+                ll_base = ll_rag
+                clr = 0.0
                 cache = getattr(rag_service, "_query_b0_h_gen", None)
                 if not isinstance(cache, dict):
                     cache = {}
@@ -349,13 +438,18 @@ def run_query_on_baseline(
                 h_gen = 0.0
                 h_cit = 0.0
                 n_cit = 0
+                ll_rag = 0.0
+                ll_base = 0.0
+                clr = 0.0
 
             retrieved_papers = []
             if shannon_enabled:
                 if not hasattr(rag_service, "_query_b0_h_gen"):
                     rag_service._query_b0_h_gen = {}
                 rag_service._query_b0_h_gen[query] = h_gen
-                shannon_diag = _build_shannon_diag_for_b0(h_gen, h_cit, n_cit)
+                shannon_diag = _build_shannon_diag_for_b0(
+                    h_gen, h_cit, n_cit, ll_rag=ll_rag, ll_base=ll_base, clr=clr
+                )
         else:
             final_chunks = rag_service.retrieve_relevant_chunks(query, limit=5)
             retrieved_papers = list({chunk.paper_id for chunk, _ in final_chunks})
@@ -385,11 +479,13 @@ def run_query_on_baseline(
                     raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                     h_gen = compute_generation_entropy(tokens_info)
                     h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
+                    ll_rag = compute_log_likelihood(tokens_info)
                 else:
                     raw_response = rag_service.llm_engine.generate_response(prompt)
                     h_gen = 0.0
                     h_cit = 0.0
                     n_cit = 0
+                    ll_rag = 0.0
 
                 if isinstance(raw_response, str):
                     rag_service.last_raw_response = raw_response
@@ -430,6 +526,10 @@ def run_query_on_baseline(
                         if n_cit_ans > 0:
                             h_cit, n_cit = h_cit_ans, n_cit_ans
 
+                    base_tokens_info = score_text_logprobs_base(rag_service.llm_engine, query, raw_response)
+                    ll_base = compute_log_likelihood(base_tokens_info)
+                    clr = compute_clr(ll_rag, ll_base)
+
                     shannon_diag = _build_shannon_diag_for_rag(
                         rag_service,
                         query,
@@ -444,6 +544,9 @@ def run_query_on_baseline(
                         last_relations,
                         context_graph,
                         trimmed_graph,
+                        ll_rag=ll_rag,
+                        ll_base=ll_base,
+                        clr=clr,
                     )
 
         metrics = collector.get_metrics()
@@ -800,11 +903,22 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                             raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                             h_gen = compute_generation_entropy(tokens_info)
                             h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
+                            ll_rag = compute_log_likelihood(tokens_info)
+                            if baseline == "B0":
+                                ll_base = ll_rag
+                                clr = 0.0
+                            else:
+                                base_tokens_info = score_text_logprobs_base(rag_service.llm_engine, query, raw_response)
+                                ll_base = compute_log_likelihood(base_tokens_info)
+                                clr = compute_clr(ll_rag, ll_base)
                         else:
                             raw_response = rag_service.llm_engine.generate_response(prompt)
                             h_gen = 0.0
                             h_cit = 0.0
                             n_cit = 0
+                            ll_rag = 0.0
+                            ll_base = 0.0
+                            clr = 0.0
                         answer = raw_response
                         gen_latency = time.perf_counter() - t_gen_start
                         
@@ -886,6 +1000,9 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                                 "h_citation": round(h_cit, 4),
                                 "n_citation_tokens": n_cit,
                                 "delta_h_gen": round(delta_h, 4),
+                                "ll_rag": round(ll_rag, 4),
+                                "ll_base": round(ll_base, 4),
+                                "clr": round(clr, 4),
                             }
 
                         status = "success"

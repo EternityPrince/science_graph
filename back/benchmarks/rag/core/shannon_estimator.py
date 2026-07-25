@@ -443,6 +443,69 @@ def compute_entropy_reduction(
     return float(h_b0 - h_rag)
 
 
+def build_token_char_spans(tokens_info: List[Dict[str, Any]]) -> List[Tuple[int, int]]:
+    """Computes exact character start and end offsets (start_char, end_char) for each token index in tokens_info."""
+    spans: List[Tuple[int, int]] = []
+    curr_offset = 0
+    for t in tokens_info:
+        c_start = t.get("char_start", t.get("start"))
+        c_end = t.get("char_end", t.get("end"))
+        if c_start is not None and c_end is not None:
+            start_val = int(c_start)
+            end_val = int(c_end)
+            spans.append((start_val, end_val))
+            curr_offset = end_val
+        else:
+            tok_text = t.get("token") or t.get("token_text") or t.get("text") or t.get("token_str") or ""
+            start_val = curr_offset
+            end_val = curr_offset + len(str(tok_text))
+            spans.append((start_val, end_val))
+            curr_offset = end_val
+            t["char_start"] = start_val
+            t["char_end"] = end_val
+    return spans
+
+
+def map_char_offset_to_token_idx(char_offset: int, token_spans: List[Tuple[int, int]]) -> int:
+    """Maps any string character index back to its corresponding token index in token_spans."""
+    if not token_spans:
+        return 0
+    if char_offset <= 0:
+        return 0
+    last_idx = len(token_spans) - 1
+    if char_offset >= token_spans[last_idx][1]:
+        return last_idx
+
+    for idx, (s, e) in enumerate(token_spans):
+        if s <= char_offset < e:
+            return idx
+        if char_offset < s:
+            return max(0, idx - 1)
+    return last_idx
+
+
+def compute_log_likelihood(tokens_info: List[Dict[str, Any]]) -> float:
+    """Calculates total sequence log-likelihood sum_i log P(w_i | w_<i, context)."""
+    if not tokens_info:
+        return 0.0
+    total_ll = 0.0
+    for t in tokens_info:
+        if isinstance(t, dict):
+            if "logprob" in t and t["logprob"] is not None:
+                total_ll += float(t["logprob"])
+            elif "prob" in t and t["prob"] is not None:
+                p = float(t["prob"])
+                if p > 0:
+                    total_ll += math.log(p)
+    return float(total_ll)
+
+
+def compute_clr(ll_rag: float, ll_base: float) -> float:
+    """Calculates Contextual Log-Likelihood Ratio CLR = LL_rag - LL_base."""
+    return float(ll_rag - ll_base)
+
+
+
 _GRAPH_DISABLED_MARKERS = frozenset({
     "",
     "No direct graph relations found.",

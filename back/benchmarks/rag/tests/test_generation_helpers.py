@@ -35,6 +35,9 @@ def test_build_shannon_diag_for_b0_includes_all_expected_keys():
         "h_citation",
         "n_citation_tokens",
         "delta_h_gen",
+        "ll_rag",
+        "ll_base",
+        "clr",
     }
     assert set(diag.keys()) == expected
 
@@ -178,3 +181,81 @@ def test_merge_evaluation_data_empty_existing_returns_new():
     assert merge_evaluation_data({}, new_data) is new_data
     assert merge_evaluation_data(None, new_data) is new_data
     assert merge_evaluation_data("bad", new_data) is new_data
+
+
+def test_generate_with_logits_safe_normalizes_tokens_and_char_spans():
+    from core.generation import _generate_with_logits_safe
+
+    mock_engine = MagicMock()
+    mock_engine.generate_response_with_logits.return_value = (
+        "Sample response text",
+        [
+            {"text": "Sample", "logprob": -0.1},
+            {"text": " response", "logprob": -0.2},
+            {"token": " text", "log_prob": -0.05},
+        ],
+    )
+
+    text, tokens_info = _generate_with_logits_safe(mock_engine, "Prompt")
+    assert text == "Sample response text"
+    assert len(tokens_info) == 3
+    assert tokens_info[0]["token"] == "Sample"
+    assert tokens_info[0]["char_start"] == 0
+    assert tokens_info[0]["char_end"] == 6
+    assert tokens_info[2]["logprob"] == -0.05
+    assert "top_logprobs" in tokens_info[0]
+
+
+def test_score_text_logprobs_base():
+    from core.generation import score_text_logprobs_base
+
+    # Mock engine with explicit score_text_logprobs method
+    mock_engine = MagicMock()
+    mock_engine.score_text_logprobs.return_value = [
+        {"token": "Test", "logprob": -0.5, "char_start": 0, "char_end": 4}
+    ]
+
+    res = score_text_logprobs_base(mock_engine, "What is X?", "Test")
+    assert len(res) == 1
+    assert res[0]["token"] == "Test"
+    mock_engine.score_text_logprobs.assert_called_once_with(
+        "Question: What is X?\nAnswer based on your general knowledge.", "Test"
+    )
+
+    # Fallback path without score method
+    mock_engine_no_score = MagicMock()
+    mock_engine_no_score.generate_response.return_value = "Fallback answer"
+    fallback_res = score_text_logprobs_base(mock_engine_no_score, "Query", "Fallback answer")
+    assert len(fallback_res) > 0
+    assert fallback_res[0]["token"] == "Fallback"
+    assert "char_start" in fallback_res[0]
+    assert "char_end" in fallback_res[0]
+
+
+@patch("core.generation._ensure_b0_entropy", return_value=3.5)
+def test_build_shannon_diag_includes_clr_fields(mock_b0):
+    rag_service = MagicMock()
+    config = MagicMock()
+    diag = _build_shannon_diag_for_rag(
+        rag_service=rag_service,
+        query="test query",
+        config=config,
+        h_gen=1.0,
+        h_cit=0.0,
+        n_cit=0,
+        pre_scores=[1.0, 1.0],
+        post_scores=[2.0, 0.1],
+        context_text="ctx",
+        trimmed_text="ctx",
+        last_relations=[],
+        context_graph="",
+        trimmed_graph="",
+        ll_rag=-2.5,
+        ll_base=-6.0,
+        clr=3.5,
+    )
+
+    assert diag["ll_rag"] == -2.5
+    assert diag["ll_base"] == -6.0
+    assert diag["clr"] == 3.5
+
