@@ -11,7 +11,7 @@ Provides mathematical entropy estimation tools for evaluation of RAG architectur
 
 import math
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 def compute_rank_entropy(
@@ -482,6 +482,234 @@ def map_char_offset_to_token_idx(char_offset: int, token_spans: List[Tuple[int, 
         if char_offset < s:
             return max(0, idx - 1)
     return last_idx
+
+
+def compute_softmax(
+    logits: Union[List[float], Dict[Any, float], Any]
+) -> List[float]:
+    """Computes numerically stable softmax probabilities from raw logits.
+
+    Formula: p_i = exp(z_i - max(z)) / sum(exp(z_j - max(z)))
+    Ensures probabilities satisfy sum(p_i) == 1.0 +- 1e-6.
+
+    Args:
+        logits: List, Dict, or array-like of raw logit scores.
+
+    Returns:
+        List[float]: Normalized probability distribution.
+    """
+    if logits is None:
+        return []
+    if isinstance(logits, dict):
+        vals = list(logits.values())
+    elif hasattr(logits, "tolist"):
+        vals = logits.tolist()
+    else:
+        try:
+            vals = list(logits)
+        except TypeError:
+            return []
+
+    if not vals:
+        return []
+
+    float_vals = [float(x) for x in vals]
+    max_z = max(float_vals)
+    exp_z = [math.exp(z - max_z) for z in float_vals]
+    sum_exp = sum(exp_z)
+
+    if sum_exp <= 0 or math.isnan(sum_exp) or math.isinf(sum_exp):
+        n = len(float_vals)
+        return [1.0 / n] * n if n > 0 else []
+
+    probs = [ez / sum_exp for ez in exp_z]
+    total_p = sum(probs)
+    if abs(total_p - 1.0) > 1e-12 and total_p > 0:
+        probs = [p / total_p for p in probs]
+
+    return probs
+
+
+def compute_msp(
+    logits_or_probs: Union[List[float], Dict[Any, float], Any]
+) -> float:
+    """Calculates Maximum Softmax Probability (MSP = max(p)).
+
+    Accepts raw logits or probability distributions as List, Dict, or numpy array.
+
+    Args:
+        logits_or_probs: Raw logits or probability distribution.
+
+    Returns:
+        float: Maximum softmax probability value in range [0.0, 1.0].
+    """
+    if logits_or_probs is None:
+        return 0.0
+    if isinstance(logits_or_probs, dict):
+        vals = list(logits_or_probs.values())
+    elif hasattr(logits_or_probs, "tolist"):
+        vals = logits_or_probs.tolist()
+    else:
+        try:
+            vals = list(logits_or_probs)
+        except TypeError:
+            return 0.0
+
+    if not vals:
+        return 0.0
+
+    float_vals = [float(x) for x in vals]
+    total = sum(float_vals)
+    if all(x >= 0 for x in float_vals) and math.isclose(total, 1.0, rel_tol=1e-3, abs_tol=1e-3):
+        probs = float_vals
+    else:
+        probs = compute_softmax(float_vals)
+
+    return float(max(probs)) if probs else 0.0
+
+
+def compute_logit_margin(
+    logits: Union[List[float], Dict[Any, float], Any]
+) -> float:
+    """Calculates top-1 vs top-2 logit margin Delta z_{1,2} = z_1 - z_2.
+
+    Where z_1, z_2 are top-1 and top-2 raw logits (or logprobs) sorted in descending order.
+
+    Args:
+        logits: Raw logits or logprobs as List, Dict, or numpy array.
+
+    Returns:
+        float: Difference z_1 - z_2. Returns 0.0 if fewer than 2 logits are provided.
+    """
+    if logits is None:
+        return 0.0
+    if isinstance(logits, dict):
+        vals = list(logits.values())
+    elif hasattr(logits, "tolist"):
+        vals = logits.tolist()
+    else:
+        try:
+            vals = list(logits)
+        except TypeError:
+            return 0.0
+
+    if len(vals) < 2:
+        return 0.0
+
+    float_vals = sorted([float(x) for x in vals], reverse=True)
+    return float(float_vals[0] - float_vals[1])
+
+
+def _extract_token_logits_or_probs(t_info: Dict[str, Any]) -> Tuple[Optional[Any], Optional[Any]]:
+    """Extracts (logits, probs) data from a single token metadata dictionary."""
+    logits = t_info.get("logits") if t_info.get("logits") is not None else t_info.get("top_logits")
+    probs = t_info.get("probs") if t_info.get("probs") is not None else t_info.get("top_probs")
+    if logits is None and (t_info.get("top_logprobs") is not None or t_info.get("logprobs") is not None):
+        lp_data = t_info.get("top_logprobs") if t_info.get("top_logprobs") is not None else t_info.get("logprobs")
+        if isinstance(lp_data, dict):
+            logits = list(lp_data.values())
+        elif isinstance(lp_data, list):
+            logits = [x.get("logprob", 0.0) if isinstance(x, dict) else x for x in lp_data]
+    return logits, probs
+
+
+def compute_first_token_metrics(tokens_info: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Isolates index 0 of generated response sequence and returns first_token_margin and first_token_msp."""
+    if not tokens_info:
+        return {"first_token_margin": 0.0, "first_token_msp": 0.0}
+
+    t0 = tokens_info[0]
+    if isinstance(t0, dict):
+        if "first_token_margin" in t0 and "first_token_msp" in t0:
+            return {
+                "first_token_margin": float(t0["first_token_margin"]),
+                "first_token_msp": float(t0["first_token_msp"]),
+            }
+        logits, probs = _extract_token_logits_or_probs(t0)
+        data = logits if logits is not None else probs
+        margin = compute_logit_margin(data)
+        msp = compute_msp(data)
+        return {
+            "first_token_margin": round(margin, 4),
+            "first_token_msp": round(msp, 4),
+        }
+    return {"first_token_margin": 0.0, "first_token_msp": 0.0}
+
+
+def compute_sequence_telemetry(tokens_info: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Calculates average sequence MSP and average logit margin across all tokens, plus first-token metrics."""
+    first_metrics = compute_first_token_metrics(tokens_info)
+    if not tokens_info:
+        return {
+            "avg_msp": 0.0,
+            "avg_logit_margin": 0.0,
+            **first_metrics,
+        }
+
+    msps: List[float] = []
+    margins: List[float] = []
+    for t in tokens_info:
+        if isinstance(t, dict):
+            logits, probs = _extract_token_logits_or_probs(t)
+            data = logits if logits is not None else probs
+            if data is not None:
+                margins.append(compute_logit_margin(data))
+                msps.append(compute_msp(data))
+            elif "msp" in t or "prob" in t:
+                m_val = float(t.get("logit_margin", 0.0))
+                p_val = float(t.get("msp", t.get("prob", 0.0)))
+                margins.append(m_val)
+                msps.append(p_val)
+
+    avg_msp = sum(msps) / len(msps) if msps else 0.0
+    avg_margin = sum(margins) / len(margins) if margins else 0.0
+
+    return {
+        "avg_msp": round(avg_msp, 4),
+        "avg_logit_margin": round(avg_margin, 4),
+        **first_metrics,
+    }
+
+
+def compute_citation_onset_entropy(
+    tokens_info: List[Dict[str, Any]], generated_text: str
+) -> Tuple[float, int]:
+    """Uses regex r"\\[|Doc" to find citation start positions in generated response text,
+    maps each match's character index to token index t_c via map_char_offset_to_token_idx,
+    and computes Shannon Entropy H_{citation} = -sum p_i log_2 p_i at step t_c for the
+    token's vocabulary distribution. Averages across multiple citation onsets if present.
+
+    Args:
+        tokens_info: List of token metric dicts.
+        generated_text: The complete generated text string.
+
+    Returns:
+        Tuple[float, int]: (average citation onset entropy in bits, number of citation onset matches).
+    """
+    if not tokens_info or not generated_text:
+        return (0.0, 0)
+
+    matches = list(re.finditer(r"\[|Doc", generated_text))
+    if not matches:
+        return (0.0, 0)
+
+    spans = build_token_char_spans(tokens_info)
+    entropies: List[float] = []
+
+    for match in matches:
+        char_idx = match.start()
+        t_c = map_char_offset_to_token_idx(char_idx, spans)
+        if 0 <= t_c < len(tokens_info):
+            ent = _extract_single_token_entropy(tokens_info[t_c])
+            entropies.append(ent)
+
+    if not entropies:
+        return (0.0, 0)
+
+    avg_entropy = sum(entropies) / len(entropies)
+    return (max(0.0, float(avg_entropy)), len(entropies))
+
+
 
 
 def compute_log_likelihood(tokens_info: List[Dict[str, Any]]) -> float:

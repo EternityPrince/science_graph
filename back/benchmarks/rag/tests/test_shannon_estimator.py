@@ -9,10 +9,16 @@ from core.shannon_estimator import (
     find_citation_spans,
     compute_generation_entropy,
     compute_citation_entropy,
+    compute_citation_onset_entropy,
     compute_entropy_reduction,
     parse_graph_relations_from_text,
     assemble_retrieval_shannon_fields,
     empty_retrieval_shannon_fields,
+    compute_softmax,
+    compute_msp,
+    compute_logit_margin,
+    compute_first_token_metrics,
+    compute_sequence_telemetry,
 )
 
 
@@ -487,5 +493,147 @@ def test_compute_log_likelihood_and_clr():
     # Empty tokens edge cases
     assert compute_log_likelihood([]) == 0.0
     assert compute_clr(0.0, 0.0) == 0.0
+
+
+def test_compute_softmax_numerical_stability_and_normalization():
+    # Basic logits
+    logits = [1.0, 2.0, 3.0]
+    probs = compute_softmax(logits)
+    assert len(probs) == 3
+    assert math.isclose(sum(probs), 1.0, abs_tol=1e-6)
+    exp3 = math.exp(3 - 3)
+    exp2 = math.exp(2 - 3)
+    exp1 = math.exp(1 - 3)
+    sum_exp = exp1 + exp2 + exp3
+    assert math.isclose(probs[2], exp3 / sum_exp, rel_tol=1e-5)
+
+    # Large values for numerical stability (no overflow)
+    large_logits = [1000.0, 1002.0, 999.0]
+    large_probs = compute_softmax(large_logits)
+    assert len(large_probs) == 3
+    assert math.isclose(sum(large_probs), 1.0, abs_tol=1e-6)
+    assert not any(math.isnan(p) for p in large_probs)
+
+    # Edge cases
+    assert compute_softmax([]) == []
+    assert compute_softmax([5.0]) == [1.0]
+    assert compute_softmax({"a": 0.0, "b": 0.0}) == [0.5, 0.5]
+
+
+def test_compute_msp_raw_logits_and_probs():
+    # Raw logits
+    logits = [1.0, 2.0, 3.0]
+    msp_logits = compute_msp(logits)
+    expected_msp = math.exp(0) / (math.exp(-2) + math.exp(-1) + math.exp(0))
+    assert math.isclose(msp_logits, expected_msp, rel_tol=1e-5)
+
+    # Pre-normalized probabilities
+    probs = [0.1, 0.7, 0.2]
+    assert math.isclose(compute_msp(probs), 0.7)
+
+    # Dict and empty edge cases
+    assert math.isclose(compute_msp({"tok1": 10.0, "tok2": 0.0}), math.exp(10) / (math.exp(10) + math.exp(0)), rel_tol=1e-5)
+    assert compute_msp([]) == 0.0
+    assert compute_msp(None) == 0.0
+
+
+def test_compute_logit_margin_top1_top2():
+    # Sorted & unsorted logits
+    assert math.isclose(compute_logit_margin([10.0, 7.0, 3.0]), 3.0)
+    assert math.isclose(compute_logit_margin([3.0, 10.0, 7.0]), 3.0)
+
+    # Logprobs
+    logprobs = [-0.2, -0.8, -2.5]
+    assert math.isclose(compute_logit_margin(logprobs), 0.6)
+
+    # Dict logits
+    dict_logits = {"a": 15.5, "b": 12.0, "c": 8.0}
+    assert math.isclose(compute_logit_margin(dict_logits), 3.5)
+
+    # Edge cases
+    assert compute_logit_margin([]) == 0.0
+    assert compute_logit_margin([5.0]) == 0.0
+    assert compute_logit_margin(None) == 0.0
+
+
+def test_compute_first_token_metrics():
+    tokens_info = [
+        {"token": "First", "logits": [5.0, 2.0, 1.0]},
+        {"token": "Second", "logits": [10.0, 9.0]},
+    ]
+    metrics = compute_first_token_metrics(tokens_info)
+    assert "first_token_margin" in metrics
+    assert "first_token_msp" in metrics
+    assert math.isclose(metrics["first_token_margin"], 3.0)
+
+    exp5 = math.exp(0)
+    sum_exp = math.exp(0) + math.exp(-3) + math.exp(-4)
+    assert math.isclose(metrics["first_token_msp"], exp5 / sum_exp, abs_tol=1e-3)
+
+    # Empty list
+    empty_metrics = compute_first_token_metrics([])
+    assert empty_metrics == {"first_token_margin": 0.0, "first_token_msp": 0.0}
+
+
+def test_compute_sequence_telemetry():
+    tokens_info = [
+        {"token": "A", "logits": [10.0, 7.0]},  # margin=3.0
+        {"token": "B", "logits": [8.0, 6.0]},   # margin=2.0
+    ]
+    telemetry = compute_sequence_telemetry(tokens_info)
+    assert "avg_msp" in telemetry
+    assert "avg_logit_margin" in telemetry
+    assert "first_token_margin" in telemetry
+    assert "first_token_msp" in telemetry
+    assert math.isclose(telemetry["avg_logit_margin"], 2.5)
+    assert telemetry["first_token_margin"] == 3.0
+
+    # Empty list
+    empty_t = compute_sequence_telemetry([])
+    assert empty_t["avg_msp"] == 0.0
+    assert empty_t["avg_logit_margin"] == 0.0
+    assert empty_t["first_token_margin"] == 0.0
+    assert empty_t["first_token_msp"] == 0.0
+
+
+def test_compute_citation_onset_entropy_regex_matching():
+    text = "As stated in [sciq_paper_1], gravity exists. Doc 2 shows details."
+    tokens_info = [
+        {"token": "As stated in ", "char_start": 0, "char_end": 13, "entropy": 0.1},
+        {"token": "[sciq_paper_1]", "char_start": 13, "char_end": 27, "entropy": 1.5},
+        {"token": ", gravity exists. ", "char_start": 27, "char_end": 45, "entropy": 0.2},
+        {"token": "Doc 2", "char_start": 45, "char_end": 50, "entropy": 2.5},
+        {"token": " shows details.", "char_start": 50, "char_end": 65, "entropy": 0.3},
+    ]
+
+    h_onset, count = compute_citation_onset_entropy(tokens_info, text)
+    assert count == 2
+    assert math.isclose(h_onset, 2.0)
+
+    # Empty/no match text
+    h_empty, count_empty = compute_citation_onset_entropy(tokens_info, "Plain text without citations")
+    assert h_empty == 0.0
+    assert count_empty == 0
+
+
+def test_metrics_reexport_of_shannon_math_functions():
+    from core.metrics import (
+        compute_softmax as m_softmax,
+        compute_msp as m_msp,
+        compute_logit_margin as m_margin,
+        compute_clr as m_clr,
+        compute_first_token_metrics as m_first,
+        compute_sequence_telemetry as m_seq,
+        compute_citation_onset_entropy as m_onset,
+    )
+    assert callable(m_softmax)
+    assert callable(m_msp)
+    assert callable(m_margin)
+    assert callable(m_clr)
+    assert callable(m_first)
+    assert callable(m_seq)
+    assert callable(m_onset)
+    assert math.isclose(m_clr(5.0, 2.0), 3.0)
+
 
 

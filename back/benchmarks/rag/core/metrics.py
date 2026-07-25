@@ -1,3 +1,4 @@
+import re
 import sys
 import numpy as np
 from pathlib import Path
@@ -8,8 +9,50 @@ try:
 except ImportError:
     tiktoken = None
 
-# Global cache for embedding engine to prevent redundant loads
-_embedding_engine = None
+from core.shannon_estimator import (
+    compute_softmax,
+    compute_msp,
+    compute_logit_margin,
+    compute_clr,
+    compute_first_token_metrics,
+    compute_sequence_telemetry,
+    compute_citation_onset_entropy,
+)
+
+
+
+def normalize_id(doc_or_chunk_id: object) -> str:
+    """Normalizes document or chunk IDs by stripping path prefixes, standardizing separators,
+    enforcing lowercase, stripping file extensions, and truncating chunk-level markers to document level.
+    """
+    if doc_or_chunk_id is None:
+        return ""
+    s = str(doc_or_chunk_id).strip()
+    if not s:
+        return ""
+
+    s_lower = s.lower()
+
+    # 1. Strip path prefixes (e.g. "docs/", "data/", "papers/", "corpus/", "dataset/", "files/", "./", "../", absolute paths)
+    s_clean = re.sub(r'^(?:.*[/\\])?(?:docs|data|papers|corpus|dataset|files)[/\\]', '', s_lower)
+    
+    # If still contains path separators and is not a DOI (e.g. starting with '10.')
+    if ('/' in s_clean or '\\' in s_clean) and not s_clean.startswith("10."):
+        s_clean = s_clean.replace("\\", "/").split("/")[-1]
+
+    # Strip standard file extensions (.pdf, .txt, .md, .json, .html)
+    s_clean = re.sub(r'\.(pdf|txt|md|json|html)$', '', s_clean)
+
+    # 2. Standardize separators: replace '-', '#', ':', whitespace, '/' with '_'
+    s_clean = s_clean.replace("-", "_").replace("#", "_").replace(":", "_").replace("/", "_").replace(" ", "_")
+
+    # 3. Truncation logic: truncate chunk-level markers (_chunk_3, _chunk3, etc.) to document-level
+    s_clean = re.sub(r'_chunk.*$', '', s_clean)
+    
+    # Clean up residual trailing/leading underscores or duplicate underscores
+    s_clean = re.sub(r'_+', '_', s_clean).strip("_")
+
+    return s_clean
 
 
 def normalize_optional_text(value: object) -> str:
@@ -110,8 +153,8 @@ def calculate_retrieval_recall(expected_papers: List[str], retrieved_papers: Lis
     """Computes retrieval recall: proportion of expected papers that were successfully retrieved."""
     if not expected_papers:
         return 1.0
-    expected_set = {p.strip().lower() for p in expected_papers if p.strip()}
-    retrieved_set = {p.strip().lower() for p in retrieved_papers if p.strip()}
+    expected_set = {normalize_id(p) for p in expected_papers if p and normalize_id(p)}
+    retrieved_set = {normalize_id(p) for p in retrieved_papers if p and normalize_id(p)}
     if not expected_set:
         return 1.0
     intersection = expected_set.intersection(retrieved_set)
@@ -122,7 +165,7 @@ def calculate_context_precision(expected_papers: List[str], retrieved_chunks: Li
     """Computes context precision (Mean Average Precision on paper retrieval relevance at K)."""
     if not expected_papers:
         return 1.0
-    expected_set = {p.strip().lower() for p in expected_papers if p.strip()}
+    expected_set = {normalize_id(p) for p in expected_papers if p and normalize_id(p)}
     if not expected_set:
         return 1.0
     if not retrieved_chunks:
@@ -131,8 +174,13 @@ def calculate_context_precision(expected_papers: List[str], retrieved_chunks: Li
     precision_sum = 0.0
     relevant_hits = 0
     for idx, chunk in enumerate(retrieved_chunks):
-        paper_id = chunk.get("paper_id", "")
-        if paper_id and paper_id.strip().lower() in expected_set:
+        if isinstance(chunk, dict):
+            raw_id = chunk.get("paper_id") or chunk.get("id") or ""
+        else:
+            raw_id = getattr(chunk, "paper_id", None) or getattr(chunk, "id", None) or ""
+            
+        paper_id = normalize_id(raw_id)
+        if paper_id and paper_id in expected_set:
             relevant_hits += 1
             precision_sum += relevant_hits / (idx + 1)
             
