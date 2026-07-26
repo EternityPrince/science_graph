@@ -365,3 +365,171 @@ def test_all_tn_edge_case():
     cfg = StatsConfig(n_bootstraps=100, random_seed=42)
     analysis = compute_statistical_analysis(data, cfg)
     assert analysis["baseline_summary"]["B1"]["semantic_accuracy"]["n"] == 0
+
+
+def _mock_benchmark_data_with_telemetry() -> dict:
+    """Two baselines with shannon_diagnostics / top-level telemetry for stats tests."""
+    results = []
+    for i in range(6):
+        results.append(
+            {
+                "id": f"Q{i + 1}",
+                "is_answerable": True,
+                "baselines": {
+                    "B1": {
+                        "status": "success",
+                        "latency_sec": 1.0 + i * 0.1,
+                        "eval_metrics": {
+                            "answerability_outcome": "TP",
+                            "semantic_accuracy": 0.9,
+                            "faithfulness": 0.85,
+                        },
+                        "shannon_diagnostics": {
+                            "h_gen": 1.0 + i * 0.05,
+                            "h_citation": 0.4,
+                            "delta_h_gen": 0.5 + i * 0.02,
+                            "avg_msp": 0.70 + i * 0.01,
+                            "avg_logit_margin": 1.5 + i * 0.1,
+                            "first_token_msp": 0.80,
+                            "first_token_margin": 2.0,
+                            "ll_rag": -10.0 - i,
+                            "ll_base": -12.0 - i,
+                            "clr": 2.0 + i * 0.1,
+                            "n_citation_tokens": 3,
+                        },
+                    },
+                    "B2": {
+                        "status": "success",
+                        "latency_sec": 1.5 + i * 0.1,
+                        "eval_metrics": {
+                            "answerability_outcome": "TP",
+                            "semantic_accuracy": 0.7,
+                            "faithfulness": 0.7,
+                        },
+                        # Mix top-level + alias names to exercise extraction paths
+                        "avg_msp": 0.55 + i * 0.01,
+                        "shannon_diagnostics": {
+                            "generation_entropy": 1.5 + i * 0.05,
+                            "citation_entropy": 0.6,
+                            "entropy_reduction": 0.2 + i * 0.01,
+                            "avg_logit_margin": 0.8 + i * 0.05,
+                            "first_token_msp": 0.60,
+                            "first_token_margin": 1.0,
+                            "ll_rag": -14.0 - i,
+                            "ll_base": -14.5 - i,
+                            "clr": 0.5 + i * 0.05,
+                            "citation_token_count": 1,
+                        },
+                    },
+                },
+            }
+        )
+    # One unanswerable TN: telemetry present but excluded from answered filter
+    results.append(
+        {
+            "id": "Q_TN",
+            "is_answerable": False,
+            "baselines": {
+                "B1": {
+                    "status": "success",
+                    "eval_metrics": {
+                        "answerability_outcome": "TN",
+                        "predicted_abstained": True,
+                    },
+                    "shannon_diagnostics": {"avg_msp": 0.99, "h_gen": 0.1},
+                },
+                "B2": {
+                    "status": "success",
+                    "eval_metrics": {
+                        "answerability_outcome": "TN",
+                        "predicted_abstained": True,
+                    },
+                    "shannon_diagnostics": {"avg_msp": 0.98, "h_gen": 0.2},
+                },
+            },
+        }
+    )
+    return {"results": results}
+
+
+def test_telemetry_metrics_in_prepare_summary_pairwise_friedman():
+    """Telemetry (MSP, margins, H_gen, CLR, …) appear in records/summary/pairwise/Friedman."""
+    data = _mock_benchmark_data_with_telemetry()
+    records, baselines = prepare_per_query_records(data)
+    assert set(baselines) == {"B1", "B2"}
+
+    tp_b1 = [r for r in records if r["baseline"] == "B1" and r["outcome"] == "TP"]
+    assert len(tp_b1) == 6
+    assert tp_b1[0]["avg_msp"] == pytest.approx(0.70)
+    # Alias path: generation_entropy → h_gen
+    tp_b2 = [r for r in records if r["baseline"] == "B2" and r["outcome"] == "TP"]
+    assert tp_b2[0]["h_gen"] == pytest.approx(1.5)
+    assert tp_b2[0]["n_citation_tokens"] == pytest.approx(1.0)
+
+    # TN rows keep raw telemetry but answered filter excludes them from pairs/means
+    tn_rows = [r for r in records if r["outcome"] == "TN"]
+    assert len(tn_rows) == 2
+    assert tn_rows[0]["avg_msp"] == pytest.approx(0.99) or tn_rows[1]["avg_msp"] == pytest.approx(0.99)
+
+    a, b, ids = paired_metric_vectors(records, "B1", "B2", "avg_msp")
+    assert len(ids) == 6  # TP only; TN excluded
+    assert float(np.mean(a)) > float(np.mean(b))
+
+    cfg = StatsConfig(n_bootstraps=200, random_seed=42)
+    analysis = compute_statistical_analysis(data, cfg)
+
+    sum_b1 = analysis["baseline_summary"]["B1"]
+    assert "avg_msp" in sum_b1
+    assert sum_b1["avg_msp"]["filter"] == "TP+FP"
+    assert sum_b1["avg_msp"]["n"] == 6
+    assert sum_b1["avg_msp"]["mean"] == pytest.approx(0.70 + 0.01 * 2.5, abs=1e-6)
+    assert "clr" in sum_b1
+    assert "h_gen" in sum_b1
+    assert sum_b1["clr"]["n"] == 6
+
+    tel_rows = [r for r in analysis["pairwise"] if r.get("family") == "telemetry"]
+    qual_rows = [r for r in analysis["pairwise"] if r.get("family") == "quality"]
+    safety_rows = [r for r in analysis["pairwise"] if r.get("family") == "safety"]
+    assert len(tel_rows) > 0
+    assert len(qual_rows) > 0
+    assert any(r["metric"] == "answerability_correct" for r in safety_rows)
+
+    msp_pairs = [r for r in tel_rows if r["metric"] == "avg_msp"]
+    assert len(msp_pairs) == 1
+    assert msp_pairs[0]["baseline_a"] == "B1"
+    assert msp_pairs[0]["baseline_b"] == "B2"
+    assert msp_pairs[0]["n_pairs"] == 6
+    assert msp_pairs[0]["delta"] is not None
+
+    # Three-baseline Friedman includes telemetry metrics
+    three = {
+        "results": [
+            {
+                "id": f"Q{i}",
+                "is_answerable": True,
+                "baselines": {
+                    "B1": {
+                        "status": "success",
+                        "eval_metrics": {"answerability_outcome": "TP", "semantic_accuracy": 0.5},
+                        "shannon_diagnostics": {"avg_msp": 0.5 + i * 0.01, "clr": 1.0},
+                    },
+                    "B2": {
+                        "status": "success",
+                        "eval_metrics": {"answerability_outcome": "TP", "semantic_accuracy": 0.6},
+                        "shannon_diagnostics": {"avg_msp": 0.6 + i * 0.01, "clr": 1.5},
+                    },
+                    "B3": {
+                        "status": "success",
+                        "eval_metrics": {"answerability_outcome": "TP", "semantic_accuracy": 0.7},
+                        "shannon_diagnostics": {"avg_msp": 0.7 + i * 0.01, "clr": 2.0},
+                    },
+                },
+            }
+            for i in range(5)
+        ]
+    }
+    friedman = compute_statistical_analysis(three, StatsConfig(n_bootstraps=50, random_seed=0))["friedman"]
+    assert "avg_msp" in friedman
+    assert "clr" in friedman
+    assert friedman["avg_msp"]["p_value"] is not None
+    assert friedman["avg_msp"]["n"] == 5

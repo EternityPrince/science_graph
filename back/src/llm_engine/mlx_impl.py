@@ -89,6 +89,224 @@ class ConstrainedLogitsProcessor:
         return logits + mask
 
 
+
+def _decode_token_key(tokenizer: Any, token_id: int) -> str:
+    """Decode a token id for top_logprobs keys; fall back to str(id)."""
+    if tokenizer is None:
+        return str(token_id)
+    try:
+        text = tokenizer.decode([int(token_id)])
+        if text is not None and text != "":
+            return text
+    except Exception:
+        pass
+    return str(int(token_id))
+
+
+def _telemetry_defaults() -> Dict[str, Any]:
+    return {
+        "logprob": 0.0,
+        "entropy": 0.0,
+        "msp": 0.0,
+        "logit_margin": 0.0,
+        "top_logprobs": {},
+    }
+
+
+def _telemetry_from_single_logprob(
+    lp: Any,
+    token_id: Any,
+    tokenizer: Any = None,
+    top_k_store: int = 5,
+    top_k_entropy: int = 50,
+) -> Dict[str, Any]:
+    """Compute compact telemetry fields from a single 1-D logprob vector."""
+    fields = _telemetry_defaults()
+    if lp is None or mx is None:
+        return fields
+    try:
+        vec = lp.astype(mx.float32).reshape(-1)
+        V = int(vec.shape[0])
+        if V == 0:
+            return fields
+
+        store_k = min(int(top_k_store), V)
+        ent_k = min(int(top_k_entropy), V)
+
+        if token_id is not None:
+            tid = int(token_id)
+            if 0 <= tid < V:
+                fields["logprob"] = float(vec[tid].item())
+
+        if store_k < V:
+            top_indices = mx.argpartition(vec, -store_k)[-store_k:]
+        else:
+            top_indices = mx.arange(V)
+        top_lp = vec[top_indices]
+        mx.eval(top_lp, top_indices)
+
+        idx_list = top_indices.tolist()
+        val_list = top_lp.tolist()
+        if not isinstance(idx_list, list):
+            idx_list = [idx_list]
+            val_list = [val_list]
+        pairs = sorted(zip(val_list, idx_list), key=lambda x: float(x[0]), reverse=True)
+
+        top_logprobs: Dict[str, float] = {}
+        for val, idx in pairs[:store_k]:
+            top_logprobs[_decode_token_key(tokenizer, int(idx))] = float(val)
+        fields["top_logprobs"] = top_logprobs
+
+        if len(pairs) >= 2:
+            fields["logit_margin"] = float(pairs[0][0]) - float(pairs[1][0])
+        else:
+            fields["logit_margin"] = 0.0
+
+        p_store = mx.softmax(top_lp)
+        fields["msp"] = float(mx.max(p_store).item())
+
+        if ent_k < V:
+            ent_indices = mx.argpartition(vec, -ent_k)[-ent_k:]
+            ent_lp = vec[ent_indices]
+        else:
+            ent_lp = vec
+        p_ent = mx.softmax(ent_lp)
+        fields["entropy"] = max(0.0, -float(mx.sum(p_ent * mx.log2(p_ent + 1e-12)).item()))
+        return fields
+    except Exception:
+        return fields
+
+
+def build_compact_tokens_info(
+    raw_logprobs_list: List[Any],
+    tokens_meta: List[Dict[str, Any]],
+    tokenizer: Any = None,
+    top_k_store: int = 5,
+    top_k_entropy: int = 50,
+) -> List[Dict[str, Any]]:
+    """Attach compact logprob telemetry to token metadata without storing full vocab.
+
+    Each output dict includes: token_id, token_text, char_start, char_end,
+    logprob, entropy, msp, logit_margin, top_logprobs (k=top_k_store).
+    """
+    out: List[Dict[str, Any]] = []
+    for meta in tokens_meta:
+        item = dict(meta)
+        item.update(_telemetry_defaults())
+        out.append(item)
+
+    if not raw_logprobs_list or mx is None:
+        return out
+
+    valid_idx = [i for i, lp in enumerate(raw_logprobs_list) if lp is not None and i < len(out)]
+    if not valid_idx:
+        return out
+
+    try:
+        flats = [raw_logprobs_list[i].astype(mx.float32).reshape(-1) for i in valid_idx]
+        stacked = mx.stack(flats)  # (N, V)
+        N = int(stacked.shape[0])
+        V = int(stacked.shape[1])
+        if N == 0 or V == 0:
+            return out
+
+        store_k = min(int(top_k_store), V)
+        ent_k = min(int(top_k_entropy), V)
+
+        if store_k < V:
+            top_idx = mx.argpartition(stacked, -store_k, axis=-1)[:, -store_k:]
+        else:
+            top_idx = mx.broadcast_to(mx.arange(V)[None, :], (N, V))
+
+        top_lp = mx.take_along_axis(stacked, top_idx, axis=-1)
+        sort_order = mx.argsort(-top_lp, axis=-1)
+        top_lp_sorted = mx.take_along_axis(top_lp, sort_order, axis=-1)
+        top_idx_sorted = mx.take_along_axis(top_idx, sort_order, axis=-1)
+
+        p_store = mx.softmax(top_lp, axis=-1)
+        msp_arr = mx.max(p_store, axis=-1)
+        if store_k >= 2:
+            margin_arr = top_lp_sorted[:, 0] - top_lp_sorted[:, 1]
+        else:
+            margin_arr = mx.zeros((N,), dtype=mx.float32)
+
+        if ent_k < V:
+            ent_idx = mx.argpartition(stacked, -ent_k, axis=-1)[:, -ent_k:]
+            ent_lp = mx.take_along_axis(stacked, ent_idx, axis=-1)
+        else:
+            ent_lp = stacked
+        p_ent = mx.softmax(ent_lp, axis=-1)
+        ent_arr = -mx.sum(p_ent * mx.log2(p_ent + 1e-12), axis=-1)
+
+        tid_list: List[int] = []
+        tid_valid: List[bool] = []
+        for i in valid_idx:
+            tid = tokens_meta[i].get("token_id") if i < len(tokens_meta) else None
+            if tid is not None:
+                ti = int(tid)
+                if 0 <= ti < V:
+                    tid_list.append(ti)
+                    tid_valid.append(True)
+                    continue
+            tid_list.append(0)
+            tid_valid.append(False)
+        tid_arr = mx.array(tid_list)
+        chosen = stacked[mx.arange(N), tid_arr]
+
+        mx.eval(msp_arr, margin_arr, ent_arr, chosen, top_lp_sorted, top_idx_sorted)
+
+        msp_list = msp_arr.tolist()
+        margin_list = margin_arr.tolist()
+        ent_list = ent_arr.tolist()
+        chosen_list = chosen.tolist()
+        top_lp_list = top_lp_sorted.tolist()
+        top_idx_list = top_idx_sorted.tolist()
+
+        for j, i in enumerate(valid_idx):
+            out[i]["logprob"] = float(chosen_list[j]) if tid_valid[j] else 0.0
+            out[i]["entropy"] = max(0.0, float(ent_list[j]))
+            out[i]["msp"] = float(msp_list[j])
+            out[i]["logit_margin"] = float(margin_list[j])
+
+            row_lps = top_lp_list[j]
+            row_ids = top_idx_list[j]
+            if not isinstance(row_lps, list):
+                row_lps = [row_lps]
+                row_ids = [row_ids]
+            top_dict: Dict[str, float] = {}
+            for val, idx in zip(row_lps, row_ids):
+                top_dict[_decode_token_key(tokenizer, int(idx))] = float(val)
+            out[i]["top_logprobs"] = top_dict
+        return out
+    except Exception:
+        for i in valid_idx:
+            tid = tokens_meta[i].get("token_id") if i < len(tokens_meta) else None
+            fields = _telemetry_from_single_logprob(
+                raw_logprobs_list[i],
+                tid,
+                tokenizer=tokenizer,
+                top_k_store=top_k_store,
+                top_k_entropy=top_k_entropy,
+            )
+            out[i].update(fields)
+        return out
+
+
+def _clear_mlx_cache() -> None:
+    """Best-effort GC + MLX/Metal cache purge after discarding heavy logprob tensors."""
+    import gc
+    gc.collect()
+    if mx is None:
+        return
+    try:
+        if hasattr(mx, "clear_cache"):
+            mx.clear_cache()
+        if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+            mx.metal.clear_cache()
+    except Exception:
+        pass
+
+
 class MlxLLMEngine(BaseLLMEngine):
     def __init__(self, model_path: str = None):
         if mx is None:
@@ -372,60 +590,17 @@ class MlxLLMEngine(BaseLLMEngine):
                 })
                 raw_logprobs_list.append(logprobs)
 
-        # Batched vectorized entropy computation across all tokens after generation finishes
-        entropies: List[float] = []
-        if raw_logprobs_list and mx is not None:
-            valid_tensors = [lp for lp in raw_logprobs_list if lp is not None]
-            if valid_tensors:
-                try:
-                    stacked = mx.stack(valid_tensors)
-                    top_indices = mx.argpartition(stacked, -50, axis=-1)[:, -50:]
-                    top_logprobs = mx.take_along_axis(stacked, top_indices, axis=-1).astype(mx.float32)
-                    p = mx.softmax(top_logprobs, axis=-1)
-                    entropy_tensors = -mx.sum(p * mx.log2(p + 1e-12), axis=-1)
-                    mx.eval(entropy_tensors)
-                    entropy_vals = entropy_tensors.tolist()
+        # Compact per-token telemetry (logprob/msp/margin/top-k/entropy) then drop full vocab tensors
+        tokens_info = build_compact_tokens_info(
+            raw_logprobs_list,
+            tokens_meta,
+            tokenizer=self.tokenizer,
+            top_k_store=5,
+            top_k_entropy=50,
+        )
 
-                    e_idx = 0
-                    for lp in raw_logprobs_list:
-                        if lp is not None and e_idx < len(entropy_vals):
-                            entropies.append(max(0.0, float(entropy_vals[e_idx])))
-                            e_idx += 1
-                        else:
-                            entropies.append(0.0)
-                except Exception:
-                    for lp in raw_logprobs_list:
-                        if lp is not None:
-                            try:
-                                p = mx.softmax(lp.astype(mx.float32))
-                                entropies.append(max(0.0, -float(mx.sum(p * mx.log2(p + 1e-12)))))
-                            except Exception:
-                                entropies.append(0.0)
-                        else:
-                            entropies.append(0.0)
-            else:
-                entropies = [0.0] * len(raw_logprobs_list)
-        else:
-            entropies = [0.0] * len(raw_logprobs_list)
-
-        tokens_info = []
-        for idx, meta in enumerate(tokens_meta):
-            ent = entropies[idx] if idx < len(entropies) else 0.0
-            meta["entropy"] = ent
-            tokens_info.append(meta)
-
-        # Explicitly delete heavy logit tensor references and purge GPU/Metal cache
         del raw_logprobs_list
-        import gc
-        gc.collect()
-        if mx is not None:
-            try:
-                if hasattr(mx, "clear_cache"):
-                    mx.clear_cache()
-                if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
-                    mx.metal.clear_cache()
-            except Exception:
-                pass
+        _clear_mlx_cache()
 
         clean_text = strip_thinking_tokens(full_text)
         try:
@@ -435,6 +610,125 @@ class MlxLLMEngine(BaseLLMEngine):
             aligned_tokens = tokens_info
 
         return clean_text, aligned_tokens
+
+
+    def _apply_chat_template(self, prompt: str) -> str:
+        """Format a user prompt with the tokenizer chat template when not already formatted."""
+        formatted_prompt = prompt
+        is_formatted = any(
+            tag in prompt
+            for tag in [
+                "<|im_start|>",
+                "<|start_header_id|>",
+                "[INST]",
+                "<start_of_turn>",
+                "<|im_end|>",
+            ]
+        )
+        if not is_formatted and hasattr(self.tokenizer, "apply_chat_template"):
+            try:
+                messages = [{"role": "user", "content": prompt}]
+                formatted_prompt = self.tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+            except Exception:
+                pass
+        return formatted_prompt
+
+    def _encode_text(self, text: str, add_special_tokens: bool = True) -> List[int]:
+        """Encode text to token ids, tolerating tokenizer API differences."""
+        try:
+            ids = self.tokenizer.encode(text, add_special_tokens=add_special_tokens)
+        except TypeError:
+            ids = self.tokenizer.encode(text)
+        if hasattr(ids, "tolist"):
+            ids = ids.tolist()
+        return [int(x) for x in list(ids)]
+
+    def score_text_logprobs(self, prompt: str, answer_text: str) -> List[Dict[str, Any]]:
+        """Teacher-force score answer_text under prompt; return compact tokens_info.
+
+        Formats prompt like generate_response_with_logits, concatenates answer tokens,
+        runs a full forward pass, and extracts logprobs for each answer token given
+        previous context. Char spans are over the reconstructed answer token text.
+        """
+        self._ensure_model_loaded()
+        if answer_text is None:
+            return []
+        answer_text = str(answer_text)
+        if not answer_text:
+            return []
+
+        formatted_prompt = self._apply_chat_template(prompt)
+
+        bos = getattr(self.tokenizer, "bos_token", None)
+        add_special = bos is None or not str(formatted_prompt).startswith(str(bos))
+        prompt_ids = self._encode_text(formatted_prompt, add_special_tokens=add_special)
+        answer_ids = self._encode_text(answer_text, add_special_tokens=False)
+        if not answer_ids:
+            return []
+        if not prompt_ids:
+            # Need at least one context token for causal LM scoring positions
+            return []
+
+        full_ids = prompt_ids + answer_ids
+        prompt_len = len(prompt_ids)
+        answer_len = len(answer_ids)
+
+        with _local_request_lock:
+            input_arr = mx.array(full_ids)[None]
+            logits = self.model(input_arr)
+            if isinstance(logits, (tuple, list)):
+                logits = logits[0]
+            # logits[t] predicts token at position t+1; answer token j uses index prompt_len+j-1
+            start = prompt_len - 1
+            end = prompt_len + answer_len - 1
+            answer_logits = logits[0, start:end, :].astype(mx.float32)
+            answer_logprobs = answer_logits - mx.logsumexp(answer_logits, axis=-1, keepdims=True)
+            mx.eval(answer_logprobs)
+
+        # Differential decode for token_text + char spans over reconstructed answer
+        tokens_meta: List[Dict[str, Any]] = []
+        raw_logprobs_list: List[Any] = []
+        full_text = ""
+        for j, tid in enumerate(answer_ids):
+            try:
+                if j == 0:
+                    token_text = self.tokenizer.decode([tid])
+                else:
+                    prev = self.tokenizer.decode(answer_ids[:j])
+                    curr = self.tokenizer.decode(answer_ids[: j + 1])
+                    if curr.startswith(prev):
+                        token_text = curr[len(prev) :]
+                    else:
+                        token_text = self.tokenizer.decode([tid])
+            except Exception:
+                token_text = ""
+
+            char_start = len(full_text)
+            full_text += token_text
+            char_end = len(full_text)
+            tokens_meta.append(
+                {
+                    "token_id": int(tid),
+                    "token_text": token_text,
+                    "char_start": char_start,
+                    "char_end": char_end,
+                }
+            )
+            raw_logprobs_list.append(answer_logprobs[j])
+
+        tokens_info = build_compact_tokens_info(
+            raw_logprobs_list,
+            tokens_meta,
+            tokenizer=self.tokenizer,
+            top_k_store=5,
+            top_k_entropy=50,
+        )
+
+        del raw_logprobs_list, answer_logprobs, answer_logits, logits
+        _clear_mlx_cache()
+        return tokens_info
 
 
     def generate_json(

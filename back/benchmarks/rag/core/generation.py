@@ -50,6 +50,7 @@ from core.shannon_estimator import (
     map_char_offset_to_token_idx,
     compute_log_likelihood,
     compute_clr,
+    compute_sequence_telemetry,
 )
 from core.subprocess_runner import format_progress_marker
 from src.prompts import prompts
@@ -76,8 +77,11 @@ def _generate_with_logits_safe(llm_engine: Any, prompt: str) -> Tuple[str, List[
             res = method(prompt)
             if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], str) and isinstance(res[1], list):
                 text, tokens_info = res[0], res[1]
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "generate_response_with_logits failed; falling back to generate_response: %s", e
+            )
 
     if not text:
         text = llm_engine.generate_response(prompt)
@@ -551,6 +555,14 @@ def run_query_on_baseline(
 
         metrics = collector.get_metrics()
         if shannon_enabled and shannon_diag is not None:
+            if tokens_info:
+                seq_tel = compute_sequence_telemetry(tokens_info)
+                shannon_diag = {
+                    **shannon_diag,
+                    **seq_tel,
+                    "msp": seq_tel.get("avg_msp", 0.0),
+                    "logit_margin": seq_tel.get("avg_logit_margin", 0.0),
+                }
             metrics["shannon_diagnostics"] = shannon_diag
         if tokens_info:
             metrics["tokens_info"] = tokens_info
@@ -898,8 +910,10 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                         con.search_msg("Generating answer …")
                         
                         shannon_enabled = baseline_config.get("shannon_estimator_enabled", True)
+                        logit_save = getattr(args, "logit_save", False)
+                        tokens_info = []
                         t_gen_start = time.perf_counter()
-                        if shannon_enabled:
+                        if shannon_enabled or logit_save:
                             raw_response, tokens_info = _generate_with_logits_safe(rag_service.llm_engine, prompt)
                             h_gen = compute_generation_entropy(tokens_info)
                             h_cit, n_cit = compute_citation_entropy(tokens_info, raw_response)
@@ -1004,6 +1018,14 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                                 "ll_base": round(ll_base, 4),
                                 "clr": round(clr, 4),
                             }
+                            if tokens_info:
+                                seq_tel = compute_sequence_telemetry(tokens_info)
+                                shannon_diag = {
+                                    **shannon_diag,
+                                    **seq_tel,
+                                    "msp": seq_tel.get("avg_msp", 0.0),
+                                    "logit_margin": seq_tel.get("avg_logit_margin", 0.0),
+                                }
 
                         status = "success"
 
@@ -1011,6 +1033,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                         metrics = pre_metrics
                         if shannon_enabled:
                             metrics["shannon_diagnostics"] = shannon_diag
+                        if tokens_info:
+                            metrics["tokens_info"] = tokens_info
                         if "components" not in metrics:
                             metrics["components"] = {}
                         for comp in ["llm_generation", "citation_repair", "embedding", "dense_retrieval", "lexical_retrieval", "graph_neighbors", "db_lookups", "reranking", "graph_expansion"]:

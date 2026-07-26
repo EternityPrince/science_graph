@@ -625,6 +625,12 @@ def compute_first_token_metrics(tokens_info: List[Dict[str, Any]]) -> Dict[str, 
                 "first_token_margin": float(t0["first_token_margin"]),
                 "first_token_msp": float(t0["first_token_msp"]),
             }
+        # Prefer compact per-token fields written by MLX/OpenAI engines
+        if t0.get("msp") is not None or t0.get("logit_margin") is not None:
+            return {
+                "first_token_margin": round(float(t0.get("logit_margin", 0.0) or 0.0), 4),
+                "first_token_msp": round(float(t0.get("msp", t0.get("prob", 0.0)) or 0.0), 4),
+            }
         logits, probs = _extract_token_logits_or_probs(t0)
         data = logits if logits is not None else probs
         margin = compute_logit_margin(data)

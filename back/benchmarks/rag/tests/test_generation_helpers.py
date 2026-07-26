@@ -206,6 +206,25 @@ def test_generate_with_logits_safe_normalizes_tokens_and_char_spans():
     assert "top_logprobs" in tokens_info[0]
 
 
+def test_generate_with_logits_safe_logs_on_exception_and_falls_back():
+    from core.generation import _generate_with_logits_safe
+
+    class RealEngine:
+        def generate_response_with_logits(self, prompt):
+            raise RuntimeError("logits backend down")
+
+        def generate_response(self, prompt):
+            return "fallback answer"
+
+    with patch("logging.Logger.warning") as mock_warn:
+        text, tokens_info = _generate_with_logits_safe(RealEngine(), "Prompt")
+
+    assert text == "fallback answer"
+    assert tokens_info == []
+    assert mock_warn.called
+    assert "generate_response_with_logits failed" in str(mock_warn.call_args)
+
+
 def test_score_text_logprobs_base():
     from core.generation import score_text_logprobs_base
 

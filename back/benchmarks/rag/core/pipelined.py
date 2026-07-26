@@ -408,7 +408,11 @@ def generate_baseline_case(
                         assemble_retrieval_shannon_fields,
                         empty_retrieval_shannon_fields,
                         compute_entropy_reduction,
+                        compute_log_likelihood,
+                        compute_clr,
+                        compute_sequence_telemetry,
                     )
+                    from core.generation import score_text_logprobs_base
                     if baseline == "B0":
                         if not hasattr(rag_service, "_query_b0_h_gen"):
                             rag_service._query_b0_h_gen = {}
@@ -450,6 +454,24 @@ def generate_baseline_case(
                             "n_citation_tokens": n_cit,
                             "delta_h_gen": round(delta_h, 4),
                         }
+                    ll_rag = compute_log_likelihood(tokens_info)
+                    if baseline == "B0":
+                        ll_base = ll_rag
+                        clr = 0.0
+                    else:
+                        base_tokens = score_text_logprobs_base(
+                            rag_service.llm_engine, query, raw_response
+                        )
+                        ll_base = compute_log_likelihood(base_tokens)
+                        clr = compute_clr(ll_rag, ll_base)
+                    shannon_diag["ll_rag"] = round(ll_rag, 4)
+                    shannon_diag["ll_base"] = round(ll_base, 4)
+                    shannon_diag["clr"] = round(clr, 4)
+                    if tokens_info:
+                        seq_tel = compute_sequence_telemetry(tokens_info)
+                        shannon_diag.update(seq_tel)
+                        shannon_diag["msp"] = seq_tel.get("avg_msp", 0.0)
+                        shannon_diag["logit_margin"] = seq_tel.get("avg_logit_margin", 0.0)
                     metrics["shannon_diagnostics"] = shannon_diag
                 if tokens_info:
                     metrics["tokens_info"] = tokens_info

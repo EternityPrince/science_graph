@@ -5,7 +5,15 @@ Quality metrics (faithfulness, relevance, etc.) are averaged only over queries
 where the model produced an answer (outcome in TP, FP). TN and FP on
 unanswerable queries carry NaN quality scores because faithfulness/relevance
 cannot be meaningfully computed on abstentions or skipped judge calls.
+
+Telemetry / logit confidence metrics (MSP, margins, H_gen, CLR, etc.) use the
+same TP+FP answered filter: generation confidence is only meaningful when the
+model produced an answer.
+
 Safety / answerability metrics use the full query set.
+
+Pairwise Holm-Bonferroni correction is applied within each metric family
+(quality, telemetry, safety) and is not pooled across families.
 """
 
 from __future__ import annotations
@@ -19,7 +27,7 @@ from typing import Any, Literal
 import numpy as np
 from scipy import stats as scipy_stats
 
-from core.analytics import QUALITY_METRICS, METRIC_LABELS
+from core.analytics import QUALITY_METRICS, TELEMETRY_METRICS, METRIC_LABELS
 from core.metrics import classify_answerability, detect_abstention, get_is_answerable
 
 try:
@@ -29,6 +37,9 @@ except ImportError:  # pragma: no cover
 
 ANSWERED_OUTCOMES = frozenset({"TP", "FP"})
 QUALITY_METRIC_SET = frozenset(QUALITY_METRICS)
+TELEMETRY_METRIC_SET = frozenset(TELEMETRY_METRICS)
+# Quality + telemetry both require a model answer for valid per-query scores.
+ANSWERED_METRIC_SET = QUALITY_METRIC_SET | TELEMETRY_METRIC_SET
 
 SAFETY_METRICS = [
     "mcc",
@@ -43,6 +54,22 @@ SAFETY_METRICS = [
     "abstention_rate",
     "f1",
 ]
+
+# Field aliases for shannon_diagnostics / top-level telemetry extraction.
+# Primary name first, then common alternate keys from estimator / older dumps.
+_TELEMETRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "h_gen": ("h_gen", "generation_entropy"),
+    "h_citation": ("h_citation", "citation_entropy"),
+    "delta_h_gen": ("delta_h_gen", "entropy_reduction"),
+    "avg_msp": ("avg_msp", "msp"),
+    "avg_logit_margin": ("avg_logit_margin", "logit_margin"),
+    "first_token_msp": ("first_token_msp",),
+    "first_token_margin": ("first_token_margin",),
+    "ll_rag": ("ll_rag",),
+    "ll_base": ("ll_base",),
+    "clr": ("clr",),
+    "n_citation_tokens": ("n_citation_tokens", "citation_token_count"),
+}
 
 
 @dataclass
@@ -162,6 +189,49 @@ def _quality_value_for_outcome(outcome: str, raw_value: Any) -> float | None:
         return np.nan
 
 
+def _lookup_float_keys(source: dict | None, keys: tuple[str, ...]) -> float | None:
+    """Return the first coercible float for any key in *keys* from *source*."""
+    if not isinstance(source, dict):
+        return None
+    for key in keys:
+        val = source.get(key)
+        if val is None or val == "":
+            continue
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _extract_telemetry_value(b_data: dict, metric: str) -> float:
+    """
+    Pull a telemetry scalar from shannon_diagnostics / metrics / top-level fields.
+
+    Prefers primary names, then aliases (e.g. generation_entropy → h_gen).
+    Returns NaN when the metric is absent or non-numeric.
+    """
+    aliases = _TELEMETRY_FIELD_ALIASES.get(metric, (metric,))
+    shannon = b_data.get("shannon_diagnostics")
+    if not isinstance(shannon, dict):
+        metrics = b_data.get("metrics")
+        if isinstance(metrics, dict):
+            shannon = metrics.get("shannon_diagnostics")
+        else:
+            shannon = None
+
+    for source in (
+        shannon if isinstance(shannon, dict) else None,
+        b_data,
+        b_data.get("eval_metrics") if isinstance(b_data.get("eval_metrics"), dict) else None,
+        b_data.get("metrics") if isinstance(b_data.get("metrics"), dict) else None,
+    ):
+        found = _lookup_float_keys(source, aliases)
+        if found is not None:
+            return found
+    return np.nan
+
+
 def prepare_per_query_records(
     data: dict,
     baselines: list[str] | None = None,
@@ -170,7 +240,8 @@ def prepare_per_query_records(
     Build per-(query, baseline) records with outcome-aware quality metric NaNs.
 
     Quality metrics are set to NaN for TN and FP (unanswerable cases where judge
-    metrics are undefined). Aggregation uses explicit TP+FP filtering.
+    metrics are undefined). Telemetry values are extracted from shannon_diagnostics
+    (and top-level aliases) for all outcomes; aggregation still uses TP+FP filtering.
     """
     results = data.get("results", [])
     if not results:
@@ -218,6 +289,9 @@ def prepare_per_query_records(
             for metric in QUALITY_METRICS:
                 record[metric] = _quality_value_for_outcome(outcome, eval_metrics.get(metric))
 
+            for metric in TELEMETRY_METRICS:
+                record[metric] = _extract_telemetry_value(b_data, metric)
+
             lat = b_data.get("latency_sec")
             record["latency_sec"] = float(lat) if lat is not None else np.nan
             records.append(record)
@@ -250,7 +324,7 @@ def aggregate_metric_mean(
     use_answered_filter: bool = True,
 ) -> float | None:
     subset = [r for r in records if r["baseline"] == baseline]
-    if use_answered_filter and metric in QUALITY_METRIC_SET:
+    if use_answered_filter and metric in ANSWERED_METRIC_SET:
         subset = [r for r in subset if r["outcome"] in ANSWERED_OUTCOMES]
         vals = [
             float(r[metric])
@@ -277,17 +351,18 @@ def paired_metric_vectors(
     """Align per-query paired values for two baselines."""
     by_query_a: dict[str, float] = {}
     by_query_b: dict[str, float] = {}
+    answered_only = metric in ANSWERED_METRIC_SET
 
     for row in records:
         if row["baseline"] == baseline_a:
-            if metric in QUALITY_METRIC_SET and row["outcome"] not in ANSWERED_OUTCOMES:
+            if answered_only and row["outcome"] not in ANSWERED_OUTCOMES:
                 continue
             val = row.get(metric)
             if val is None or (isinstance(val, float) and math.isnan(val)):
                 continue
             by_query_a[row["query_id"]] = float(val)
         elif row["baseline"] == baseline_b:
-            if metric in QUALITY_METRIC_SET and row["outcome"] not in ANSWERED_OUTCOMES:
+            if answered_only and row["outcome"] not in ANSWERED_OUTCOMES:
                 continue
             val = row.get(metric)
             if val is None or (isinstance(val, float) and math.isnan(val)):
@@ -725,14 +800,82 @@ def apply_multiple_comparison_correction(
     return sig_flags
 
 
+def _pairwise_wilcoxon_family(
+    records: list[dict[str, Any]],
+    baselines: list[str],
+    metrics: list[str],
+    config: StatsConfig,
+    family: str,
+) -> list[dict[str, Any]]:
+    """
+    Wilcoxon pairwise tests for one metric family with per-metric Holm correction.
+
+    Holm is applied within this family only (across baseline pairs for each metric).
+    Families are never pooled together.
+    """
+    rows: list[dict[str, Any]] = []
+    for metric in metrics:
+        metric_pairs: list[tuple[str, str, np.ndarray, np.ndarray, dict[str, Any]]] = []
+        for b_a, b_b in combinations(baselines, 2):
+            vec_a, vec_b, _ = paired_metric_vectors(records, b_a, b_b, metric)
+            if len(vec_a) == 0:
+                continue
+            wilcox = wilcoxon_signed_rank_test(vec_a, vec_b)
+            metric_pairs.append((b_a, b_b, vec_a, vec_b, wilcox))
+
+        if not metric_pairs:
+            continue
+
+        p_vals = [w["p_value"] for _, _, _, _, w in metric_pairs]
+        sig_flags, adj_p_vals, adj_alphas = compute_multiple_comparison_correction(p_vals, config)
+
+        for (b_a, b_b, vec_a, vec_b, wilcox), sig, p_adj, alpha_adj in zip(
+            metric_pairs, sig_flags, adj_p_vals, adj_alphas
+        ):
+            diff_ci = bootstrap_paired_difference_ci(
+                vec_a, vec_b, config, alpha_override=alpha_adj
+            )
+            rows.append(
+                {
+                    "metric": metric,
+                    "family": family,
+                    "baseline_a": b_a,
+                    "baseline_b": b_b,
+                    "mean_a": float(np.mean(vec_a)),
+                    "mean_b": float(np.mean(vec_b)),
+                    "delta": diff_ci["delta"],
+                    "ci_lower": diff_ci["ci_lower"],
+                    "ci_upper": diff_ci["ci_upper"],
+                    "rank_delta": diff_ci["rank_delta"],
+                    "rank_ci_lower": diff_ci["rank_ci_lower"],
+                    "rank_ci_upper": diff_ci["rank_ci_upper"],
+                    "alpha_adjusted": alpha_adj,
+                    "p_value": wilcox["p_value"],
+                    "p_uncorrected": wilcox["p_value"],
+                    "p_value_corrected": p_adj,
+                    "significant": sig,
+                    "effect_size": wilcox["effect_size"],
+                    "test": "wilcoxon",
+                    "n_pairs": wilcox["n"],
+                    "stars": significance_stars(
+                        p_adj if config.correction_method != "none" else wilcox["p_value"],
+                        config.alpha,
+                    )
+                    if sig
+                    else "",
+                }
+            )
+    return rows
+
+
 def compute_baseline_summary_with_ci(
     records: list[dict[str, Any]],
     baselines: list[str],
     config: StatsConfig,
 ) -> dict[str, dict[str, Any]]:
-    """Per-baseline means with bootstrap CIs."""
+    """Per-baseline means with bootstrap CIs (quality, latency, telemetry)."""
     summary: dict[str, dict[str, Any]] = {}
-    metrics = list(QUALITY_METRICS) + ["latency_sec"]
+    metrics = list(QUALITY_METRICS) + ["latency_sec"] + list(TELEMETRY_METRICS)
 
     for baseline in baselines:
         summary[baseline] = {}
@@ -746,7 +889,7 @@ def compute_baseline_summary_with_ci(
         summary[baseline]["classification"] = compute_classification_metrics(tp, fp, tn, fn, total_q)
 
         for metric in metrics:
-            use_answered = metric in QUALITY_METRIC_SET
+            use_answered = metric in ANSWERED_METRIC_SET
             if use_answered:
                 vals = np.array(
                     [
@@ -785,57 +928,37 @@ def compute_pairwise_comparisons(
     baselines: list[str],
     config: StatsConfig,
 ) -> list[dict[str, Any]]:
-    """Pairwise Wilcoxon + FWER-synchronized bootstrap CIs with rank-based delta."""
-    metrics = list(QUALITY_METRICS) + ["latency_sec"]
+    """
+    Pairwise Wilcoxon + FWER-synchronized bootstrap CIs with rank-based delta.
+
+    Quality and telemetry families are corrected separately (Holm within family);
+    p-values are never pooled across families. Safety uses McNemar on answerability.
+    """
     rows: list[dict[str, Any]] = []
 
-    for metric in metrics:
-        metric_pairs: list[tuple[str, str, np.ndarray, np.ndarray, dict[str, Any]]] = []
-        for b_a, b_b in combinations(baselines, 2):
-            vec_a, vec_b, _ = paired_metric_vectors(records, b_a, b_b, metric)
-            if len(vec_a) == 0:
-                continue
-            wilcox = wilcoxon_signed_rank_test(vec_a, vec_b)
-            metric_pairs.append((b_a, b_b, vec_a, vec_b, wilcox))
+    # Quality family (incl. latency) — existing behavior, tagged for clarity.
+    rows.extend(
+        _pairwise_wilcoxon_family(
+            records,
+            baselines,
+            list(QUALITY_METRICS) + ["latency_sec"],
+            config,
+            family="quality",
+        )
+    )
 
-        if not metric_pairs:
-            continue
+    # Telemetry family — separate Holm; do not pool with quality p-values.
+    rows.extend(
+        _pairwise_wilcoxon_family(
+            records,
+            baselines,
+            list(TELEMETRY_METRICS),
+            config,
+            family="telemetry",
+        )
+    )
 
-        p_vals = [w["p_value"] for _, _, _, _, w in metric_pairs]
-        sig_flags, adj_p_vals, adj_alphas = compute_multiple_comparison_correction(p_vals, config)
-
-        for (b_a, b_b, vec_a, vec_b, wilcox), sig, p_adj, alpha_adj in zip(
-            metric_pairs, sig_flags, adj_p_vals, adj_alphas
-        ):
-            diff_ci = bootstrap_paired_difference_ci(
-                vec_a, vec_b, config, alpha_override=alpha_adj
-            )
-            rows.append(
-                {
-                    "metric": metric,
-                    "baseline_a": b_a,
-                    "baseline_b": b_b,
-                    "mean_a": float(np.mean(vec_a)),
-                    "mean_b": float(np.mean(vec_b)),
-                    "delta": diff_ci["delta"],
-                    "ci_lower": diff_ci["ci_lower"],
-                    "ci_upper": diff_ci["ci_upper"],
-                    "rank_delta": diff_ci["rank_delta"],
-                    "rank_ci_lower": diff_ci["rank_ci_lower"],
-                    "rank_ci_upper": diff_ci["rank_ci_upper"],
-                    "alpha_adjusted": alpha_adj,
-                    "p_value": wilcox["p_value"],
-                    "p_uncorrected": wilcox["p_value"],
-                    "p_value_corrected": p_adj,
-                    "significant": sig,
-                    "effect_size": wilcox["effect_size"],
-                    "test": "wilcoxon",
-                    "n_pairs": wilcox["n"],
-                    "stars": significance_stars(p_adj if config.correction_method != "none" else wilcox["p_value"], config.alpha) if sig else "",
-                }
-            )
-
-    # McNemar for answerability correctness (executed ONCE per baseline pair, not per metric)
+    # McNemar for answerability correctness (safety family)
     mcnemar_pairs: list[tuple[str, str, dict[str, Any]]] = []
     for b_a, b_b in combinations(baselines, 2):
         mcnemar = mcnemar_answerability_test(records, b_a, b_b)
@@ -856,6 +979,7 @@ def compute_pairwise_comparisons(
             rows.append(
                 {
                     "metric": "answerability_correct",
+                    "family": "safety",
                     "baseline_a": b_a,
                     "baseline_b": b_b,
                     "mean_a": None,
@@ -876,7 +1000,12 @@ def compute_pairwise_comparisons(
                     "n_pairs": mcnemar["n"],
                     "discordant_b": b_cnt,
                     "discordant_c": c_cnt,
-                    "stars": significance_stars(p_adj if config.correction_method != "none" else mcnemar["p_value"], config.alpha) if sig else "",
+                    "stars": significance_stars(
+                        p_adj if config.correction_method != "none" else mcnemar["p_value"],
+                        config.alpha,
+                    )
+                    if sig
+                    else "",
                 }
             )
 
@@ -890,7 +1019,7 @@ def compute_friedman_tests(
     if len(baselines) < 3:
         return {}
     results = {}
-    for metric in QUALITY_METRICS + ["latency_sec"]:
+    for metric in list(QUALITY_METRICS) + ["latency_sec"] + list(TELEMETRY_METRICS):
         results[metric] = friedman_omnibus_test(records, baselines, metric)
     return results
 
@@ -931,8 +1060,9 @@ def compute_statistical_analysis(
             "friedman": {},
             "significant_improvements": [],
             "filtering_note": (
-                "Quality metrics averaged over TP+FP (model answered). "
+                "Quality and telemetry metrics averaged over TP+FP (model answered). "
                 "TN/FP unanswerable quality scores are NaN. "
+                "Holm correction is within family (quality | telemetry | safety). "
                 "Safety metrics use all queries."
             ),
         }
@@ -952,8 +1082,9 @@ def compute_statistical_analysis(
         "friedman": friedman,
         "significant_improvements": significant,
         "filtering_note": (
-            "Quality metrics averaged over TP+FP (model answered). "
+            "Quality and telemetry metrics averaged over TP+FP (model answered). "
             "TN/FP unanswerable quality scores are NaN. "
+            "Holm correction is within family (quality | telemetry | safety). "
             "Safety metrics use all queries."
         ),
     }

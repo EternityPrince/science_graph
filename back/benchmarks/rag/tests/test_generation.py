@@ -205,6 +205,148 @@ def test_run_benchmarking_consume_contexts(tmp_path):
     assert out_data["results"][0]["baselines"]["CUSTOM"]["generated_answer"] == "generated response"
     rag_service._validate_and_repair_citations.assert_called_once()
 
+
+def test_run_benchmarking_consume_contexts_attaches_tokens_info(tmp_path):
+    """Bug A: consume_contexts path must attach tokens_info when logits generation runs."""
+    dataset_path = tmp_path / "dataset.yaml"
+    with open(dataset_path, "w") as f:
+        yaml.safe_dump(
+            [{"id": "Q1", "query": "What is deep learning?", "expected_papers": ["paper_1"]}],
+            f,
+        )
+
+    pre_contexts_path = tmp_path / "contexts.yaml"
+    with open(pre_contexts_path, "w") as f:
+        yaml.safe_dump(
+            [
+                {
+                    "id": "Q1",
+                    "query": "What is deep learning?",
+                    "expected_papers": ["paper_1"],
+                    "baselines": {
+                        "CUSTOM": {
+                            "status": "success",
+                            "retrieved_papers": ["paper_1"],
+                            "retrieved_chunks": [
+                                {
+                                    "id": "c1",
+                                    "paper_id": "paper_1",
+                                    "text_content": "chunk content",
+                                    "page_number": 1,
+                                    "score": 0.9,
+                                }
+                            ],
+                            "trimmed_text": "chunk content",
+                            "trimmed_graph": "",
+                            "enrichment_block": "",
+                            "metrics": {
+                                "components": {
+                                    "embedding": {"calls": 1, "time_sec": 0.1}
+                                },
+                                "total_io_calls": 1,
+                            },
+                            "latency_sec": 0.1,
+                        }
+                    },
+                }
+            ],
+            f,
+        )
+
+    output_path = tmp_path / "output.yaml"
+    mock_tokens = [
+        {
+            "token": "Deep",
+            "logprob": -0.1,
+            "top_logprobs": {"Deep": -0.1, "Shallow": -2.0},
+        },
+        {
+            "token": " learning",
+            "logprob": -0.2,
+            "top_logprobs": {" learning": -0.2, " thinking": -1.5},
+        },
+    ]
+
+    args = MagicMock()
+    args.dataset = str(dataset_path)
+    args.consume_contexts = str(pre_contexts_path)
+    args.cloud = False
+    args.baselines = "CUSTOM"
+    args.output = str(output_path)
+    args.no_unique_dir = True
+    args.clear_checkpoint = False
+    args.limit = 1
+    args.logit_save = True
+
+    config = MagicMock()
+    config.data = {
+        "llm": {
+            "provider": "local",
+            "local": {"model_path": "test_model"},
+            "temp": 0.1,
+            "max_tokens": 100,
+        },
+        "embedding": {"model_name": "test_emb"},
+        "rag_components": {
+            "reranker": False,
+            "citation_repair": False,
+            "shannon_estimator_enabled": True,
+        },
+    }
+    config.rag_components = config.data["rag_components"]
+    config.llm_model_max_context = 4096
+    config.reranker_model_name = "disabled"
+
+    prompts = MagicMock()
+    prompts.get_prompt.return_value = "dummy system prompt"
+
+    # Use a non-MagicMock engine so _generate_with_logits_safe uses the real logits path
+    class StubEngine:
+        def _ensure_model_loaded(self):
+            return None
+
+        def generate_response_with_logits(self, prompt):
+            return "Deep learning", list(mock_tokens)
+
+        def generate_response(self, prompt):
+            return "Deep learning"
+
+        def count_tokens(self, text):
+            return 5
+
+    rag_service = MagicMock()
+    rag_service.llm_engine = StubEngine()
+    rag_service._validate_and_repair_citations.side_effect = lambda a, c: a
+    rag_service._query_b0_h_gen = {}
+
+    container = MagicMock()
+    container.get_rag_service.return_value = rag_service
+
+    with patch("core.generation.score_text_logprobs_base", return_value=list(mock_tokens)):
+        with patch("core.generation._ensure_b0_entropy", return_value=1.0):
+            run_benchmarking(args, config, prompts, container, MagicMock())
+
+    assert output_path.exists()
+    with open(output_path, "r") as f:
+        out_data = yaml.safe_load(f)
+
+    baseline = out_data["results"][0]["baselines"]["CUSTOM"]
+    assert baseline["status"] == "success"
+    metrics_tokens = baseline.get("metrics", {}).get("tokens_info") or baseline.get("tokens_info")
+    assert metrics_tokens is not None
+    assert len(metrics_tokens) == 2
+    assert metrics_tokens[0]["token"] == "Deep"
+
+    sh_diag = baseline.get("metrics", {}).get("shannon_diagnostics") or baseline.get(
+        "shannon_diagnostics"
+    )
+    assert sh_diag is not None
+    assert "avg_msp" in sh_diag
+    assert "avg_logit_margin" in sh_diag
+    assert "first_token_msp" in sh_diag
+    assert "msp" in sh_diag
+    assert "ll_rag" in sh_diag
+
 def test_run_benchmarking_no_pre_retrieved(tmp_path):
     dataset_path = tmp_path / "dataset.yaml"
     dataset_data = [

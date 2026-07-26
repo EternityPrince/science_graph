@@ -26,20 +26,22 @@ class DummyResponse:
 
 def mock_stream_generate(model, tokenizer, prompt, max_tokens=100, sampler=None):
     """Yields dummy stream responses simulating logits & tokens."""
+    # token_ids are in-range for the fake vocab so chosen-token logprob is populated
     sample_data = [
-        (101, "According ", None),
-        (102, "to ", None),
-        (103, "[sciq_paper_1]", None),
-        (104, ", ", None),
-        (105, "the ", None),
-        (106, "energy ", None),
-        (107, "is ", None),
-        (108, "conserved", None),
-        (109, ".", None),
+        (0, "According ", None),
+        (1, "to ", None),
+        (2, "[sciq_paper_1]", None),
+        (3, ", ", None),
+        (4, "the ", None),
+        (5, "energy ", None),
+        (0, "is ", None),
+        (1, "conserved", None),
+        (2, ".", None),
     ]
     try:
         import mlx.core as mx
-        fake_logprobs = mx.array([-1.0, -2.0, -3.0, -4.0])
+        # vocab >= 6 so top-k=5 extraction and chosen-token indexing are valid
+        fake_logprobs = mx.array([-1.0, -2.0, -0.5, -4.0, -3.0, -2.5], dtype=mx.float32)
     except ImportError:
         fake_logprobs = None
 
@@ -57,6 +59,7 @@ def test_mlx_engine_generate_response_with_logits_mocked():
         engine = MlxLLMEngine(model_path="/dummy/path")
         engine.model = MagicMock()
         engine.tokenizer = MagicMock()
+        engine.tokenizer.decode.side_effect = lambda ids: f"tok{ids[0]}" if ids else ""
 
         text, tokens_info = engine.generate_response_with_logits("Explain conservation of energy.")
 
@@ -71,6 +74,23 @@ def test_mlx_engine_generate_response_with_logits_mocked():
             assert "entropy" in tok
             assert isinstance(tok["entropy"], float)
             assert tok["entropy"] >= 0.0
+            # Compact logprob telemetry required for MSP/margin/LL/CLR
+            assert "logprob" in tok
+            assert isinstance(tok["logprob"], float)
+            assert "msp" in tok
+            assert isinstance(tok["msp"], float)
+            assert 0.0 < tok["msp"] <= 1.0
+            assert "logit_margin" in tok
+            assert isinstance(tok["logit_margin"], float)
+            assert tok["logit_margin"] >= 0.0
+            assert "top_logprobs" in tok
+            assert isinstance(tok["top_logprobs"], dict)
+            assert 1 <= len(tok["top_logprobs"]) <= 5
+
+        # Chosen token id=0 maps to logprob -1.0 in the fake distribution
+        assert tokens_info[0]["logprob"] == pytest.approx(-1.0)
+        # top1 is index 2 (-0.5), top2 is index 0 (-1.0) => margin 0.5
+        assert tokens_info[0]["logit_margin"] == pytest.approx(0.5)
 
         # Check character span accuracy
         assert tokens_info[0]["char_start"] == 0
@@ -296,13 +316,15 @@ def test_mlx_topk_logits_correctness_and_fallback():
         engine.model = MagicMock()
         engine.tokenizer = MagicMock()
 
+        engine.tokenizer.decode.side_effect = lambda ids: f"tok{ids[0]}" if ids else ""
+
         # 1. Test large logprob array (vocab size 100,000) using top-50 argpartition
         large_logprobs = mx.full((100000,), -10.0, dtype=mx.float32)
         large_logprobs[1234] = 0.0
         large_logprobs[5678] = -1.0
 
         def stream_large(model, tokenizer, prompt, max_tokens=100, sampler=None):
-            yield DummyResponse(1, "large", large_logprobs)
+            yield DummyResponse(1234, "large", large_logprobs)
 
         with patch("mlx_lm.stream_generate", side_effect=stream_large):
             text_large, tokens_large = engine.generate_response_with_logits("test large")
@@ -310,12 +332,17 @@ def test_mlx_topk_logits_correctness_and_fallback():
             assert len(tokens_large) == 1
             assert isinstance(tokens_large[0]["entropy"], float)
             assert tokens_large[0]["entropy"] >= 0.0
+            assert tokens_large[0]["logprob"] == pytest.approx(0.0)
+            assert tokens_large[0]["msp"] > 0.0
+            assert tokens_large[0]["logit_margin"] == pytest.approx(1.0)  # 0.0 - (-1.0)
+            assert isinstance(tokens_large[0]["top_logprobs"], dict)
+            assert len(tokens_large[0]["top_logprobs"]) == 5
 
         # 2. Test small logprob array (< 50 elements) triggering argpartition exception fallback
         small_logprobs = mx.array([-1.0, -2.0, -0.5, -3.0, -1.5, -2.5, -4.0, -0.1, -2.2, -3.3])
 
         def stream_small(model, tokenizer, prompt, max_tokens=100, sampler=None):
-            yield DummyResponse(2, "small", small_logprobs)
+            yield DummyResponse(7, "small", small_logprobs)
 
         with patch("mlx_lm.stream_generate", side_effect=stream_small):
             text_small, tokens_small = engine.generate_response_with_logits("test small")
@@ -323,6 +350,11 @@ def test_mlx_topk_logits_correctness_and_fallback():
             assert len(tokens_small) == 1
             assert isinstance(tokens_small[0]["entropy"], float)
             assert tokens_small[0]["entropy"] >= 0.0
+            assert tokens_small[0]["logprob"] == pytest.approx(-0.1)
+            assert tokens_small[0]["msp"] > 0.0
+            assert tokens_small[0]["logit_margin"] > 0.0
+            assert isinstance(tokens_small[0]["top_logprobs"], dict)
+            assert 1 <= len(tokens_small[0]["top_logprobs"]) <= 5
 
         # 3. Test exception fallback setting entropy to 0.0 on invalid logprobs
         bad_logprobs = MagicMock()
@@ -336,6 +368,86 @@ def test_mlx_topk_logits_correctness_and_fallback():
             assert text_bad == "bad"
             assert len(tokens_bad) == 1
             assert tokens_bad[0]["entropy"] == 0.0
+            assert tokens_bad[0]["logprob"] == 0.0
+            assert tokens_bad[0]["msp"] == 0.0
+            assert tokens_bad[0]["logit_margin"] == 0.0
+            assert tokens_bad[0]["top_logprobs"] == {}
+
+
+def test_mlx_score_text_logprobs_teacher_force_mocked():
+    """Verify score_text_logprobs teacher-forces answer tokens and returns compact telemetry."""
+    try:
+        import mlx.core as mx
+    except ImportError:
+        pytest.skip("mlx is not installed")
+
+    with patch("os.path.isdir", return_value=True), \
+         patch("src.llm_engine.mlx_impl.MlxLLMEngine._ensure_model_loaded") as mock_ensure:
+        mock_ensure.return_value = None
+        engine = MlxLLMEngine(model_path="/dummy/path")
+
+        # prompt_ids=[10,11], answer_ids=[0,1] => full length 4, logits (1,4,V)
+        vocab = 8
+        fake_logits = mx.zeros((1, 4, vocab), dtype=mx.float32)
+        # Position 1 predicts answer token 0: peak at id 0
+        fake_logits[0, 1, 0] = 5.0
+        fake_logits[0, 1, 1] = 1.0
+        # Position 2 predicts answer token 1: peak at id 1
+        fake_logits[0, 2, 1] = 4.0
+        fake_logits[0, 2, 0] = 0.5
+
+        engine.model = MagicMock(return_value=fake_logits)
+        engine.tokenizer = MagicMock()
+        engine.tokenizer.bos_token = None
+
+        def _encode(text, add_special_tokens=True):
+            return [10, 11] if text == "Score me" else [0, 1]
+
+        def _decode(ids):
+            ids = list(ids)
+            if ids == [0]:
+                return "y"
+            if ids == [0, 1]:
+                return "yes"
+            if ids == [1]:
+                return "es"
+            return "".join(f"t{i}" for i in ids)
+
+        engine.tokenizer.encode = MagicMock(side_effect=_encode)
+        engine.tokenizer.decode = MagicMock(side_effect=_decode)
+        engine.tokenizer.apply_chat_template = MagicMock(
+            side_effect=lambda messages, **kw: messages[0]["content"]
+        )
+
+        tokens_info = engine.score_text_logprobs("Score me", "yes")
+        assert len(tokens_info) == 2
+        for tok in tokens_info:
+            assert "token_id" in tok
+            assert "token_text" in tok
+            assert "char_start" in tok
+            assert "char_end" in tok
+            assert "logprob" in tok
+            assert "entropy" in tok
+            assert "msp" in tok
+            assert "logit_margin" in tok
+            assert "top_logprobs" in tok
+            assert isinstance(tok["top_logprobs"], dict)
+            assert tok["msp"] > 0.0
+            assert tok["entropy"] >= 0.0
+
+        assert tokens_info[0]["token_id"] == 0
+        assert tokens_info[1]["token_id"] == 1
+        assert tokens_info[0]["token_text"] == "y"
+        assert tokens_info[1]["token_text"] == "es"
+        assert tokens_info[0]["char_start"] == 0
+        assert tokens_info[0]["char_end"] == 1
+        assert tokens_info[1]["char_start"] == 1
+        assert tokens_info[1]["char_end"] == 3
+        # Peaked fake logits => high chosen logprob and positive margin
+        assert tokens_info[0]["logprob"] > -1.0
+        assert tokens_info[1]["logprob"] > -1.0
+        assert tokens_info[0]["logit_margin"] > 0.0
+        engine.model.assert_called_once()
 
 
 def test_b1_b2_pipeline_uses_cached_b0_entropy():

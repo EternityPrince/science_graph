@@ -21,6 +21,14 @@ QUALITY_METRICS = [
     "ar_sa_f1"
 ]
 
+TELEMETRY_METRICS = [
+    "h_gen", "h_citation", "delta_h_gen",
+    "avg_msp", "avg_logit_margin",
+    "first_token_msp", "first_token_margin",
+    "ll_rag", "ll_base", "clr",
+    "n_citation_tokens",
+]
+
 ALL_METRICS = QUALITY_METRICS + ["latency_sec", "token_output", "token_answer", "token_reasoning"]
 
 METRIC_LABELS = {
@@ -35,7 +43,18 @@ METRIC_LABELS = {
     "latency_sec": "Latency (sec)",
     "token_output": "Token Output",
     "token_answer": "Token Answer",
-    "token_reasoning": "Token Reasoning"
+    "token_reasoning": "Token Reasoning",
+    "h_gen": "H_gen",
+    "h_citation": "H_citation",
+    "delta_h_gen": "ΔH_gen",
+    "avg_msp": "Avg MSP",
+    "avg_logit_margin": "Avg Logit Margin",
+    "first_token_msp": "First-Token MSP",
+    "first_token_margin": "First-Token Margin",
+    "ll_rag": "LL_RAG",
+    "ll_base": "LL_Base",
+    "clr": "CLR",
+    "n_citation_tokens": "Citation Tokens",
 }
 
 
