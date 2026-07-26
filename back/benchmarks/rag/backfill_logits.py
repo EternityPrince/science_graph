@@ -245,6 +245,7 @@ def backfill_run(
     contexts_path = run_dir / "retrieved_contexts.yaml"
     config_path = run_dir / "config_snapshot.yaml"
     progress_path = run_dir / ".backfill_logits_progress.json"
+    logits_jsonl_path = run_dir / "raw_logits.jsonl"
 
     for p in (eval_path, contexts_path):
         if not p.exists():
@@ -313,6 +314,12 @@ def backfill_run(
                 if not bak.exists():
                     shutil.copy2(p, bak)
                     print(f"[backfill] backup -> {bak.name}")
+
+    # Truncate JSONL only on fresh (non-resume) runs so resume can append
+    if not resume or not done_keys:
+        logits_jsonl_path.write_text("", encoding="utf-8")
+    elif not logits_jsonl_path.exists():
+        logits_jsonl_path.write_text("", encoding="utf-8")
 
     # Load prompt manager + MLX engine (same stack as generation pipeline)
     from src.prompts.manager import PromptManager
@@ -398,10 +405,18 @@ def backfill_run(
                     h_b0_cache[query] = float(shannon.get("h_gen") or 0.0)
 
                 eval_tokens = compact_tokens_for_eval(tokens_info, drop_top=compact_eval)
-                b_data["tokens_info"] = eval_tokens
-                metrics = b_data.get("metrics")
-                if isinstance(metrics, dict):
-                    metrics["tokens_info"] = eval_tokens
+                # Keep full token streams out of the huge evaluation YAML by default;
+                # raw_logits.jsonl holds them. Set --full-eval-tokens to embed compact tokens.
+                if compact_eval:
+                    b_data["tokens_info"] = []
+                    metrics = b_data.get("metrics")
+                    if isinstance(metrics, dict) and "tokens_info" in metrics:
+                        metrics.pop("tokens_info", None)
+                else:
+                    b_data["tokens_info"] = eval_tokens
+                    metrics = b_data.get("metrics")
+                    if isinstance(metrics, dict):
+                        metrics["tokens_info"] = eval_tokens
                 _set_shannon(b_data, shannon)
 
                 # Mirror into result_metrics (judge eval_metrics untouched)
@@ -409,10 +424,38 @@ def backfill_run(
                     mb = (metrics_case.get("baselines") or {}).get(baseline)
                     if isinstance(mb, dict):
                         _set_shannon(mb, shannon)
-                        # do not dump full tokens into result_metrics (size); raw_logits holds them
+
+                # Incremental raw logits (JSONL) — avoids rewriting multi‑MB YAML every N steps
+                logits_record = {
+                    "id": case_id,
+                    "baseline": baseline,
+                    "tokens_info": tokens_info,
+                    "shannon_diagnostics": {
+                        k: shannon.get(k)
+                        for k in (
+                            "h_gen",
+                            "h_citation",
+                            "n_citation_tokens",
+                            "delta_h_gen",
+                            "avg_msp",
+                            "avg_logit_margin",
+                            "first_token_msp",
+                            "first_token_margin",
+                            "ll_rag",
+                            "ll_base",
+                            "clr",
+                        )
+                    },
+                }
+                with open(logits_jsonl_path, "a", encoding="utf-8") as jf:
+                    jf.write(json.dumps(logits_record, ensure_ascii=False) + "\n")
 
                 processed += 1
                 done_keys.add(key)
+                progress_path.write_text(
+                    json.dumps({"done": sorted(done_keys)}, ensure_ascii=False, indent=0),
+                    encoding="utf-8",
+                )
                 if processed % 5 == 0 or processed == 1:
                     elapsed = time.perf_counter() - t0
                     rate = processed / elapsed if elapsed > 0 else 0
@@ -422,18 +465,12 @@ def backfill_run(
                         f"ll_rag={shannon.get('ll_rag')} clr={shannon.get('clr')} "
                         f"({rate:.2f}/s)"
                     )
-                if processed % 10 == 0:
-                    progress_path.write_text(
-                        json.dumps({"done": sorted(done_keys)}, ensure_ascii=False, indent=0),
-                        encoding="utf-8",
-                    )
+                # Periodic checkpoint of evaluation/metrics YAMLs (scalars only when compact)
+                if processed % 50 == 0:
                     _dump_yaml_atomic(eval_path, eval_data)
                     if metrics_data is not None:
                         _dump_yaml_atomic(metrics_path, metrics_data)
-                    try:
-                        save_raw_logits_yaml(eval_path, eval_data.get("results") or [], eval_data.get("metadata") or {})
-                    except Exception as ex:
-                        print(f"[backfill] raw_logits save warning: {ex}")
+                    print(f"[backfill] checkpoint YAML @ {processed} pairs")
 
             except Exception as e:
                 errors += 1
@@ -444,7 +481,13 @@ def backfill_run(
     _dump_yaml_atomic(eval_path, eval_data)
     if metrics_data is not None:
         _dump_yaml_atomic(metrics_path, metrics_data)
-    save_raw_logits_yaml(eval_path, eval_data.get("results") or [], eval_data.get("metadata") or {})
+    # Compatibility raw_logits.yaml from in-memory results (may be empty tokens if compact)
+    try:
+        save_raw_logits_yaml(eval_path, eval_data.get("results") or [], eval_data.get("metadata") or {})
+    except Exception as ex:
+        print(f"[backfill] raw_logits.yaml final save warning: {ex}")
+    # Prefer JSONL as the source of truth for full tokens_info
+    print(f"[backfill] full tokens_info stream: {logits_jsonl_path}")
     progress_path.write_text(
         json.dumps({"done": sorted(done_keys), "finished": True}, ensure_ascii=False, indent=0),
         encoding="utf-8",
