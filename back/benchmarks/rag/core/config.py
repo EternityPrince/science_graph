@@ -403,7 +403,8 @@ def get_baseline_config(baseline: str, config_rag_components: dict) -> Dict[str,
 
     if "shannon_estimator_enabled" in config_rag_components:
         components["shannon_estimator_enabled"] = bool(config_rag_components["shannon_estimator_enabled"])
-    components["deduplicate_parent_chunks"] = bool(config_rag_components.get("deduplicate_parent_chunks", True))
+    if baseline in ["B6", "CUSTOM"]:
+        components["deduplicate_parent_chunks"] = bool(config_rag_components.get("deduplicate_parent_chunks", True))
     return components
 
 
