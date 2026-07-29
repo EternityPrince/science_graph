@@ -534,20 +534,28 @@ def resolve_project_db_path(db_path_arg: Optional[str] = None) -> Path:
     from src.config import config
     from src.services.container import container
 
-    project_root = Path(__file__).resolve().parents[2]
+    file_path = Path(__file__).resolve()
     target_db = None
 
     if db_path_arg:
         target_db = Path(db_path_arg).resolve()
     else:
+        back_dir = file_path.parents[3]
+        repo_dir = file_path.parents[4] if len(file_path.parents) > 4 else back_dir
         candidates = [
-            project_root / "back" / "science_graph.db",
-            project_root / "science_graph.db",
+            back_dir / "science_graph.db",
+            repo_dir / "back" / "science_graph.db",
+            repo_dir / "science_graph.db",
         ]
         for candidate in candidates:
-            if candidate.exists():
+            if candidate.exists() and candidate.stat().st_size > 1000000:
                 target_db = candidate
                 break
+        if not target_db:
+            for candidate in candidates:
+                if candidate.exists():
+                    target_db = candidate
+                    break
 
     if target_db and target_db.exists():
         config.data["db_path"] = str(target_db)
