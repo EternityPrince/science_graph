@@ -161,10 +161,119 @@ def test_rag_build_context_uses_parent_text():
     )
 
     # Disable graph expansion to focus on build_context output
-    with patch.dict(config.data, {"rag_components": {"graph_expansion": False}}):
+    with patch.dict(config.data, {"rag_components": {"graph_expansion": False, "deduplicate_parent_chunks": False}}):
         context_text, context_graph = service.build_context([(chunk, 0.9)])
         
         # Verify parent text is present in the formatted context block
         assert "This is the parent text that should be used." in context_text
         # Verify child text is NOT used if parent text is present
         assert "child text" not in context_text
+
+
+def test_get_parent_key_logic():
+    from src.services.rag_service import _get_parent_key
+    
+    # 1. Explicit parent_id present
+    c1 = Chunk(id="p1#0", paper_id="p1", text_content="c1", page_number=1, parent_id="p1#parent_0", parent_text="P1 Text")
+    assert _get_parent_key(c1) == ("parent_id", "p1#parent_0")
+
+    # 2. No parent_id, but parent_text differs from text_content
+    c2 = Chunk(id="p2#0", paper_id="p2", text_content="short", page_number=1, parent_id=None, parent_text="longer parent text")
+    assert _get_parent_key(c2) == ("parent_text", "p2", "longer parent text")
+
+    # 3. No parent_id, parent_text identical to text_content
+    c3 = Chunk(id="p3#0", paper_id="p3", text_content="same text", page_number=1, parent_id=None, parent_text="same text")
+    assert _get_parent_key(c3) is None
+
+    # 4. No parent_id or parent_text
+    c4 = Chunk(id="p4#0", paper_id="p4", text_content="only text", page_number=1)
+    assert _get_parent_key(c4) is None
+
+
+def test_parent_chunk_deduplication_in_build_context():
+    graph_repo = MagicMock()
+    vector_repo = MagicMock()
+    emb_engine = MagicMock()
+    llm_engine = MagicMock()
+    expander = MagicMock()
+
+    service = RAGService(graph_repo, vector_repo, emb_engine, llm_engine, expander)
+
+    p1 = MagicMock(spec=Paper)
+    p1.title = "Paper 1"
+    p1.year = 2021
+    p1.authors = ["Author A"]
+
+    p2 = MagicMock(spec=Paper)
+    p2.title = "Paper 2"
+    p2.year = 2022
+    p2.authors = ["Author B"]
+
+    graph_repo.get_papers_batch.return_value = {"p1": p1, "p2": p2}
+
+    # 4 child chunks from Paper 1 sharing parent_id
+    chunks_p1 = [
+        Chunk(id=f"p1#{i}", paper_id="p1", text_content=f"c{i}", page_number=1, parent_id="p1#parent_0", parent_text="Full Abstract P1")
+        for i in range(4)
+    ]
+    # 1 child chunk from Paper 2
+    chunk_p2 = Chunk(id="p2#0", paper_id="p2", text_content="c_p2", page_number=1, parent_id="p2#parent_0", parent_text="Full Abstract P2")
+
+    scored_chunks = [
+        (chunks_p1[0], 1.747),
+        (chunks_p1[1], 0.995),
+        (chunks_p1[2], 0.470),
+        (chunks_p1[3], -0.486),
+        (chunk_p2, -4.601),
+    ]
+
+    # When deduplication is ENABLED (default)
+    with patch.dict(config.data, {"rag_components": {"graph_expansion": False, "deduplicate_parent_chunks": True}}):
+        context_text, _ = service.build_context(scored_chunks)
+        # Should contain Block 1 and Block 2 (Paper 1 and Paper 2), but NOT Block 3, 4, 5
+        assert "Block 1 (Score: 1.747)" in context_text
+        assert "Block 2 (Score: -4.601)" in context_text
+        assert "Block 3" not in context_text
+
+    # When deduplication is DISABLED
+    with patch.dict(config.data, {"rag_components": {"graph_expansion": False, "deduplicate_parent_chunks": False}}):
+        context_text, _ = service.build_context(scored_chunks)
+        # Should contain all 5 blocks
+        assert "Block 1 (Score: 1.747)" in context_text
+        assert "Block 2 (Score: 0.995)" in context_text
+        assert "Block 3 (Score: 0.470)" in context_text
+        assert "Block 4 (Score: -0.486)" in context_text
+        assert "Block 5 (Score: -4.601)" in context_text
+
+
+def test_parent_chunk_deduplication_in_retrieval_budget():
+    graph_repo = MagicMock()
+    vector_repo = MagicMock()
+    emb_engine = MagicMock()
+    llm_engine = MagicMock()
+
+    service = RAGService(graph_repo, vector_repo, emb_engine, llm_engine)
+
+    # 4 chunks for p1, 2 for p2, 1 for p3
+    chunks = [
+        Chunk(id="p1#0", paper_id="p1", text_content="c1_0", page_number=1, parent_id="p1#parent_0", parent_text="Text P1"),
+        Chunk(id="p1#1", paper_id="p1", text_content="c1_1", page_number=1, parent_id="p1#parent_0", parent_text="Text P1"),
+        Chunk(id="p1#2", paper_id="p1", text_content="c1_2", page_number=1, parent_id="p1#parent_0", parent_text="Text P1"),
+        Chunk(id="p2#0", paper_id="p2", text_content="c2_0", page_number=1, parent_id="p2#parent_0", parent_text="Text P2"),
+        Chunk(id="p2#1", paper_id="p2", text_content="c2_1", page_number=1, parent_id="p2#parent_0", parent_text="Text P2"),
+        Chunk(id="p3#0", paper_id="p3", text_content="c3_0", page_number=1, parent_id="p3#parent_0", parent_text="Text P3"),
+    ]
+    
+    # Mock vector repo returns
+    vector_repo.search_similar_chunks.return_value = [(c, 0.9 - i*0.1) for i, c in enumerate(chunks)]
+    vector_repo.search_text_fts5.return_value = []
+
+    with patch.object(service, "expander", None):
+        with patch.dict(config.data, {"rag_components": {"reranker": False, "graph_expansion": False, "dynamic_alpha_blending": False, "deduplicate_parent_chunks": True}}):
+            results = service.retrieve_relevant_chunks("query", limit=3)
+            
+            # Should return 3 chunks corresponding to top 1 of p1, top 1 of p2, and top 1 of p3
+            assert len(results) == 3
+            returned_ids = [c.id for c, _ in results]
+            assert returned_ids == ["p1#0", "p2#0", "p3#0"]
+

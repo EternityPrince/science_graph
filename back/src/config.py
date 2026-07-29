@@ -102,6 +102,7 @@ DEFAULT_CONFIG = {
         "graph_selected_sources_card": False,
         "graph_retrieval_trace": False,
         "shannon_estimator_enabled": True,
+        "deduplicate_parent_chunks": True,
     },
     "graph_retrieval": {
         "enabled": False,

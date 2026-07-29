@@ -32,6 +32,45 @@ def _safe_int(val: Any, default: int) -> int:
         return default
 
 
+def _get_parent_key(chunk: Any) -> Optional[Tuple[str, ...]]:
+    """
+    Extracts a parent identification key for deduplication.
+    Priority:
+    1. chunk.parent_id (if present and non-empty string)
+    2. chunk.parent_text (if present, non-empty string, and different from chunk.text_content)
+    """
+    parent_id = getattr(chunk, "parent_id", None)
+    if isinstance(parent_id, str) and parent_id.strip():
+        return ("parent_id", parent_id.strip())
+
+    parent_text = getattr(chunk, "parent_text", None)
+    text_content = getattr(chunk, "text_content", None)
+    if isinstance(parent_text, str) and parent_text.strip():
+        if text_content is None or parent_text.strip() != text_content.strip():
+            paper_id = getattr(chunk, "paper_id", "") or ""
+            return ("parent_text", paper_id, parent_text.strip())
+
+    return None
+
+
+def _deduplicate_parent_chunks(scored_chunks: List[Tuple[Any, float]]) -> List[Tuple[Any, float]]:
+    """
+    Deduplicates a list of (chunk, score) tuples based on parent chunk keys.
+    Preserves the first (highest scoring) occurrence of each parent chunk.
+    """
+    deduped = []
+    seen_parent_keys = set()
+    for item in scored_chunks:
+        chunk = item[0]
+        pkey = _get_parent_key(chunk)
+        if pkey is not None:
+            if pkey in seen_parent_keys:
+                continue
+            seen_parent_keys.add(pkey)
+        deduped.append(item)
+    return deduped
+
+
 def clean_reasoning_text(text: str) -> str:
     """
     Strips structured thinking/reasoning blocks and extracts the final answer.
@@ -355,6 +394,9 @@ class RAGService:
 
         Uses get_papers_batch() to avoid N+1 query patterns.
         """
+        if config.rag_components.get("deduplicate_parent_chunks", True):
+            similar_chunks = _deduplicate_parent_chunks(similar_chunks)
+
         # ── Batch-fetch all papers in one query ──
         paper_ids = list({chunk.paper_id for chunk, _ in similar_chunks})
         papers_map = self.graph_repo.get_papers_batch(paper_ids)
@@ -2086,20 +2128,29 @@ class RAGService:
                     scored_candidates.append((c, blended_score, float(scores[idx])))
                     
                 scored_candidates.sort(key=lambda x: x[1], reverse=True)
-                returned_chunks = [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:limit]]
+                candidate_pairs = [(chunk, raw_score) for chunk, _, raw_score in scored_candidates]
+                if config.rag_components.get("deduplicate_parent_chunks", True):
+                    candidate_pairs = _deduplicate_parent_chunks(candidate_pairs)
+                returned_chunks = candidate_pairs[:limit]
             except Exception as e:
                 con.warning(f"Reranking failed ({e}), falling back to RRF ranking.")
                 for c in candidates:
                     if c.id not in rrf_scores:
                         rrf_scores[c.id] = 0.0
                 sorted_candidates = sorted(candidates, key=lambda x: rrf_scores.get(x.id, 0.0), reverse=True)
-                returned_chunks = [(c, rrf_scores.get(c.id, 0.0)) for c in sorted_candidates[:limit]]
+                candidate_pairs = [(c, rrf_scores.get(c.id, 0.0)) for c in sorted_candidates]
+                if config.rag_components.get("deduplicate_parent_chunks", True):
+                    candidate_pairs = _deduplicate_parent_chunks(candidate_pairs)
+                returned_chunks = candidate_pairs[:limit]
         else:
             for c in candidates:
                 if c.id not in rrf_scores:
                     rrf_scores[c.id] = 0.0
             sorted_candidates = sorted(candidates, key=lambda x: rrf_scores.get(x.id, 0.0), reverse=True)
-            returned_chunks = [(c, rrf_scores.get(c.id, 0.0)) for c in sorted_candidates[:limit]]
+            candidate_pairs = [(c, rrf_scores.get(c.id, 0.0)) for c in sorted_candidates]
+            if config.rag_components.get("deduplicate_parent_chunks", True):
+                candidate_pairs = _deduplicate_parent_chunks(candidate_pairs)
+            returned_chunks = candidate_pairs[:limit]
 
         if not getattr(self, "_in_ask", False):
             self._write_graph_retrieval_trace(query, returned_chunks, None)
