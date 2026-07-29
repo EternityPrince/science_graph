@@ -10,6 +10,7 @@ This report displays the retrieval stage performance of your custom configuratio
 | :--- | :---: | :---: | :---: |
 | `citation_repair` | `False` | `False` | Unchanged |
 | `context_trimming` | `True` | `True` | Unchanged |
+| `deduplicate_parent_chunks` | `True` | `True` | Unchanged |
 | `dense_search` | `True` | `True` | Unchanged |
 | `dynamic_alpha_blending` | `False` | `False` | Unchanged |
 | `graph_bridge_retrieval` | `False` | `False` | Unchanged |
@@ -39,8 +40,8 @@ This report displays the retrieval stage performance of your custom configuratio
 
 | Baseline | Success Rate | Mean Recall | Context Precision | Mean Latency |
 | :--- | :---: | :---: | :---: | :---: |
-| B1 | 100.0% | 1.0000 | 0.9278 | 0.171s |
-| B2 | 100.0% | 1.0000 | 1.0000 | 0.026s |
+| B1 | 100.0% | 1.0000 | 1.0000 | 0.169s |
+| B2 | 100.0% | 1.0000 | 1.0000 | 0.029s |
 
 
 > [!NOTE]
