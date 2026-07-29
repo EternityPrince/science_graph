@@ -173,20 +173,20 @@ def test_rag_build_context_uses_parent_text():
 def test_get_parent_key_logic():
     from src.services.rag_service import _get_parent_key
     
-    # 1. Explicit parent_id present
+    # 1. paper_id present
     c1 = Chunk(id="p1#0", paper_id="p1", text_content="c1", page_number=1, parent_id="p1#parent_0", parent_text="P1 Text")
-    assert _get_parent_key(c1) == ("parent_id", "p1#parent_0")
+    assert _get_parent_key(c1) == ("paper_id", "p1")
 
-    # 2. No parent_id, but parent_text differs from text_content
-    c2 = Chunk(id="p2#0", paper_id="p2", text_content="short", page_number=1, parent_id=None, parent_text="longer parent text")
-    assert _get_parent_key(c2) == ("parent_text", "p2", "longer parent text")
+    # 2. No paper_id, but parent_id present
+    c2 = Chunk(id="p2#0", paper_id="", text_content="short", page_number=1, parent_id="p2#parent_7", parent_text="longer parent text")
+    assert _get_parent_key(c2) == ("parent_id", "p2")
 
-    # 3. No parent_id, parent_text identical to text_content
-    c3 = Chunk(id="p3#0", paper_id="p3", text_content="same text", page_number=1, parent_id=None, parent_text="same text")
-    assert _get_parent_key(c3) is None
+    # 3. No paper_id/parent_id, but parent_text differs from text_content
+    c3 = Chunk(id="p3#0", paper_id="", text_content="same text", page_number=1, parent_id=None, parent_text="different text")
+    assert _get_parent_key(c3) == ("parent_text", "different text")
 
-    # 4. No parent_id or parent_text
-    c4 = Chunk(id="p4#0", paper_id="p4", text_content="only text", page_number=1)
+    # 4. No paper_id, parent_id, or distinct parent_text
+    c4 = Chunk(id="p4#0", paper_id="", text_content="only text", page_number=1)
     assert _get_parent_key(c4) is None
 
 

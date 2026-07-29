@@ -36,19 +36,24 @@ def _get_parent_key(chunk: Any) -> Optional[Tuple[str, ...]]:
     """
     Extracts a parent identification key for deduplication.
     Priority:
-    1. chunk.parent_id (if present and non-empty string)
-    2. chunk.parent_text (if present, non-empty string, and different from chunk.text_content)
+    1. chunk.paper_id (if present and non-empty string)
+    2. chunk.parent_id (if present and non-empty string, normalized to paper base)
+    3. chunk.parent_text (if present, non-empty string, and different from chunk.text_content)
     """
+    paper_id = getattr(chunk, "paper_id", None)
+    if isinstance(paper_id, str) and paper_id.strip():
+        return ("paper_id", paper_id.strip())
+
     parent_id = getattr(chunk, "parent_id", None)
     if isinstance(parent_id, str) and parent_id.strip():
-        return ("parent_id", parent_id.strip())
+        base_id = parent_id.split("#parent_")[0].strip()
+        return ("parent_id", base_id)
 
     parent_text = getattr(chunk, "parent_text", None)
     text_content = getattr(chunk, "text_content", None)
     if isinstance(parent_text, str) and parent_text.strip():
         if text_content is None or parent_text.strip() != text_content.strip():
-            paper_id = getattr(chunk, "paper_id", "") or ""
-            return ("parent_text", paper_id, parent_text.strip())
+            return ("parent_text", parent_text.strip())
 
     return None
 

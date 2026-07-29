@@ -18,12 +18,12 @@ class TestRagBenchmark(unittest.TestCase):
         # B1: Pure Lexical (Only lexical_search should be True)
         b1_cfg = get_baseline_config("B1")
         self.assertTrue(b1_cfg["lexical_search"])
-        self.assertFalse(any(v for k, v in b1_cfg.items() if k not in ("lexical_search", "shannon_estimator_enabled")))
+        self.assertFalse(any(v for k, v in b1_cfg.items() if k not in ("lexical_search", "shannon_estimator_enabled", "deduplicate_parent_chunks")))
         
         # B2: Pure Dense (Only dense_search should be True)
         b2_cfg = get_baseline_config("B2")
         self.assertTrue(b2_cfg["dense_search"])
-        self.assertFalse(any(v for k, v in b2_cfg.items() if k not in ("dense_search", "shannon_estimator_enabled")))
+        self.assertFalse(any(v for k, v in b2_cfg.items() if k not in ("dense_search", "shannon_estimator_enabled", "deduplicate_parent_chunks")))
         
         # B3: Dense + HyDE
         b3_cfg = get_baseline_config("B3")

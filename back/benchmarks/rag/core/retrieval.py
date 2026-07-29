@@ -438,7 +438,11 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                     scored_candidates.append((c, blended_score, float(c_scores[idx])))
 
                 scored_candidates.sort(key=lambda x: x[1], reverse=True)
-                final_chunks_map[(query, baseline)] = [(chunk, raw_score) for chunk, _, raw_score in scored_candidates[:5]]
+                candidate_pairs = [(chunk, raw_score) for chunk, _, raw_score in scored_candidates]
+                if components_settings.get("deduplicate_parent_chunks", True):
+                    from src.services.rag_service import _deduplicate_parent_chunks
+                    candidate_pairs = _deduplicate_parent_chunks(candidate_pairs)
+                final_chunks_map[(query, baseline)] = candidate_pairs[:5]
 
                 # Add reranker metric proportionally
                 res["metrics"]["components"]["reranking"] = {
@@ -446,7 +450,11 @@ def run_staged_retrieval(args: Any, config: Any, prompts: Any, container: Any, c
                     "time_sec": round(rerank_latency * (len(candidates) / len(pairs_to_score)), 4) if pairs_to_score else 0.0
                 }
             else:
-                final_chunks_map[(query, baseline)] = [(c, rrf_scores.get(c.id, 1.0)) for c in candidates[:5]]
+                candidate_pairs = [(c, rrf_scores.get(c.id, 1.0)) for c in candidates]
+                if components_settings.get("deduplicate_parent_chunks", True):
+                    from src.services.rag_service import _deduplicate_parent_chunks
+                    candidate_pairs = _deduplicate_parent_chunks(candidate_pairs)
+                final_chunks_map[(query, baseline)] = candidate_pairs[:5]
 
             if trace:
                 trace["candidate_count_after_reranker"] = len(final_chunks_map.get((query, baseline), []))
