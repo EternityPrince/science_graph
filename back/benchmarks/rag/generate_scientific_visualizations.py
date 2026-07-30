@@ -20,6 +20,7 @@ Author: Scientific Visualization Specialist
 import os
 import sys
 import json
+import yaml
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -550,35 +551,57 @@ def generate_fig_6():
     print(f"Saved: {out_path}")
 
 # -----------------------------------------------------------------------------
+# Helper: Load raw_logits.yaml and flatten into per-token records
+# -----------------------------------------------------------------------------
+def _load_raw_logits_yaml(run_dir):
+    """Load raw_logits.yaml and return flat list of {id, baseline, tokens_info} dicts."""
+    yaml_path = os.path.join(run_dir, "raw_logits.yaml")
+    if not os.path.exists(yaml_path):
+        return None, yaml_path
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        # Use C-accelerated loader for large files (falls back to pure Python if unavailable)
+        Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+        data = yaml.load(f, Loader=Loader)
+    if not data or "results" not in data:
+        return [], yaml_path
+    flat = []
+    for case in data["results"]:
+        case_id = case.get("id")
+        for b_name, b_data in case.get("baselines", {}).items():
+            if isinstance(b_data, dict):
+                flat.append({
+                    "id": case_id,
+                    "baseline": b_name,
+                    "tokens_info": b_data.get("tokens_info") or []
+                })
+    return flat, yaml_path
+
+# -----------------------------------------------------------------------------
 # Figure 7: Model Confidence across First 5 Generated Tokens (Per Baseline)
 # -----------------------------------------------------------------------------
 def generate_fig_7_first_5_tokens_confidence(run_dir=None):
     if run_dir is None:
         run_dir = RUN_DIR
 
-    jsonl_path = os.path.join(run_dir, "raw_logits.jsonl")
-    if not os.path.exists(jsonl_path):
-        print(f"Skipping Fig 7: {jsonl_path} not found.")
+    items, yaml_path = _load_raw_logits_yaml(run_dir)
+    if items is None:
+        print(f"Skipping Fig 7: {yaml_path} not found.")
         return
 
     records = []
-    with open(jsonl_path, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            item = json.loads(line)
-            baseline = item.get("baseline")
-            query_id = item.get("id")
-            tokens_info = item.get("tokens_info", [])
-            for idx, tok in enumerate(tokens_info[:5]):
-                records.append({
-                    "id": query_id,
-                    "baseline": baseline,
-                    "token_position": idx + 1,
-                    "msp": tok.get("msp"),
-                    "entropy": tok.get("entropy"),
-                    "logprob": tok.get("logprob")
-                })
+    for item in items:
+        baseline = item.get("baseline")
+        query_id = item.get("id")
+        tokens_info = item.get("tokens_info", [])
+        for idx, tok in enumerate(tokens_info[:5]):
+            records.append({
+                "id": query_id,
+                "baseline": baseline,
+                "token_position": idx + 1,
+                "msp": tok.get("msp"),
+                "entropy": tok.get("entropy"),
+                "logprob": tok.get("logprob")
+            })
 
     df_logits = pd.DataFrame(records)
     if df_logits.empty:
@@ -634,28 +657,24 @@ def generate_fig_8_logit_margin_kde_distribution(run_dir=None):
     if run_dir is None:
         run_dir = RUN_DIR
 
-    jsonl_path = os.path.join(run_dir, "raw_logits.jsonl")
-    if not os.path.exists(jsonl_path):
-        print(f"Skipping Fig 8: {jsonl_path} not found.")
+    items, yaml_path = _load_raw_logits_yaml(run_dir)
+    if items is None:
+        print(f"Skipping Fig 8: {yaml_path} not found.")
         return
 
     records = []
-    with open(jsonl_path, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            item = json.loads(line)
-            baseline = item.get("baseline")
-            query_id = item.get("id")
-            tokens_info = item.get("tokens_info", [])
-            for tok in tokens_info:
-                lm = tok.get("logit_margin")
-                if lm is not None:
-                    records.append({
-                        "id": query_id,
-                        "baseline": baseline,
-                        "logit_margin": lm
-                    })
+    for item in items:
+        baseline = item.get("baseline")
+        query_id = item.get("id")
+        tokens_info = item.get("tokens_info", [])
+        for tok in tokens_info:
+            lm = tok.get("logit_margin")
+            if lm is not None:
+                records.append({
+                    "id": query_id,
+                    "baseline": baseline,
+                    "logit_margin": lm
+                })
 
     df_logits = pd.DataFrame(records)
     if df_logits.empty:
