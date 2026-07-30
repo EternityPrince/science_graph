@@ -1074,3 +1074,72 @@ def test_mlx_engine_sampler_caching_and_cleanup(tmp_path):
         assert len(engine._sampler_cache) == 0
 
 
+def test_run_benchmarking_checkpoint_reuse_skips_redundant_autosave(tmp_path):
+    """Test that when all baselines for test cases are reused from checkpoints, redundant autosave writes are skipped."""
+    dataset_path = tmp_path / "dataset.yaml"
+    dataset_data = [
+        {"id": "q1", "query": "Q1"},
+        {"id": "q2", "query": "Q2"},
+        {"id": "q3", "query": "Q3"},
+        {"id": "q4", "query": "Q4"},
+        {"id": "q5", "query": "Q5"},
+    ]
+    with open(dataset_path, "w") as f:
+        yaml.safe_dump(dataset_data, f)
+
+    output_path = tmp_path / "output.yaml"
+    existing_output_data = {
+        "metadata": {"baselines_evaluated": ["B0"]},
+        "results": [
+            {"id": f"q{i}", "query": f"Q{i}", "baselines": {"B0": {"status": "success", "latency_sec": 0.1, "generated_answer": f"ans{i}"}}}
+            for i in range(1, 6)
+        ]
+    }
+    with open(output_path, "w") as f:
+        yaml.safe_dump(existing_output_data, f)
+
+    args = MagicMock()
+    args.dataset = str(dataset_path)
+    args.baselines = "B0"
+    args.consume_contexts = None
+    args.cloud = True
+    args.output = str(output_path)
+    args.no_unique_dir = True
+    args.clear_checkpoint = False
+    args.limit = 5
+    args.logit_save = False
+
+    config = MagicMock()
+    config.data = {
+        "llm": {"provider": "cloud", "cloud": {"model_name": "cloud_model"}, "temp": 0.1, "max_tokens": 100},
+        "embedding": {"model_name": "emb"},
+        "rag_components": {"reranker": False}
+    }
+    config.rag_components = config.data["rag_components"]
+    config.is_component_enabled = MagicMock(return_value=False)
+    config.llm_model_max_context = 4096
+    config.reranker_model_name = "disabled"
+
+    rag_service = MagicMock()
+    container = MagicMock()
+    container.get_rag_service.return_value = rag_service
+
+    dump_call_count = 0
+    orig_dump = yaml.dump
+    def mock_dump(*args, **kwargs):
+        nonlocal dump_call_count
+        dump_call_count += 1
+        return orig_dump(*args, **kwargs)
+
+    with patch("core.config.load_benchmark_dataset", return_value=dataset_data), \
+         patch("yaml.dump", side_effect=mock_dump), \
+         patch("core.generation._clear_gpu_cache") as mock_clear_gpu:
+        run_benchmarking(args, config, MagicMock(), container, MagicMock())
+
+    # Verify that autosave dumps were skipped during pure checkpoint reuses
+    assert dump_call_count == 0
+    # Verify that _clear_gpu_cache was not called during pure checkpoint reuses
+    assert mock_clear_gpu.call_count == 0
+
+
+

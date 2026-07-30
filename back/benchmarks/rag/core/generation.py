@@ -828,6 +828,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     results = []
     planned = len(test_cases) * len(baselines_to_run)
     done = 0
+    unsaved_new_generations = 0
 
     for idx, case in enumerate(test_cases, start=1):
         query = case.get("query")
@@ -845,6 +846,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         }
         
         existing_case = existing_cases_map.get(case_id)
+        case_reused_all = True if existing_case and not getattr(args, "clear_checkpoint", False) else False
         for baseline in baselines_to_run:
             if existing_case and not getattr(args, "clear_checkpoint", False):
                 existing_b_data = existing_case.get("baselines", {}).get(baseline)
@@ -855,6 +857,8 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                     print(format_progress_marker("generation", done, planned), flush=True)
                     continue
 
+            case_reused_all = False
+            unsaved_new_generations += 1
             description = BASELINES_INFO.get(baseline, "")
             con.dim(f"  Running {baseline}: {description.split('—')[0]}")
             
@@ -1147,15 +1151,17 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 case_result["baselines"][baseline]["tokens_info"] = metrics.get("tokens_info", [])
             done += 1
             print(format_progress_marker("generation", done, planned), flush=True)
-            _clear_gpu_cache()
+            if not case_reused_all:
+                _clear_gpu_cache()
             
         results.append(case_result)
         con.success(f"[{case_id}] Completed.")
         con.blank()
-        _clear_gpu_cache()
+        if not case_reused_all:
+            _clear_gpu_cache()
 
-        # Incremental Autosave (buffered: every 5 cases or final case)
-        if idx % 5 == 0 or idx == len(test_cases):
+        # Incremental Autosave (buffered: every 5 cases or final case, only if new generations occurred)
+        if (idx % 5 == 0 or idx == len(test_cases)) and unsaved_new_generations > 0:
             try:
 
                 autosave_data = {
@@ -1194,6 +1200,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                         save_raw_logits_yaml(output_path, autosave_data["results"], autosave_data["metadata"])
                     except Exception as ex_log:
                         con.warning(f"Raw logits autosave failed: {ex_log}")
+                unsaved_new_generations = 0
             except Exception as e:
                 con.warning(f"Autosave failed: {e}")
 
@@ -1222,21 +1229,22 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     if existing_data:
         output_data = merge_evaluation_data(existing_data, output_data)
         
-    with open(output_path, "w", encoding="utf-8") as f:
-        yaml.dump(output_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-
-    if getattr(args, "logit_save", False):
-        try:
-            from core.reporting import save_raw_logits_yaml
-            logits_file = save_raw_logits_yaml(output_path, output_data["results"], output_data["metadata"])
-            con.info(f"Saved raw logits to: {logits_file}")
-        except Exception as e:
-            con.error(f"Failed to save raw logits YAML: {e}")
-
-    # Save simplified LLM-judge reports
     judge_output_path = output_path.with_name(output_path.stem + "_judge" + output_path.suffix)
-    save_judge_report(output_data, judge_output_path)
-    save_individual_judge_reports(output_data, output_path.parent, output_path.stem, output_path.suffix)
+    if unsaved_new_generations > 0 or not output_path.exists():
+        with open(output_path, "w", encoding="utf-8") as f:
+            yaml.dump(output_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+        if getattr(args, "logit_save", False):
+            try:
+                from core.reporting import save_raw_logits_yaml
+                logits_file = save_raw_logits_yaml(output_path, output_data["results"], output_data["metadata"])
+                con.info(f"Saved raw logits to: {logits_file}")
+            except Exception as e:
+                con.error(f"Failed to save raw logits YAML: {e}")
+
+        # Save simplified LLM-judge reports
+        save_judge_report(output_data, judge_output_path)
+        save_individual_judge_reports(output_data, output_path.parent, output_path.stem, output_path.suffix)
 
     # Print summary table
     try:
