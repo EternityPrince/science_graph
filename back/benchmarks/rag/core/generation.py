@@ -803,24 +803,124 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     except Exception as e:
         con.warning(f"Could not save run manifest: {e}")
 
-    # Load existing file for merging/resuming
-    existing_data = None
-    existing_cases_map = {}
-    if output_path.exists():
+def _save_gen_checkpoint(output_path: Path, data: dict) -> None:
+    """Saves a lightweight JSON checkpoint for near-instant future resume loading."""
+    try:
+        checkpoint_json = output_path.parent / ".gen_checkpoint.json"
+        tmp_json = checkpoint_json.with_suffix(f".tmp.{os.getpid()}_{time.time_ns()}")
+        stripped_results = []
+        for case in data.get("results", []):
+            if not isinstance(case, dict):
+                continue
+            c_copy = dict(case)
+            if "baselines" in c_copy and isinstance(c_copy["baselines"], dict):
+                b_copy = {}
+                for b_name, b_val in c_copy["baselines"].items():
+                    if isinstance(b_val, dict):
+                        bv = dict(b_val)
+                        bv.pop("tokens_info", None)
+                        if "metrics" in bv and isinstance(bv["metrics"], dict):
+                            m_copy = dict(bv["metrics"])
+                            m_copy.pop("tokens_info", None)
+                            bv["metrics"] = m_copy
+                        b_copy[b_name] = bv
+                    else:
+                        b_copy[b_name] = b_val
+                c_copy["baselines"] = b_copy
+            stripped_results.append(c_copy)
+
+        checkpoint_data = {
+            "metadata": data.get("metadata", {}),
+            "results": stripped_results
+        }
+        with open(tmp_json, "w", encoding="utf-8") as f:
+            json.dump(checkpoint_data, f, ensure_ascii=False)
+        tmp_json.replace(checkpoint_json)
+    except Exception:
+        pass
+
+
+def _load_existing_checkpoint(output_path: Path, con: Any) -> tuple[dict, dict]:
+    """Loads existing results instantly from .gen_checkpoint.json, falling back to fast scan or PyYAML."""
+    checkpoint_json = output_path.parent / ".gen_checkpoint.json"
+    if checkpoint_json.exists():
         try:
-            with open(output_path, "r", encoding="utf-8") as f:
-                existing_data = yaml.safe_load(f)
-                if isinstance(existing_data, list):
-                    existing_data = {"metadata": {}, "results": existing_data}
-                elif existing_data is None:
-                    existing_data = {"metadata": {}, "results": []}
-                
-                if existing_data and "results" in existing_data:
-                    for item in existing_data["results"]:
-                        if "id" in item:
-                            existing_cases_map[item["id"]] = item
+            t0 = time.perf_counter()
+            with open(checkpoint_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and "results" in data:
+                    cases_map = {item["id"]: item for item in data["results"] if isinstance(item, dict) and "id" in item}
+                    elapsed = time.perf_counter() - t0
+                    con.info(f"Loaded existing checkpoint from .gen_checkpoint.json ({len(cases_map)} cases) in {elapsed:.3f}s")
+                    return data, cases_map
         except Exception as e:
-            con.warning(f"Could not load existing evaluation results for resuming: {e}")
+            con.warning(f"Could not load .gen_checkpoint.json: {e}")
+
+    if not output_path.exists():
+        return None, {}
+
+    t0 = time.perf_counter()
+    con.info(f"Fast scanning existing benchmark results from {output_path.name} ...")
+    existing_cases_map = {}
+    results = []
+    current_case = None
+    current_baseline = None
+    in_tokens_info = False
+
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if "tokens_info:" in line:
+                    in_tokens_info = True
+                    continue
+                if in_tokens_info:
+                    indent = len(line) - len(line.lstrip(" "))
+                    if indent > 8 and not (line.strip().startswith("- id:") or line.strip().startswith("id:")):
+                        continue
+                    else:
+                        in_tokens_info = False
+
+                lstr = line.strip()
+                if lstr.startswith("- id:") or lstr.startswith("id:"):
+                    cid = lstr.split("id:")[1].strip().strip("\"'")
+                    current_case = {"id": cid, "baselines": {}}
+                    existing_cases_map[cid] = current_case
+                    results.append(current_case)
+                elif current_case and lstr in ["B0:", "B1:", "B2:", "B3:", "B4:", "B5:", "B6:", "CUSTOM:"]:
+                    bname = lstr.rstrip(":")
+                    current_baseline = {"status": "success", "generated_answer": "reused"}
+                    current_case["baselines"][bname] = current_baseline
+                elif current_case and current_baseline and lstr.startswith("status:"):
+                    current_baseline["status"] = lstr.split("status:")[1].strip().strip("\"'")
+
+        data = {"metadata": {}, "results": results}
+        elapsed = time.perf_counter() - t0
+        con.dim(f"Fast scanned existing results in {elapsed:.2f}s ({len(results)} cases)")
+        _save_gen_checkpoint(output_path, data)
+        return data, existing_cases_map
+    except Exception as e:
+        con.warning(f"Fast scan failed: {e}. Falling back to standard YAML load.")
+        try:
+            if hasattr(yaml, "CSafeLoader"):
+                with open(output_path, "r", encoding="utf-8") as f:
+                    data = yaml.load(f, Loader=yaml.CSafeLoader)
+            else:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+            if isinstance(data, list):
+                data = {"metadata": {}, "results": data}
+            elif not isinstance(data, dict):
+                data = {"metadata": {}, "results": []}
+            cases_map = {item["id"]: item for item in data.get("results", []) if isinstance(item, dict) and "id" in item}
+            _save_gen_checkpoint(output_path, data)
+            return data, cases_map
+        except Exception as ex2:
+            con.warning(f"Could not load existing evaluation results: {ex2}")
+            return {"metadata": {}, "results": []}, {}
+
+
+    # Load existing file for merging/resuming
+    existing_data, existing_cases_map = _load_existing_checkpoint(output_path, con)
 
     embedding_model = config.data["embedding"]["model_name"]
     reranker_model = config.reranker_model_name if config.data["rag_components"].get("reranker", True) else "disabled"
@@ -828,6 +928,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
     results = []
     planned = len(test_cases) * len(baselines_to_run)
     done = 0
+    total_new_generations = 0
     unsaved_new_generations = 0
 
     for idx, case in enumerate(test_cases, start=1):
@@ -858,6 +959,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                     continue
 
             case_reused_all = False
+            total_new_generations += 1
             unsaved_new_generations += 1
             description = BASELINES_INFO.get(baseline, "")
             con.dim(f"  Running {baseline}: {description.split('—')[0]}")
@@ -1194,6 +1296,7 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
                 with open(temp_output, "w", encoding="utf-8") as f:
                     yaml.dump(autosave_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
                 temp_output.replace(output_path)
+                _save_gen_checkpoint(output_path, autosave_data)
                 if getattr(args, "logit_save", False):
                     try:
                         from core.reporting import save_raw_logits_yaml
@@ -1230,9 +1333,10 @@ def run_benchmarking(args: Any, config: Any, prompts: Any, container: Any, con: 
         output_data = merge_evaluation_data(existing_data, output_data)
         
     judge_output_path = output_path.with_name(output_path.stem + "_judge" + output_path.suffix)
-    if unsaved_new_generations > 0 or not output_path.exists():
+    if total_new_generations > 0 or not output_path.exists():
         with open(output_path, "w", encoding="utf-8") as f:
             yaml.dump(output_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        _save_gen_checkpoint(output_path, output_data)
 
         if getattr(args, "logit_save", False):
             try:

@@ -690,8 +690,9 @@ async def run_evaluation(args: Any, config: Any, con: Any) -> None:
         sys.exit(1)
 
     con.info(f"Loading benchmark results from: {input_path}")
+    YamlLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     with open(input_path, "r", encoding="utf-8") as f:
-        input_data = yaml.safe_load(f)
+        input_data = yaml.load(f, Loader=YamlLoader)
 
     if not input_data or "results" not in input_data:
         con.error("Invalid benchmark results file structure. Must contain a 'results' key.")
