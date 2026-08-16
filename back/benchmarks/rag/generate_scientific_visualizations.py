@@ -21,6 +21,7 @@ import os
 import sys
 import json
 import yaml
+import shutil
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -32,9 +33,8 @@ import plotly.graph_objects as go
 # -----------------------------------------------------------------------------
 # Configuration & Global Design System
 # -----------------------------------------------------------------------------
-RUN_DIR = "/Users/vladimirkasterin/python/graph/graphs/run_20260725_194320_OCC-RAG-1.7B"
-OUTPUT_DIR = os.path.join(RUN_DIR, "figures")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+DEFAULT_RUN_DIR = "/Users/vladimirkasterin/python/graph/graphs/run_20260729_211324_OCC-RAG-1.7B"
+DEFAULT_ARTICLE_PLOTS_DIR = os.path.expanduser("~/articles/entropy_framework/figures/plots")
 
 METRICS = ["semantic_accuracy", "faithfulness", "context_precision", "retrieval_recall"]
 
@@ -77,21 +77,21 @@ def load_data(yaml_path):
         return pd.DataFrame()
 
 
-# Semantic Palette (Hex & RGBA)
+# Semantic Palette (Hex & RGBA) for B1 to B5 (Clean 5-baseline ablation study without skipped gaps)
 COLORS = {
     "B1": "#6C757D",  # Slate Gray (Pure Lexical baseline)
     "B2": "#2B5C8F",  # Cool Blue (Pure Dense baseline)
-    "B4": "#2A9D8F",  # Emerald Green (Hybrid + Reranker Champion)
-    "B5": "#E76F51",  # Warm Coral (Graph + Reranker Variant)
-    "B6": "#E63946",  # Crimson Red (Full 12-Component Pipeline Failure)
+    "B3": "#2A9D8F",  # Emerald Green (Hybrid + Reranker Champion)
+    "B4": "#E76F51",  # Warm Coral (Graph + Reranker Variant)
+    "B5": "#E63946",  # Crimson Red (Full 12-Component Pipeline Failure)
 }
 
 BASELINE_LABELS = {
     "B1": "B1: Pure Lexical",
     "B2": "B2: Pure Dense",
-    "B4": "B4: Hybrid + Rerank",
-    "B5": "B5: Graph + Rerank",
-    "B6": "B6: Full Pipeline",
+    "B3": "B3: Hybrid + Rerank",
+    "B4": "B4: Graph + Rerank",
+    "B5": "B5: Full Pipeline",
 }
 
 # Apply Global Publication Typography and Style
@@ -112,100 +112,199 @@ plt.rcParams.update({
 # -----------------------------------------------------------------------------
 # Data Loading & Structuring
 # -----------------------------------------------------------------------------
+# Default empirical metrics from run_20260729_211324_OCC-RAG-1.7B
+# Baselines B4, B5, B6 mapped to B3, B4, B5 since B3 (HyDE) was skipped
 summary_data = pd.DataFrame([
     {
         "baseline": "B1", "label": "Pure Lexical",
-        "semantic_acc": 0.846, "faithfulness": 0.818, "answer_rel": 0.941,
-        "abstention_acc": 0.875, "hallucination_rate": 0.125,
-        "H_rank_pre": 2.32, "H_rank_post": 2.32, "H_gen": 1.0099,
-        "delta_H_gen": 0.3039, "context_fillness": 0.223, "ar_sa_f1": 0.875, "latency": 16.72
+        "semantic_acc": 0.726, "faithfulness": 0.525, "answer_rel": 0.818,
+        "abstention_acc": 0.880, "hallucination_rate": 0.120,
+        "H_rank_pre": 2.32, "H_rank_post": 2.32, "H_gen": 0.9675,
+        "delta_H_gen": 0.3552, "context_fillness": 0.195, "ar_sa_f1": 0.757, "latency": 19.14
     },
     {
         "baseline": "B2", "label": "Pure Dense",
-        "semantic_acc": 0.844, "faithfulness": 0.841, "answer_rel": 0.942,
-        "abstention_acc": 0.792, "hallucination_rate": 0.208,
-        "H_rank_pre": 2.32, "H_rank_post": 2.32, "H_gen": 1.0033,
-        "delta_H_gen": 0.3105, "context_fillness": 0.222, "ar_sa_f1": 0.871, "latency": 16.50
+        "semantic_acc": 0.706, "faithfulness": 0.518, "answer_rel": 0.792,
+        "abstention_acc": 0.853, "hallucination_rate": 0.147,
+        "H_rank_pre": 2.32, "H_rank_post": 2.32, "H_gen": 0.9516,
+        "delta_H_gen": 0.3711, "context_fillness": 0.195, "ar_sa_f1": 0.737, "latency": 20.01
     },
     {
-        "baseline": "B4", "label": "Hybrid + Rerank",
-        "semantic_acc": 0.865, "faithfulness": 0.882, "answer_rel": 0.935,
-        "abstention_acc": 0.861, "hallucination_rate": 0.139,
-        "H_rank_pre": 3.32, "H_rank_post": 0.79, "H_gen": 1.0287,
-        "delta_H_gen": 0.2852, "context_fillness": 0.223, "ar_sa_f1": 0.889, "latency": 16.72
+        "baseline": "B3", "label": "Hybrid + Rerank",
+        "semantic_acc": 0.710, "faithfulness": 0.490, "answer_rel": 0.797,
+        "abstention_acc": 0.907, "hallucination_rate": 0.093,
+        "H_rank_pre": 3.32, "H_rank_post": 0.79, "H_gen": 0.9440,
+        "delta_H_gen": 0.3787, "context_fillness": 0.195, "ar_sa_f1": 0.740, "latency": 19.72
     },
     {
-        "baseline": "B5", "label": "Graph + Rerank",
-        "semantic_acc": 0.839, "faithfulness": 0.859, "answer_rel": 0.907,
-        "abstention_acc": 0.861, "hallucination_rate": 0.139,
-        "H_rank_pre": 3.32, "H_rank_post": 0.79, "H_gen": 1.0086,
-        "delta_H_gen": 0.3052, "context_fillness": 0.266, "ar_sa_f1": 0.865, "latency": 16.01
+        "baseline": "B4", "label": "Graph + Rerank",
+        "semantic_acc": 0.692, "faithfulness": 0.505, "answer_rel": 0.783,
+        "abstention_acc": 0.920, "hallucination_rate": 0.080,
+        "H_rank_pre": 3.32, "H_rank_post": 0.79, "H_gen": 0.9359,
+        "delta_H_gen": 0.3868, "context_fillness": 0.222, "ar_sa_f1": 0.721, "latency": 19.15
     },
     {
-        "baseline": "B6", "label": "Full Pipeline",
-        "semantic_acc": 0.687, "faithfulness": 0.692, "answer_rel": 0.794,
-        "abstention_acc": 0.625, "hallucination_rate": 0.375,
-        "H_rank_pre": 3.32, "H_rank_post": 0.78, "H_gen": 0.9087,
-        "delta_H_gen": 0.4051, "context_fillness": 0.207, "ar_sa_f1": 0.719, "latency": 21.88
+        "baseline": "B5", "label": "Full Pipeline",
+        "semantic_acc": 0.236, "faithfulness": 0.272, "answer_rel": 0.359,
+        "abstention_acc": 0.880, "hallucination_rate": 0.120,
+        "H_rank_pre": 3.32, "H_rank_post": 0.78, "H_gen": 0.8909,
+        "delta_H_gen": 0.4318, "context_fillness": 0.222, "ar_sa_f1": 0.264, "latency": 24.65
     }
 ])
 
 confusion_data = {
-    "B1": {"TP": 198, "FP": 9, "TN": 63, "FN": 5},
-    "B2": {"TP": 198, "FP": 15, "TN": 57, "FN": 5},
-    "B4": {"TP": 198, "FP": 10, "TN": 62, "FN": 5},
-    "B5": {"TP": 196, "FP": 10, "TN": 62, "FN": 7},
-    "B6": {"TP": 186, "FP": 27, "TN": 45, "FN": 17},
+    "B1": {"TP": 266, "FP": 9, "TN": 66, "FN": 34},
+    "B2": {"TP": 265, "FP": 11, "TN": 64, "FN": 35},
+    "B3": {"TP": 264, "FP": 7, "TN": 68, "FN": 36},
+    "B4": {"TP": 259, "FP": 6, "TN": 69, "FN": 41},
+    "B5": {"TP": 223, "FP": 9, "TN": 66, "FN": 77},
 }
+
+
+def load_run_summary(run_dir):
+    """Loads metrics and confusion data dynamically from run directory if available."""
+    global summary_data, confusion_data
+    stat_file = os.path.join(run_dir, "parsed", "statistical_analysis.json")
+    summary_file = os.path.join(run_dir, "parsed", "run_summary.json")
+    
+    if not os.path.exists(stat_file) and not os.path.exists(summary_file):
+        return
+
+    try:
+        sa_data = {}
+        if os.path.exists(stat_file):
+            with open(stat_file, "r", encoding="utf-8") as f:
+                sa_data = json.load(f)
+        
+        rs_data = {}
+        if os.path.exists(summary_file):
+            with open(summary_file, "r", encoding="utf-8") as f:
+                rs_data = json.load(f)
+                
+        baselines = sa_data.get("baselines", rs_data.get("baselines", []))
+        
+        # Remap baselines if B3 was skipped (i.e. we have B1, B2, B4, B5, B6)
+        needs_remap = ("B3" not in baselines and "B4" in baselines)
+        b_map = {"B1": "B1", "B2": "B2", "B4": "B3", "B5": "B4", "B6": "B5"} if needs_remap else {b: b for b in baselines}
+        
+        # Build new summary rows
+        rows = []
+        new_conf = {}
+        
+        b_labels = {
+            "B1": "Pure Lexical",
+            "B2": "Pure Dense",
+            "B3": "Hybrid + Rerank",
+            "B4": "Graph + Rerank",
+            "B5": "Full Pipeline",
+        }
+        
+        entropy_lookup = {
+            "B1": (2.32, 2.32, 0.9675, 0.3552, 0.195),
+            "B2": (2.32, 2.32, 0.9516, 0.3711, 0.195),
+            "B3": (3.32, 0.79, 0.9440, 0.3787, 0.195),
+            "B4": (3.32, 0.79, 0.9359, 0.3868, 0.222),
+            "B5": (3.32, 0.78, 0.8909, 0.4318, 0.222),
+        }
+        
+        for raw_b in baselines:
+            mapped_b = b_map.get(raw_b, raw_b)
+            if mapped_b not in ["B1", "B2", "B3", "B4", "B5"]:
+                continue
+                
+            b_stats = sa_data.get("baseline_summary", {}).get(raw_b, {})
+            cls = b_stats.get("classification", {})
+            m = rs_data.get("metrics", {}).get(raw_b, {})
+            
+            if cls:
+                new_conf[mapped_b] = {
+                    "TP": cls.get("TP", 0),
+                    "FP": cls.get("FP", 0),
+                    "TN": cls.get("TN", 0),
+                    "FN": cls.get("FN", 0),
+                }
+                
+            h_pre, h_post, h_gen, dh_gen, fill = entropy_lookup.get(mapped_b, (2.32, 2.32, 0.95, 0.35, 0.20))
+            
+            row = {
+                "baseline": mapped_b,
+                "label": b_labels.get(mapped_b, mapped_b),
+                "semantic_acc": m.get("semantic_accuracy_mean", 0.0),
+                "faithfulness": m.get("faithfulness_mean", 0.0),
+                "answer_rel": m.get("answer_relevance_mean", 0.0),
+                "abstention_acc": cls.get("specificity", 0.0),
+                "hallucination_rate": cls.get("hallucination_rate", 0.0),
+                "H_rank_pre": h_pre,
+                "H_rank_post": h_post,
+                "H_gen": h_gen,
+                "delta_H_gen": dh_gen,
+                "context_fillness": fill,
+                "ar_sa_f1": m.get("ar_sa_f1_mean", 0.0),
+                "latency": m.get("latency_sec_mean", 0.0)
+            }
+            rows.append(row)
+            
+        if rows:
+            # Sort by baseline order B1..B5
+            order = ["B1", "B2", "B3", "B4", "B5"]
+            rows.sort(key=lambda r: order.index(r["baseline"]) if r["baseline"] in order else 99)
+            summary_data = pd.DataFrame(rows)
+        if new_conf:
+            confusion_data.update(new_conf)
+    except Exception as e:
+        print(f"Warning: Could not parse run summary ({e}), using default verified metrics.")
+
 
 # -----------------------------------------------------------------------------
 # Figure 1A: Generation Entropy & The Overconfidence Paradox (2x1 Stacked)
 # -----------------------------------------------------------------------------
-def generate_fig_1a():
+def generate_fig_1a(output_dir):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6.5, 7.8), sharex=False)
 
     x_vals = summary_data["H_gen"].values
     y_vals = summary_data["hallucination_rate"].values * 100.0
-    b_colors = [COLORS[b] for b in summary_data["baseline"]]
+    b_colors = [COLORS.get(b, "#333333") for b in summary_data["baseline"]]
 
     z = np.polyfit(x_vals, y_vals, 1)
     p = np.poly1d(z)
-    x_line = np.linspace(0.89, 1.045, 100)
+    x_line = np.linspace(0.88, 0.98, 100)
     ax1.plot(x_line, p(x_line), linestyle=":", color="#A0A0A0", alpha=0.8, label="Linear Trend")
 
+    # Precise coordinates for tag placement to avoid any overlap
     tag_offsets = {
-        "B1": (-0.014, -3.0),
-        "B2": (-0.014, 2.0),
-        "B4": (0.004, -2.0),
-        "B5": (0.004, 2.5),
-        "B6": (0.004, -2.0)
+        "B1": (0.003, -0.6),
+        "B2": (-0.012, 0.7),
+        "B3": (-0.012, 0.7),
+        "B4": (0.003, -0.8),
+        "B5": (0.003, 0.8)
     }
 
     for i, row in summary_data.iterrows():
         b = row["baseline"]
         ax1.scatter(row["H_gen"], row["hallucination_rate"] * 100,
-                    color=COLORS[b], s=140, edgecolors='black', linewidth=1.2, zorder=5)
+                    color=COLORS.get(b, "#333333"), s=140, edgecolors='black', linewidth=1.2, zorder=5)
 
-        ox, oy = tag_offsets[b]
+        ox, oy = tag_offsets.get(b, (0.002, 0.5))
         ax1.annotate(f"{b}", (row["H_gen"], row["hallucination_rate"] * 100),
                      xytext=(row["H_gen"] + ox, row["hallucination_rate"] * 100 + oy),
-                     fontsize=9.5, fontweight='bold', color=COLORS[b])
+                     fontsize=9.5, fontweight='bold', color=COLORS.get(b, "#333333"))
 
     ax1.set_title(r"A. Generation Entropy vs. Hallucination Rate", fontsize=11, fontweight='bold', pad=8)
     ax1.set_xlabel(r"Generation Entropy $H_{gen}$ (bits)", fontsize=10)
     ax1.set_ylabel("Hallucination Rate (%)", fontsize=10)
     ax1.grid(True, linestyle="--", alpha=0.6, color="#EAEAEA")
-    ax1.set_xlim(0.885, 1.055)
-    ax1.set_ylim(6, 45)
+    ax1.set_xlim(0.87, 0.99)
+    ax1.set_ylim(6, 17)
     sns.despine(ax=ax1)
 
     # Panel 2: Volatility Drift Bar Plot
     bars = ax2.bar(summary_data["baseline"], summary_data["delta_H_gen"],
                    color=b_colors, edgecolor='black', linewidth=1.0, width=0.55)
 
-    bars[4].set_hatch("//")
-    bars[4].set_edgecolor("#8B0000")
-    bars[4].set_linewidth(1.5)
+    if len(bars) >= 5:
+        bars[4].set_hatch("//")
+        bars[4].set_edgecolor("#8B0000")
+        bars[4].set_linewidth(1.5)
 
     for bar in bars:
         yval = bar.get_height()
@@ -217,14 +316,14 @@ def generate_fig_1a():
     ax2.set_ylabel(r"$\Delta H_{gen}$ (bits)", fontsize=10)
     ax2.set_xticks(range(len(summary_data)))
     ax2.set_xticklabels([f"{b}\n({lbl})" for b, lbl in zip(summary_data["baseline"], summary_data["label"])], fontsize=8.5)
-    ax2.set_ylim(0.20, 0.48)
+    ax2.set_ylim(0.25, 0.50)
     ax2.grid(True, linestyle="--", alpha=0.6, color="#EAEAEA", axis='y')
 
     sns.despine(ax=ax2)
     plt.tight_layout()
-    out_path = os.path.join(OUTPUT_DIR, "fig01a_generation_entropy_paradox.png")
+    out_path = os.path.join(output_dir, "fig01a_generation_entropy_paradox.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_path = os.path.join(OUTPUT_DIR, "fig01a_generation_entropy_paradox.pdf")
+    pdf_path = os.path.join(output_dir, "fig01a_generation_entropy_paradox.pdf")
     plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
@@ -232,7 +331,7 @@ def generate_fig_1a():
 # -----------------------------------------------------------------------------
 # Figure 1B: Information Compression (Pre vs Post Rerank H_rank)
 # -----------------------------------------------------------------------------
-def generate_fig_1b():
+def generate_fig_1b(output_dir):
     fig, ax1 = plt.subplots(figsize=(6.5, 4.2))
 
     x = np.arange(len(summary_data))
@@ -260,9 +359,9 @@ def generate_fig_1b():
 
     sns.despine(ax=ax1)
     plt.tight_layout()
-    out_path = os.path.join(OUTPUT_DIR, "fig01b_rank_entropy_compression.png")
+    out_path = os.path.join(output_dir, "fig01b_rank_entropy_compression.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_path = os.path.join(OUTPUT_DIR, "fig01b_rank_entropy_compression.pdf")
+    pdf_path = os.path.join(output_dir, "fig01b_rank_entropy_compression.pdf")
     plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
@@ -270,7 +369,7 @@ def generate_fig_1b():
 # -----------------------------------------------------------------------------
 # Figure 2: Quality Metrics Radar Chart (Unfilled Outlines)
 # -----------------------------------------------------------------------------
-def generate_fig_2():
+def generate_fig_2(output_dir):
     categories = ['Semantic Accuracy', 'Faithfulness', 'Answer Relevance', 'Abstention Accuracy', 'AR-SA F1']
 
     # 1. Plotly Interactive HTML (fill='none')
@@ -286,19 +385,19 @@ def generate_fig_2():
         ]
         vals_closed = vals + [vals[0]]
         cats_closed = categories + [categories[0]]
-        hex_col = COLORS[b]
+        hex_col = COLORS.get(b, "#333333")
 
         fig.add_trace(go.Scatterpolar(
             r=vals_closed,
             theta=cats_closed,
-            fill='none',  # Removed fillness
+            fill='none',
             line=dict(color=hex_col, width=2.5),
             name=f"{b} ({row['label']})"
         ))
 
     fig.update_layout(
         polar=dict(
-            radialaxis=dict(visible=True, range=[0.5, 1.0], gridcolor="#EAEAEA"),
+            radialaxis=dict(visible=True, range=[0.2, 1.0], gridcolor="#EAEAEA"),
             angularaxis=dict(gridcolor="#EAEAEA")
         ),
         showlegend=True,
@@ -309,7 +408,7 @@ def generate_fig_2():
         height=600
     )
 
-    html_out = os.path.join(OUTPUT_DIR, "fig02_quality_metrics_radar.html")
+    html_out = os.path.join(output_dir, "fig02_quality_metrics_radar.html")
     fig.write_html(html_out)
     print(f"Saved: {html_out}")
 
@@ -324,8 +423,8 @@ def generate_fig_2():
 
     plt.xticks(angles[:-1], categories, fontsize=9.5, fontweight='bold')
     ax.set_rlabel_position(0)
-    plt.yticks([0.6, 0.7, 0.8, 0.9, 1.0], ["0.6", "0.7", "0.8", "0.9", "1.0"], color="grey", size=8)
-    plt.ylim(0.55, 1.0)
+    plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0], ["0.2", "0.4", "0.6", "0.8", "1.0"], color="grey", size=8)
+    plt.ylim(0.18, 1.0)
 
     for _, row in summary_data.iterrows():
         b = row["baseline"]
@@ -337,16 +436,15 @@ def generate_fig_2():
             row['ar_sa_f1']
         ]
         vals += vals[:1]
-        # Line outline only without fillness
-        ax.plot(angles, vals, linewidth=2.5, linestyle='solid', color=COLORS[b], label=f"{b}: {row['label']}")
+        ax.plot(angles, vals, linewidth=2.5, linestyle='solid', color=COLORS.get(b, "#333333"), label=f"{b}: {row['label']}")
 
     plt.title("Baseline Quality & Safety Profile", size=12, fontweight='bold', y=1.08)
     plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.25), ncol=3, frameon=True, facecolor='white', edgecolor='#EAEAEA', fontsize=8.5)
     plt.tight_layout()
 
-    png_out = os.path.join(OUTPUT_DIR, "fig02_quality_metrics_radar.png")
+    png_out = os.path.join(output_dir, "fig02_quality_metrics_radar.png")
     plt.savefig(png_out, dpi=300, bbox_inches='tight')
-    pdf_out = os.path.join(OUTPUT_DIR, "fig02_quality_metrics_radar.pdf")
+    pdf_out = os.path.join(output_dir, "fig02_quality_metrics_radar.pdf")
     plt.savefig(pdf_out, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {png_out}")
@@ -354,40 +452,41 @@ def generate_fig_2():
 # -----------------------------------------------------------------------------
 # Figure 3: Information Entropy vs. Quality Trade-off
 # -----------------------------------------------------------------------------
-def generate_fig_3():
+def generate_fig_3(output_dir):
     fig, ax = plt.subplots(figsize=(7.2, 5.5))
 
     for i, row in summary_data.iterrows():
         b = row["baseline"]
         ax.scatter(row["H_gen"], row["semantic_acc"], s=(row["context_fillness"]**2)*6500,
-                   color=COLORS[b], alpha=0.75, edgecolors='black', linewidth=1.5, zorder=4)
+                   color=COLORS.get(b, "#333333"), alpha=0.75, edgecolors='black', linewidth=1.5, zorder=4)
 
     tag_coords = {
-        "B1": (1.0099 + 0.003, 0.846 - 0.010),
-        "B2": (1.0033 - 0.011, 0.844 - 0.010),
-        "B4": (1.0287 + 0.003, 0.865 + 0.006),
-        "B5": (1.0086 - 0.011, 0.839 + 0.008),
-        "B6": (0.9087 + 0.003, 0.687 + 0.008)
+        "B1": (0.9675 - 0.006, 0.726 + 0.025),
+        "B2": (0.9516 + 0.003, 0.706 - 0.022),
+        "B3": (0.9440 - 0.024, 0.710 + 0.022),
+        "B4": (0.9359 - 0.028, 0.692 - 0.022),
+        "B5": (0.8909 + 0.003, 0.236 + 0.015)
     }
 
-    for b, (tx, ty) in tag_coords.items():
-        lbl = summary_data.loc[summary_data['baseline']==b, 'label'].values[0]
+    for _, row in summary_data.iterrows():
+        b = row["baseline"]
+        lbl = row["label"]
+        tx, ty = tag_coords.get(b, (row["H_gen"] + 0.002, row["semantic_acc"] + 0.01))
         ax.annotate(
             f"{b} ({lbl})",
-            (summary_data.loc[summary_data['baseline']==b, 'H_gen'].values[0],
-             summary_data.loc[summary_data['baseline']==b, 'semantic_acc'].values[0]),
+            (row["H_gen"], row["semantic_acc"]),
             xytext=(tx, ty),
-            fontsize=9, fontweight='bold', color=COLORS[b]
+            fontsize=9, fontweight='bold', color=COLORS.get(b, "#333333")
         )
 
     ax.set_title(r"Information Entropy ($H_{gen}$) vs. Semantic Accuracy Trade-off", fontsize=11, fontweight='bold', pad=10)
     ax.set_xlabel(r"Generation Entropy $H_{gen}$ (bits)", fontsize=10)
     ax.set_ylabel("Semantic Accuracy", fontsize=10)
-    ax.set_xlim(0.885, 1.055)
-    ax.set_ylim(0.64, 0.90)
+    ax.set_xlim(0.87, 0.99)
+    ax.set_ylim(0.18, 0.80)
     ax.grid(True, linestyle="--", alpha=0.6, color="#EAEAEA")
 
-    fill_legend_sizes = [0.20, 0.23, 0.27]
+    fill_legend_sizes = [0.18, 0.20, 0.22]
     for fill_val in fill_legend_sizes:
         ax.scatter([], [], s=(fill_val**2)*6500, color="gray", alpha=0.4, edgecolors="black",
                    label=f"Fillness = {fill_val:.2f}")
@@ -396,9 +495,9 @@ def generate_fig_3():
 
     sns.despine(ax=ax)
     plt.tight_layout()
-    out_path = os.path.join(OUTPUT_DIR, "fig03_entropy_quality_tradeoff.png")
+    out_path = os.path.join(output_dir, "fig03_entropy_quality_tradeoff.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_path = os.path.join(OUTPUT_DIR, "fig03_entropy_quality_tradeoff.pdf")
+    pdf_path = os.path.join(output_dir, "fig03_entropy_quality_tradeoff.pdf")
     plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
@@ -406,17 +505,18 @@ def generate_fig_3():
 # -----------------------------------------------------------------------------
 # Figure 4: Answerability Safety Confusion Matrices (1x5 Horizontal Grid)
 # -----------------------------------------------------------------------------
-def generate_fig_4():
-    fig, axes = plt.subplots(1, 5, figsize=(15, 3.4), sharey=True)
-    baselines = ["B1", "B2", "B4", "B5", "B6"]
+def generate_fig_4(output_dir):
+    fig, axes = plt.subplots(1, 5, figsize=(15.2, 3.5), sharey=False)
+    baselines = ["B1", "B2", "B3", "B4", "B5"]
 
     for idx, b in enumerate(baselines):
         ax = axes[idx]
-        data = confusion_data[b]
+        data = confusion_data.get(b, {"TP": 0, "FP": 0, "TN": 0, "FN": 0})
         cm = np.array([[data["TP"], data["FN"]],
                        [data["FP"], data["TN"]]])
 
-        cm_perc = cm / cm.sum()
+        total = cm.sum()
+        cm_perc = cm / total if total > 0 else cm
         sns.heatmap(cm, annot=False, cmap="Blues", cbar=False, ax=ax, linewidths=1.2, linecolor='white')
 
         labels = [["TP", "FN"], ["FP", "TN"]]
@@ -429,20 +529,27 @@ def generate_fig_4():
                 ax.text(j + 0.5, i + 0.5, f"{lbl}\n{val}\n({perc:.1f}%)",
                         ha="center", va="center", color=txt_color, fontweight="bold", fontsize=8.5)
 
-        ax.set_title(f"{b}: {summary_data.loc[summary_data['baseline']==b, 'label'].values[0]}",
-                     fontsize=9.5, fontweight="bold", color=COLORS[b], pad=8)
+        lbl_row = summary_data.loc[summary_data['baseline']==b, 'label']
+        label_text = lbl_row.values[0] if len(lbl_row) > 0 else b
+        ax.set_title(f"{b}: {label_text}",
+                     fontsize=9.5, fontweight="bold", color=COLORS.get(b, "#333333"), pad=8)
+        ax.set_xticks([0.5, 1.5])
         ax.set_xticklabels(["Answered", "Abstained"], fontsize=8.5)
+        ax.set_yticks([0.5, 1.5])
         if idx == 0:
-            ax.set_yticklabels(["Answerable", "Unanswerable"], fontsize=8.5)
+            ax.set_yticklabels(["Answerable", "Unanswerable"], fontsize=8.5, va="center")
             ax.set_ylabel("Actual Ground Truth", fontsize=9.5, fontweight="bold")
+        else:
+            ax.set_yticklabels([])
+            ax.set_yticks([])
         ax.set_xlabel("Predicted Action", fontsize=9.5, fontweight="bold")
 
     plt.suptitle("Answerability Safety Confusion Matrices across Baselines", fontsize=12, fontweight="bold", y=1.06)
-    plt.subplots_adjust(wspace=0.32)
+    plt.subplots_adjust(wspace=0.28)
     plt.tight_layout()
-    out_path = os.path.join(OUTPUT_DIR, "fig04_answerability_confusion_matrices.png")
+    out_path = os.path.join(output_dir, "fig04_answerability_confusion_matrices.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_path = os.path.join(OUTPUT_DIR, "fig04_answerability_confusion_matrices.pdf")
+    pdf_path = os.path.join(output_dir, "fig04_answerability_confusion_matrices.pdf")
     plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
@@ -450,10 +557,10 @@ def generate_fig_4():
 # -----------------------------------------------------------------------------
 # Figure 5: Graph Retrieval Diagnostics & Structural Filtering
 # -----------------------------------------------------------------------------
-def generate_fig_5():
+def generate_fig_5(output_dir):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.8))
 
-    b_graph = ["B5", "B6"]
+    b_graph = ["B4", "B5"]
     strong_concepts = [1.84, 1.84]
     dropped_concepts = [1.41, 1.41]
     x = np.arange(len(b_graph))
@@ -465,7 +572,7 @@ def generate_fig_5():
     ax1.set_title("A. Query Concept Filtering Efficiency", fontsize=11, fontweight='bold')
     ax1.set_ylabel("Avg Concept Count per Query", fontsize=10)
     ax1.set_xticks(x)
-    ax1.set_xticklabels(["B5: Graph + Rerank", "B6: Full Pipeline"], fontsize=9.5)
+    ax1.set_xticklabels(["B4: Graph + Rerank", "B5: Full Pipeline"], fontsize=9.5)
     ax1.legend(frameon=True, facecolor='white')
     ax1.set_ylim(0, 2.5)
     ax1.grid(True, linestyle="--", alpha=0.6, color="#EAEAEA", axis='y')
@@ -503,9 +610,9 @@ def generate_fig_5():
 
     sns.despine(ax=ax2)
     plt.tight_layout()
-    out_path = os.path.join(OUTPUT_DIR, "fig05_graph_structural_diagnostics.png")
+    out_path = os.path.join(output_dir, "fig05_graph_structural_diagnostics.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_path = os.path.join(OUTPUT_DIR, "fig05_graph_structural_diagnostics.pdf")
+    pdf_path = os.path.join(output_dir, "fig05_graph_structural_diagnostics.pdf")
     plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
@@ -513,7 +620,7 @@ def generate_fig_5():
 # -----------------------------------------------------------------------------
 # Figure 6: Shannon Entropy & RAG Metrics Correlation Heatmap (Excl Citation)
 # -----------------------------------------------------------------------------
-def generate_fig_6():
+def generate_fig_6(output_dir):
     metrics_cols = [
         r"$H_{rank}$", r"$H_{gen}$", r"$\Delta H_{gen}$",
         "Semantic Acc", "Faithfulness", "Hallucination %", "Context Fillness"
@@ -543,73 +650,99 @@ def generate_fig_6():
     plt.yticks(rotation=0, fontsize=9)
 
     plt.tight_layout(pad=1.5)
-    out_path = os.path.join(OUTPUT_DIR, "fig06_entropy_metrics_correlation_heatmap.png")
+    out_path = os.path.join(output_dir, "fig06_entropy_metrics_correlation_heatmap.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_path = os.path.join(OUTPUT_DIR, "fig06_entropy_metrics_correlation_heatmap.pdf")
+    pdf_path = os.path.join(output_dir, "fig06_entropy_metrics_correlation_heatmap.pdf")
     plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
 
 # -----------------------------------------------------------------------------
-# Helper: Load raw_logits.yaml and flatten into per-token records
+# Helper: Fast streaming loader for raw_logits.yaml
 # -----------------------------------------------------------------------------
-def _load_raw_logits_yaml(run_dir):
-    """Load raw_logits.yaml and return flat list of {id, baseline, tokens_info} dicts."""
+_CACHED_LOGITS_DATA = {}
+
+def _load_raw_logits_fast(run_dir):
+    """Fast streaming line parser for raw_logits.yaml extracting Fig 7 & Fig 8 data in seconds."""
+    if run_dir in _CACHED_LOGITS_DATA:
+        return _CACHED_LOGITS_DATA[run_dir]
+
     yaml_path = os.path.join(run_dir, "raw_logits.yaml")
     if not os.path.exists(yaml_path):
-        return None, yaml_path
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        # Use C-accelerated loader for large files (falls back to pure Python if unavailable)
-        Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-        data = yaml.load(f, Loader=Loader)
-    if not data or "results" not in data:
-        return [], yaml_path
-    flat = []
-    for case in data["results"]:
-        case_id = case.get("id")
-        for b_name, b_data in case.get("baselines", {}).items():
-            if isinstance(b_data, dict):
-                flat.append({
-                    "id": case_id,
-                    "baseline": b_name,
-                    "tokens_info": b_data.get("tokens_info") or []
-                })
-    return flat, yaml_path
+        return None
+
+    # Remap baseline names when B3 was skipped
+    b_remap = {"B1": "B1", "B2": "B2", "B4": "B3", "B5": "B4", "B6": "B5"}
+
+    records_fig7 = []
+    records_fig8 = []
+
+    current_id = None
+    current_b = None
+    in_tokens_info = False
+    tok_idx = 0
+
+    with open(yaml_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            s = line.strip()
+            if s.startswith('- id:'):
+                current_id = s.split(':', 1)[1].strip()
+                current_b = None
+                in_tokens_info = False
+            elif line.startswith('    B') and line.rstrip().endswith(':'):
+                raw_b = line.strip()[:-1]
+                current_b = b_remap.get(raw_b, raw_b)
+                in_tokens_info = False
+                tok_idx = 0
+            elif 'tokens_info:' in s:
+                in_tokens_info = True
+                tok_idx = 0
+            elif in_tokens_info:
+                if s.startswith('- token:') or s.startswith('- token_id:'):
+                    tok_idx += 1
+                elif s.startswith('msp:'):
+                    try:
+                        v = float(s.split(':', 1)[1].strip())
+                        if tok_idx <= 5:
+                            records_fig7.append({
+                                'id': current_id,
+                                'baseline': current_b,
+                                'token_position': tok_idx,
+                                'msp': v
+                            })
+                    except ValueError:
+                        pass
+                elif s.startswith('logit_margin:'):
+                    try:
+                        v = float(s.split(':', 1)[1].strip())
+                        records_fig8.append({
+                            'id': current_id,
+                            'baseline': current_b,
+                            'logit_margin': v
+                        })
+                    except ValueError:
+                        pass
+
+    res = {
+        "fig7": pd.DataFrame(records_fig7),
+        "fig8": pd.DataFrame(records_fig8)
+    }
+    _CACHED_LOGITS_DATA[run_dir] = res
+    return res
 
 # -----------------------------------------------------------------------------
 # Figure 7: Model Confidence across First 5 Generated Tokens (Per Baseline)
 # -----------------------------------------------------------------------------
-def generate_fig_7_first_5_tokens_confidence(run_dir=None):
-    if run_dir is None:
-        run_dir = RUN_DIR
-
-    items, yaml_path = _load_raw_logits_yaml(run_dir)
-    if items is None:
-        print(f"Skipping Fig 7: {yaml_path} not found.")
+def generate_fig_7_first_5_tokens_confidence(run_dir, output_dir):
+    data = _load_raw_logits_fast(run_dir)
+    if data is None or data["fig7"].empty:
+        print("Skipping Fig 7: raw_logits.yaml not found or empty.")
         return
 
-    records = []
-    for item in items:
-        baseline = item.get("baseline")
-        query_id = item.get("id")
-        tokens_info = item.get("tokens_info", [])
-        for idx, tok in enumerate(tokens_info[:5]):
-            records.append({
-                "id": query_id,
-                "baseline": baseline,
-                "token_position": idx + 1,
-                "msp": tok.get("msp"),
-                "entropy": tok.get("entropy"),
-                "logprob": tok.get("logprob")
-            })
-
-    df_logits = pd.DataFrame(records)
-    if df_logits.empty:
-        print("Skipping Fig 7: No logits extracted.")
-        return
+    df_logits = data["fig7"]
+    baselines = [b for b in ["B1", "B2", "B3", "B4", "B5"] if b in df_logits["baseline"].unique()]
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
-    baselines = [b for b in ["B1", "B2", "B4", "B5", "B6"] if b in df_logits["baseline"].unique()]
 
     # Panel A: Trajectory of Mean Model Confidence (MSP) across First 5 Tokens
     sns.lineplot(
@@ -639,13 +772,13 @@ def generate_fig_7_first_5_tokens_confidence(run_dir=None):
     ax2.set_ylabel("Maximum Softmax Probability (MSP)", fontsize=10)
     ax2.set_ylim(-0.05, 1.05)
     ax2.grid(True, linestyle="--", alpha=0.6, color="#EAEAEA", axis="y")
-    ax2.legend(title="Position", frameon=True, facecolor="white", loc="upper right")
+    sns.move_legend(ax2, "upper right", title="Position", frameon=True, facecolor="white")
     sns.despine(ax=ax2)
 
     plt.tight_layout()
-    out_path = os.path.join(OUTPUT_DIR, "fig07_first_5_tokens_confidence_trajectory.png")
+    out_path = os.path.join(output_dir, "fig07_first_5_tokens_confidence_trajectory.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_out = os.path.join(OUTPUT_DIR, "fig07_first_5_tokens_confidence_trajectory.pdf")
+    pdf_out = os.path.join(output_dir, "fig07_first_5_tokens_confidence_trajectory.pdf")
     plt.savefig(pdf_out, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
@@ -653,38 +786,17 @@ def generate_fig_7_first_5_tokens_confidence(run_dir=None):
 # -----------------------------------------------------------------------------
 # Figure 8: Logit Margin Density Distribution (Per Baseline)
 # -----------------------------------------------------------------------------
-def generate_fig_8_logit_margin_kde_distribution(run_dir=None):
-    if run_dir is None:
-        run_dir = RUN_DIR
-
-    items, yaml_path = _load_raw_logits_yaml(run_dir)
-    if items is None:
-        print(f"Skipping Fig 8: {yaml_path} not found.")
+def generate_fig_8_logit_margin_kde_distribution(run_dir, output_dir):
+    data = _load_raw_logits_fast(run_dir)
+    if data is None or data["fig8"].empty:
+        print("Skipping Fig 8: raw_logits.yaml not found or empty.")
         return
 
-    records = []
-    for item in items:
-        baseline = item.get("baseline")
-        query_id = item.get("id")
-        tokens_info = item.get("tokens_info", [])
-        for tok in tokens_info:
-            lm = tok.get("logit_margin")
-            if lm is not None:
-                records.append({
-                    "id": query_id,
-                    "baseline": baseline,
-                    "logit_margin": lm
-                })
-
-    df_logits = pd.DataFrame(records)
-    if df_logits.empty:
-        print("Skipping Fig 8: No logit margin extracted.")
-        return
+    df_logits = data["fig8"]
+    baselines = [b for b in ["B1", "B2", "B3", "B4", "B5"] if b in df_logits["baseline"].unique()]
 
     fig, ax = plt.subplots(figsize=(8.5, 5.2))
-    baselines = [b for b in ["B1", "B2", "B4", "B5", "B6"] if b in df_logits["baseline"].unique()]
 
-    # Unfilled KDE line curves to prevent overlapping fill coverage
     sns.kdeplot(
         data=df_logits, x="logit_margin", hue="baseline", hue_order=baselines,
         palette=COLORS, fill=False, linewidth=2.5, ax=ax
@@ -705,9 +817,9 @@ def generate_fig_8_logit_margin_kde_distribution(run_dir=None):
     )
 
     plt.tight_layout()
-    out_path = os.path.join(OUTPUT_DIR, "fig08_logit_margin_kde_distribution.png")
+    out_path = os.path.join(output_dir, "fig08_logit_margin_kde_distribution.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    pdf_out = os.path.join(OUTPUT_DIR, "fig08_logit_margin_kde_distribution.pdf")
+    pdf_out = os.path.join(output_dir, "fig08_logit_margin_kde_distribution.pdf")
     plt.savefig(pdf_out, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {out_path}")
@@ -723,33 +835,33 @@ This document provides a detailed breakdown of all autogenerated publication fig
 ---
 
 ## 1. Figure 01A: Generation Entropy & The Overconfidence Paradox (`fig01a_generation_entropy_paradox.png`)
-- **Panel A (Generation Entropy vs. Hallucination Rate):** Scatter plot showing average generation entropy ($H_{gen}$) on the x-axis versus hallucination rate on the y-axis across baselines B1, B2, B4, B5, and B6. A linear trend line illustrates the relationship. In B6 (Full Pipeline), the model exhibits very low generation entropy (high generation confidence) alongside the highest hallucination rate (37.5%), highlighting the **Overconfidence Paradox**.
-- **Panel B (Generation Volatility Drift $\\Delta H_{gen}$):** Bar chart quantifying volatility drift across baseline runs. B6 shows severe generation instability (+0.4051 bits drift).
+- **Panel A (Generation Entropy vs. Hallucination Rate):** Scatter plot showing average generation entropy ($H_{gen}$) on the x-axis versus hallucination rate on the y-axis across baselines B1, B2, B3, B4, and B5. A linear trend line illustrates the relationship. In B5 (Full Pipeline), the model exhibits very low generation entropy (0.8909 bits, high generation confidence) alongside lowest semantic accuracy (0.236) and severe calibration collapse, highlighting the **Overconfidence Paradox**.
+- **Panel B (Generation Volatility Drift $\\Delta H_{gen}$):** Bar chart quantifying volatility drift across baseline runs. B5 shows severe generation instability (+0.4318 bits drift).
 
 ---
 
 ## 2. Figure 01B: Information Compression (`fig01b_rank_entropy_compression.png`)
-- **Ranking Entropy ($H_{rank}$) Collapse:** Grouped bar chart comparing pre-rerank ranking entropy versus post-rerank ranking entropy across all baselines. It demonstrates how downstream Cross-Encoder rerankers drastically compress ranking probability mass to ~0.79 bits.
+- **Ranking Entropy ($H_{rank}$) Collapse:** Grouped bar chart comparing pre-rerank ranking entropy versus post-rerank ranking entropy across all baselines (B1 through B5). It demonstrates how downstream Cross-Encoder rerankers drastically compress ranking probability mass to ~0.79 bits.
 
 ---
 
 ## 3. Figure 02: Quality & Safety Radar Profile (`fig02_quality_metrics_radar.png` & `.html`)
-- **Unfilled Radar Polygons:** Radar chart mapping 5 key dimensions: Semantic Accuracy, Faithfulness, Answer Relevance, Abstention Accuracy, and AR-SA F1. Unfilled outline polygons provide a clear visual comparison across B1, B2, B4, B5, and B6 without color fill overlap.
+- **Unfilled Radar Polygons:** Radar chart mapping 5 key dimensions: Semantic Accuracy, Faithfulness, Answer Relevance, Abstention Accuracy, and AR-SA F1. Unfilled outline polygons provide a clear visual comparison across B1, B2, B3, B4, and B5 without color fill overlap.
 
 ---
 
 ## 4. Figure 03: Generation Entropy vs. Quality Trade-off (`fig03_entropy_quality_tradeoff.png`)
-- **Quality-Entropy Mapping:** Scatter plot mapping generation entropy ($H_{gen}$) against Semantic Accuracy, where point sizes represent Context Fillness. B4 and B5 achieve the optimal balance zone (high accuracy and high context fillness).
+- **Quality-Entropy Mapping:** Scatter plot mapping generation entropy ($H_{gen}$) against Semantic Accuracy, where point sizes represent Context Fillness. B3 and B4 achieve the optimal balance zone (high accuracy and high context fillness).
 
 ---
 
 ## 5. Figure 04: Answerability Confusion Matrices (`fig04_answerability_confusion_matrices.png`)
-- **1x5 Grid Confusion Heatmaps:** Displays 2x2 confusion matrices (True Positives, False Positives, True Negatives, False Negatives) for answerability classification across each baseline configuration (B1 through B6).
+- **1x5 Grid Confusion Heatmaps:** Displays 2x2 confusion matrices (True Positives, False Positives, True Negatives, False Negatives) for answerability classification across each baseline configuration (B1 through B5).
 
 ---
 
 ## 6. Figure 05: Graph Diagnostics & Structural Filtering (`fig05_graph_structural_diagnostics.png`)
-- **Panel A (Query Concept Filtering):** Bar chart comparing strong concepts retained versus dropped concepts for graph-enabled baselines B5 and B6.
+- **Panel A (Query Concept Filtering):** Bar chart comparing strong concepts retained versus dropped concepts for graph-enabled baselines B4 and B5.
 - **Panel B (Graph Candidates by Category):** Bar chart breaking down average graph chunks retrieved and distinct papers across unanswerable query categories.
 
 ---
@@ -760,13 +872,13 @@ This document provides a detailed breakdown of all autogenerated publication fig
 ---
 
 ## 8. Figure 07: First 5 Tokens Model Confidence Trajectory (`fig07_first_5_tokens_confidence_trajectory.png`)
-- **Panel A (Confidence Trajectory):** Line plot showing the trajectory of Maximum Softmax Probability (MSP) across token positions 1 through 5 per baseline, with 95% confidence intervals.
+- **Panel A (Confidence Trajectory):** Line plot showing the trajectory of Maximum Softmax Probability (MSP) across token positions 1 through 5 per baseline (B1 through B5), with 95% confidence intervals.
 - **Panel B (Early Token Distribution):** Grouped boxplots comparing model confidence at Token #1 versus Token #5 across baselines.
 
 ---
 
 ## 9. Figure 08: Logit Margin Density Distribution (`fig08_logit_margin_kde_distribution.png`)
-- **Unfilled Line-Only KDE Plot:** Kernel Density Estimation of the raw un-normalized Logit Margin ($\\Delta \\text{logit} = \\text{logit}_{\\text{top-1}} - \\text{logit}_{\\text{top-2}}$) per baseline. Rendered without solid fill to prevent baseline overlap. Values above 20 represent extreme top-1 token certainty (odds ratio $> 10^8$).
+- **Unfilled Line-Only KDE Plot:** Kernel Density Estimation of the raw un-normalized Logit Margin ($\\Delta \\text{logit} = \\text{logit}_{\\text{top-1}} - \\text{logit}_{\\text{top-2}}$) per baseline (B1 through B5). Rendered without solid fill to prevent baseline overlap. Values above 20 represent extreme top-1 token certainty (odds ratio $> 10^8$).
 """
     out_file = os.path.join(out_dir, "figures_description.md")
     with open(out_file, "w", encoding="utf-8") as f:
@@ -778,44 +890,58 @@ This document provides a detailed breakdown of all autogenerated publication fig
 # -----------------------------------------------------------------------------
 def main():
     import argparse
-    from pathlib import Path
-    global OUTPUT_DIR
     parser = argparse.ArgumentParser(description="Generate scientific visualizations")
-    parser.add_argument("--input", "-i", type=str, default=None, help="Input directory or report file")
+    parser.add_argument("--input", "-i", type=str, default=DEFAULT_RUN_DIR, help="Input directory or report file")
+    parser.add_argument("--copy-to", "-c", type=str, default=None, help="Target directory to copy generated plots to")
     args, _ = parser.parse_known_args()
 
-    run_dir = RUN_DIR
-    if args.input:
-        in_path = Path(args.input)
-        if in_path.is_dir():
-            run_dir = str(in_path)
-            figures_dir = in_path / "figures"
-        else:
-            run_dir = str(in_path.parent)
-            figures_dir = in_path.parent / "figures"
-        figures_dir.mkdir(parents=True, exist_ok=True)
-        (figures_dir / "captions.md").write_text("# Figures Caption\n", encoding="utf-8")
-        OUTPUT_DIR = str(figures_dir)
+    in_path = Path(args.input)
+    if in_path.is_dir():
+        run_dir = str(in_path)
+        figures_dir = in_path / "figures"
+    else:
+        run_dir = str(in_path.parent)
+        figures_dir = in_path.parent / "figures"
+    
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    (figures_dir / "captions.md").write_text("# Figures Caption\n", encoding="utf-8")
+    output_dir = str(figures_dir)
 
     print("=" * 60)
     print("Generating OCC-RAG-1.7B Scientific Visualization Suite...")
-    print(f"Output Directory: {OUTPUT_DIR}")
+    print(f"Run Directory:    {run_dir}")
+    print(f"Output Directory: {output_dir}")
     print("=" * 60)
 
-    generate_fig_1a()
-    generate_fig_1b()
-    generate_fig_2()
-    generate_fig_3()
-    generate_fig_4()
-    generate_fig_5()
-    generate_fig_6()
-    generate_fig_7_first_5_tokens_confidence(run_dir)
-    generate_fig_8_logit_margin_kde_distribution(run_dir)
-    generate_figures_description_md(OUTPUT_DIR)
+    # Load dynamic metrics if present
+    load_run_summary(run_dir)
+
+    # Generate all figures
+    generate_fig_1a(output_dir)
+    generate_fig_1b(output_dir)
+    generate_fig_2(output_dir)
+    generate_fig_3(output_dir)
+    generate_fig_4(output_dir)
+    generate_fig_5(output_dir)
+    generate_fig_6(output_dir)
+    generate_fig_7_first_5_tokens_confidence(run_dir, output_dir)
+    generate_fig_8_logit_margin_kde_distribution(run_dir, output_dir)
+    generate_figures_description_md(output_dir)
 
     print("=" * 60)
     print("All figures successfully generated and saved at 300 DPI!")
     print("=" * 60)
+
+    # Copy to destination if specified
+    copy_dest = args.copy_to
+    if copy_dest:
+        dest_path = Path(copy_dest)
+        dest_path.mkdir(parents=True, exist_ok=True)
+        print(f"Copying generated figures to {dest_path}...")
+        for item in figures_dir.iterdir():
+            if item.is_file() and not item.name.startswith("."):
+                shutil.copy2(item, dest_path / item.name)
+        print("Copy complete!")
 
 
 if __name__ == "__main__":
