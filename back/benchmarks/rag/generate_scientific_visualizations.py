@@ -183,9 +183,13 @@ def load_run_summary(run_dir):
                 
         baselines = sa_data.get("baselines", rs_data.get("baselines", []))
         
-        # Remap baselines if B3 was skipped (i.e. we have B1, B2, B4, B5, B6)
-        needs_remap = ("B3" not in baselines and "B4" in baselines)
-        b_map = {"B1": "B1", "B2": "B2", "B4": "B3", "B5": "B4", "B6": "B5"} if needs_remap else {b: b for b in baselines}
+        # Remap baselines if legacy naming is detected (presence of B6 or legacy B4/B5 without B3)
+        is_legacy = ("B6" in baselines) or ("B3" not in baselines and any(b in baselines for b in ["B4", "B5"]))
+        if is_legacy:
+            # Exclude legacy B3, remap B4->B3, B5->B4, B6->B5
+            b_map = {"B1": "B1", "B2": "B2", "B4": "B3", "B5": "B4", "B6": "B5"}
+        else:
+            b_map = {b: b for b in baselines}
         
         # Build new summary rows
         rows = []
@@ -208,7 +212,7 @@ def load_run_summary(run_dir):
         }
         
         for raw_b in baselines:
-            mapped_b = b_map.get(raw_b, raw_b)
+            mapped_b = b_map.get(raw_b, None)
             if mapped_b not in ["B1", "B2", "B3", "B4", "B5"]:
                 continue
                 
@@ -671,7 +675,7 @@ def _load_raw_logits_fast(run_dir):
     if not os.path.exists(yaml_path):
         return None
 
-    # Remap baseline names when B3 was skipped
+    # Remap baseline names for legacy runs (where legacy B4->B3, B5->B4, B6->B5, and legacy B3 is excluded)
     b_remap = {"B1": "B1", "B2": "B2", "B4": "B3", "B5": "B4", "B6": "B5"}
 
     records_fig7 = []
@@ -691,13 +695,13 @@ def _load_raw_logits_fast(run_dir):
                 in_tokens_info = False
             elif line.startswith('    B') and line.rstrip().endswith(':'):
                 raw_b = line.strip()[:-1]
-                current_b = b_remap.get(raw_b, raw_b)
+                current_b = b_remap.get(raw_b, None)
                 in_tokens_info = False
                 tok_idx = 0
-            elif 'tokens_info:' in s:
+            elif 'tokens_info:' in s and current_b is not None:
                 in_tokens_info = True
                 tok_idx = 0
-            elif in_tokens_info:
+            elif in_tokens_info and current_b is not None:
                 if s.startswith('- token:') or s.startswith('- token_id:'):
                     tok_idx += 1
                 elif s.startswith('msp:'):

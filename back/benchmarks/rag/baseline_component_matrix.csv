@@ -1,0 +1,21 @@
+Component,B1,B2,B3,B4,B5,Notes
+Lexical retrieval (FTS5),Yes,No,Yes,Yes,Yes,SQLite FTS5 keyword search
+Dense retrieval,No,Yes,Yes,Yes,Yes,Dense semantic chunk embeddings
+HyDE,No,No,No,No,No,Forced OFF; legacy B3 excluded
+Reciprocal Rank Fusion (RRF),No,No,Yes,Yes,Yes,k=60.0
+Dynamic alpha blending,No,No,Yes,Yes,No,Dynamic BM25 lexical weighting
+Cross-encoder reranker,No,No,Yes,Yes,Yes,mmarco-mMiniLMv2-L12-H384-v1
+Score blending,No,No,No,No,Yes,0.7 * Reranker + 0.3 * RRF
+Graph prompt augmentation,No,No,No,Yes,Yes,Injects citation/concept triples into context_graph
+Graph candidate expansion in RRF,No,No,No,No,Yes,2-hop citation graph neighbors added before RRF
+Graph ontology lookup,No,No,No,No,Yes,Canonical concept injection for short queries <= 2 words
+Dynamic graph expander engine,No,No,No,No,Yes,ExperimentalGraphExpander dynamic traversal
+Graph bridge / concept retrieval,No,No,No,No,No,Disabled in active snapshot
+Context trimming (pruning),No,No,No,Yes,Yes,Token-budget sentence/triple pruning via tiktoken
+Citation repair,No,No,No,Yes,No,Strips hallucinated citations
+Graph selected sources card,No,No,No,No,Yes,Appends cited sources graph card
+Graph retrieval telemetry trace,No,No,No,No,Yes,Diagnostic candidate logging to JSONL
+Parent chunk deduplication,Yes,Yes,Yes,Yes,Yes,Merges child chunks sharing parent
+Shannon entropy estimator,Yes,Yes,Yes,Yes,Yes,Measures H_gen / H_rank / MSP logit uncertainty
+LLM query expansion,No,No,No,No,No,Disabled in active snapshot
+Intent classifier,No,No,No,No,No,Disabled in active snapshot

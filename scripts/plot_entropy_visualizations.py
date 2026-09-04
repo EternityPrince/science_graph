@@ -27,11 +27,11 @@ plt.rcParams.update({
 })
 
 COLORS = {
-    "B1": "#6C757D",  # Slate Gray
-    "B2": "#2B5C8F",  # Cool Blue
-    "B4": "#2A9D8F",  # Emerald Green
-    "B5": "#E76F51",  # Warm Coral
-    "B6": "#E63946",  # Crimson Red
+    "B1": "#6C757D",  # Slate Gray (Pure Lexical)
+    "B2": "#2B5C8F",  # Cool Blue (Pure Dense)
+    "B3": "#2A9D8F",  # Emerald Green (Hybrid + Rerank)
+    "B4": "#E76F51",  # Warm Coral (Graph + Rerank)
+    "B5": "#E63946",  # Crimson Red (Full Pipeline)
 }
 
 def generate_boxplots_baseline(df, output_dir):
@@ -40,7 +40,8 @@ def generate_boxplots_baseline(df, output_dir):
                ("clr", "CLR (Confidence Log Ratio)"), 
                ("ll_rag", "LL RAG (Log Likelihood)")]
     
-    baselines = sorted(df['baseline'].dropna().unique())
+    target_order = ["B1", "B2", "B3", "B4", "B5"]
+    baselines = [b for b in target_order if b in df['baseline'].unique()]
     
     for ax, (col, title) in zip(axes, metrics):
         if col in df.columns:
@@ -62,7 +63,8 @@ def generate_scatter_quality(df, output_dir):
         return
         
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    baselines = sorted(df['baseline'].dropna().unique())
+    target_order = ["B1", "B2", "B3", "B4", "B5"]
+    baselines = [b for b in target_order if b in df['baseline'].unique()]
     
     # Filter out missing values for regression
     df_clean = df.dropna(subset=["citation_entropy", "semantic_accuracy", "clr"])
@@ -168,6 +170,18 @@ def main():
         df = pd.read_csv(details_csv, on_bad_lines='skip')
         print(f"Loaded with skipped lines. Shape: {df.shape}")
     
+    # Exclude legacy B3 and map legacy B4-B6 -> B3-B5 for presentation
+    if "baseline" in df.columns:
+        unique_b = set(df['baseline'].dropna().unique())
+        is_legacy = ("B6" in unique_b) or ("B3" not in unique_b and any(b in unique_b for b in ["B4", "B5"]))
+        if is_legacy:
+            legacy_remap = {"B1": "B1", "B2": "B2", "B4": "B3", "B5": "B4", "B6": "B5"}
+            df = df[df['baseline'] != 'B3'].copy()
+            df['baseline'] = df['baseline'].map(legacy_remap)
+            df = df.dropna(subset=['baseline'])
+        else:
+            df = df[df['baseline'].isin(["B1", "B2", "B3", "B4", "B5"])].copy()
+
     print("Generating Boxplots by Baseline...")
     generate_boxplots_baseline(df, output_dir)
     

@@ -32,12 +32,11 @@ METRICS = [
 
 # Baseline color palette for publication figures
 COLOR_PALETTE: Dict[str, str] = {
-    'B1': '#4A5568',  # Charcoal Grey
-    'B2': '#1A365D',  # Deep Navy Blue
-    'B3': '#38A169',  # Vibrant Green
-    'B4': '#DD6B20',  # Rich Orange
-    'B5': '#E53E3E',  # Academic Red
-    'B6': '#805AD5',  # Royal Purple
+    'B1': '#6C757D',  # Slate Gray (Pure Lexical)
+    'B2': '#2B5C8F',  # Cool Blue (Pure Dense)
+    'B3': '#2A9D8F',  # Emerald Green (Hybrid + Rerank)
+    'B4': '#E76F51',  # Warm Coral (Graph + Rerank)
+    'B5': '#E63946',  # Crimson Red (Full Pipeline)
     'Custom': '#D53F8C',  # Magenta
     'SciQ': '#2B6CB0'     # Standard Blue
 }
@@ -124,14 +123,14 @@ def load_report_data(yaml_path: Path) -> Tuple[pd.DataFrame, dict]:
         for b in r.get("baselines", {}).keys():
             found_baselines.add(b)
 
-    preferred_order = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
+    preferred_order = ['B1', 'B2', 'B3', 'B4', 'B5']
     baselines_list = [b for b in preferred_order if b in found_baselines]
     for b in sorted(found_baselines):
         if b not in baselines_list:
             baselines_list.append(b)
 
     if not baselines_list:
-        baselines_list = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
+        baselines_list = ['B1', 'B2', 'B3', 'B4', 'B5']
 
     rows = []
     for r in data.get("results", []):

@@ -306,21 +306,40 @@ def generate_statistical_plots(stats_analysis: dict[str, Any], output_dir: Path)
     if not records or not baselines:
         return paths
 
+    # Presentation mapping for legacy baselines (exclude legacy B3, B4->B3, B5->B4, B6->B5)
+    is_legacy = ("B6" in baselines) or ("B3" not in baselines and any(b in baselines for b in ["B4", "B5"]))
+    legacy_map = {"B1": "B1", "B2": "B2", "B4": "B3", "B5": "B4", "B6": "B5"}
+
+    plot_baselines = []
+    baseline_map = {}
+    for b in baselines:
+        if is_legacy:
+            if b == "B3":
+                continue
+            mapped = legacy_map.get(b)
+            if mapped:
+                plot_baselines.append(mapped)
+                baseline_map[b] = mapped
+        else:
+            if b in ["B1", "B2", "B3", "B4", "B5"]:
+                plot_baselines.append(b)
+                baseline_map[b] = b
+
     metric = "semantic_accuracy"
     data_by_b = []
     labels = []
-    for b in baselines:
+    for raw_b, mapped_b in baseline_map.items():
         vals = [
             float(r[metric])
             for r in records
-            if r["baseline"] == b
+            if r["baseline"] == raw_b
             and r["outcome"] in {"TP", "FP"}
             and r.get(metric) is not None
             and not (isinstance(r[metric], float) and np.isnan(r[metric]))
         ]
         if vals:
             data_by_b.append(vals)
-            labels.append(b)
+            labels.append(mapped_b)
 
     if data_by_b:
         fig, ax = plt.subplots(figsize=(8, 5))
@@ -333,23 +352,31 @@ def generate_statistical_plots(stats_analysis: dict[str, Any], output_dir: Path)
         plt.close(fig)
         paths.append(str(box_path))
 
-    pairwise = [p for p in stats_analysis.get("pairwise", []) if p.get("metric") == "semantic_accuracy" and p.get("test") == "wilcoxon"]
-    if pairwise and len(baselines) >= 2:
-        n = len(baselines)
-        idx = {b: i for i, b in enumerate(baselines)}
+    active_raw_baselines = list(baseline_map.keys())
+    pairwise = [
+        p for p in stats_analysis.get("pairwise", [])
+        if p.get("metric") == "semantic_accuracy"
+        and p.get("test") == "wilcoxon"
+        and p.get("baseline_a") in baseline_map
+        and p.get("baseline_b") in baseline_map
+    ]
+    if pairwise and len(plot_baselines) >= 2:
+        n = len(plot_baselines)
+        idx = {b: i for i, b in enumerate(active_raw_baselines)}
         heat = np.ones((n, n))
         for row in pairwise:
-            i, j = idx[row["baseline_a"]], idx[row["baseline_b"]]
-            p = row.get("p_value") or 1.0
-            heat[i, j] = p
-            heat[j, i] = p
+            if row["baseline_a"] in idx and row["baseline_b"] in idx:
+                i, j = idx[row["baseline_a"]], idx[row["baseline_b"]]
+                p = row.get("p_value") or 1.0
+                heat[i, j] = p
+                heat[j, i] = p
 
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(heat, vmin=0, vmax=0.1, cmap="RdYlGn_r")
         ax.set_xticks(range(n))
         ax.set_yticks(range(n))
-        ax.set_xticklabels(baselines)
-        ax.set_yticklabels(baselines)
+        ax.set_xticklabels(plot_baselines)
+        ax.set_yticklabels(plot_baselines)
         ax.set_title("p-values: Semantic Accuracy (Wilcoxon)")
         fig.colorbar(im, ax=ax)
         fig.tight_layout()
